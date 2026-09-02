@@ -264,6 +264,24 @@ def persist_row(batch_date: str, lead_id: str, status: str, phone: str | None, e
 
 def resolve_row(row: dict) -> dict:
     batch_date, case_number, entity_name = row["batch_date"], row.get("case_number"), row["entity_name"] or ""
+
+    # issue #19744 item 3: a bare digit string (e.g. "36660") is a Lee County
+    # RealAuction bidder-registration ID that leaked into
+    # multi_county_auctions.winning_bidder BEFORE #19727's isdigit() guard
+    # landed on the harvest side (scripts/realauction_winner_harvest.py:287)
+    # -- that guard stops NEW numeric writes but does not retroactively clean
+    # rows already poisoned, and this pipeline reads winning_bidder as-is via
+    # winnerdata.leads.entity_name with no numeric check of its own. classify()
+    # would otherwise call it "person" and spend real Tracerfy credits looking
+    # up a phone number for a registration ID. Never a real buyer/plaintiff
+    # name in this dataset -- short-circuit before any stage/vendor call.
+    if entity_name.strip().isdigit():
+        evidence = {"identity_type": "unresolved_bidder_id", "reason": "numeric_bidder_id_not_a_name",
+                    "auction_parcel_id_excluded": None, "stages": {},
+                    "ran_at": datetime.now(timezone.utc).isoformat()}
+        return {"status": "complete", "phone": None, "email": None, "provider": None,
+                "tier": "NOT AVAILABLE", "dnc": None, "evidence": evidence}
+
     identity_type = classify(entity_name)
     parcel_id = get_auction_parcel_id(case_number, entity_name)
 

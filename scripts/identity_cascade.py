@@ -108,9 +108,14 @@ def exa_contents(urls: list[str]) -> list[dict]:
 
 def parse_sunbiz_text(text: str) -> dict:
     """Parse the text Exa returns for a bisprofiles.com/bizprofile.net Sunbiz
-    detail page. Handles two known site formats:
-      - bisprofiles.com: markdown lists ("- Principal Address\\n- <addr>",
-        "#### <Name>\\n\\n- Position\\n- <Position> Active\\n- Address\\n- <addr>")
+    detail page. Handles three known site formats:
+      - bisprofiles.com (current, verified live 2026-09-02): prose/headers,
+        no markdown-list bullets ("Principal Address <addr>",
+        "#### <Name>\\n\\nPosition <Position> Active From <City, ST>",
+        "### Registered Agent is <Name>\\n\\nFrom <City, ZIP>")
+      - bisprofiles.com (older markdown-list form, kept for back-compat in
+        case older cached pages still use it): "- Principal Address\\n- <addr>",
+        "#### <Name>\\n\\n- Position\\n- <Position> Active\\n- Address\\n- <addr>"
       - bizprofile.net: prose ("document number <N>", "principal and mailing
         address ... is situated at <addr>", "led by ... <Name> from <city>
         <ST>, holding the position of <Position>", "<Name> acts as the
@@ -139,8 +144,20 @@ def parse_sunbiz_text(text: str) -> dict:
             out["principal_address"] = m.group(1).strip()
             if "mailing" in m.group(0).lower():
                 out["mailing_address"] = out["principal_address"]
+    if not out["principal_address"]:
+        # bisprofiles.com current prose form: "Principal Address <addr>" on
+        # one line, no bullet/newline separator.
+        m = re.search(r"Principal Address\s+([\d][^\n]+)", text)
+        if m:
+            out["principal_address"] = m.group(1).strip()
 
     for om in re.finditer(r"#### ([^\n]+)\n\n- Position\n- ([^\n]+)\n- (?:Address|From)\n- ([^\n]+)", text):
+        name, position, addr = om.group(1).strip(), om.group(2).strip(), om.group(3).strip()
+        out["officers"].append({"name": name, "position": position, "address": addr})
+
+    # bisprofiles.com current prose officer pattern:
+    # "#### <Name>\n\nPosition <Position> Active From <City, ST>"
+    for om in re.finditer(r"#### ([A-Z][a-zA-Z.,'-]+(?:\s[A-Z][a-zA-Z.,'-]+){0,3})\n\nPosition ([A-Za-z /]+?) (?:Active|Inactive) From ([A-Za-z .]+,\s*[A-Z]{2})", text):
         name, position, addr = om.group(1).strip(), om.group(2).strip(), om.group(3).strip()
         out["officers"].append({"name": name, "position": position, "address": addr})
 
@@ -155,17 +172,40 @@ def parse_sunbiz_text(text: str) -> dict:
         if "same address as the corporation's principal address" in addr and out["principal_address"]:
             addr = out["principal_address"]
         out["officers"].append({"name": name, "position": "Registered Agent", "address": addr})
+
+    # bisprofiles.com current prose registered-agent pattern:
+    # "### Registered Agent is <Name>\n\nFrom <City, ZIP>"
+    m = re.search(r"Registered Agent is ([A-Z][a-zA-Z.,'-]+(?:\s[A-Z][a-zA-Z.,'-]+){0,3})\n\nFrom ([A-Za-z0-9, ]+)", text)
+    if m:
+        name, addr = m.group(1).strip(), m.group(2).strip()
+        if not any(o["name"] == name and o["position"] == "Registered Agent" for o in out["officers"]):
+            out["officers"].append({"name": name, "position": "Registered Agent", "address": addr})
     return out
 
 
 def resolve_via_exa(entity_name: str) -> dict | None:
-    results = exa_search(f"{entity_name} Sunbiz Florida Division of Corporations", num_results=8)
-    candidates = [r for r in results if any(h in r.get("url", "") for h in MIRROR_HOSTS)]
-    if not candidates:
-        # fallback: restrict the search itself to the mirror domains -- the
-        # unrestricted neural search sometimes ranks a generic sunbiz.org
-        # search-results page above the actual mirror detail page
-        candidates = exa_search(entity_name, num_results=8, domains=MIRROR_HOSTS)
+    # issue #19744 root cause: the domain-restricted bare-name query finds
+    # the correct exact-name mirror page far more often than the noisy
+    # "... Sunbiz Florida Division of Corporations" query (verified live
+    # 2026-09-02 against JAYKAILASH LLC, COY PROPERTIES LLC, QUEEN EQUITIES
+    # LLC -- all real active Sunbiz entities the noisy query's neural
+    # ranking pushed out in favor of similarly-named wrong companies). The
+    # old code only ran the domain-restricted query when the noisy query
+    # found ZERO mirror-host candidates -- but the noisy query almost always
+    # finds SOME (wrong) mirror-host candidates for common LLC name
+    # patterns, so the better fallback query almost never actually ran.
+    # Now: always run both, domain-restricted first (more precise), and
+    # dedupe by URL instead of short-circuiting.
+    domain_results = exa_search(entity_name, num_results=8, domains=MIRROR_HOSTS)
+    noisy_results = exa_search(f"{entity_name} Sunbiz Florida Division of Corporations", num_results=8)
+    seen_urls = set()
+    candidates = []
+    for r in domain_results + noisy_results:
+        url = r.get("url", "")
+        if url in seen_urls or not any(h in url for h in MIRROR_HOSTS):
+            continue
+        seen_urls.add(url)
+        candidates.append(r)
     target = normalize(entity_name)
     for r in candidates:
         # strip trailing " - <suffix>" / " | <suffix>" boilerplate, then require

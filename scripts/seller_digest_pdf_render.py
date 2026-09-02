@@ -250,7 +250,17 @@ def render_seller_digest_pdfs(batch_date: str) -> list[dict]:
             })
             continue
 
-        slug = slugify(f"{entity_name}-{r.get('case_number') or lead_id}")
+        # issue #19744 item 4: a long land-trust entity_name (e.g. "9591 GIADA
+        # DR Trust, dated 8/31/2026, Vista Trust LLC as Trustee ... under
+        # Florida Statutes Section 689.071 and 689.073") plus case_number
+        # slugified together exceeded 255 bytes -- OSError: File name too long,
+        # confirmed live in GHA run 33649129817 (batch_date 2026-08-31),
+        # aborting the whole render job after 1 of 28 leads. Cap the
+        # entity-name portion, keep case_number/lead_id (the uniqueness key)
+        # intact and unslugified-length so no two leads collide.
+        suffix = slugify(str(r.get("case_number") or lead_id))
+        entity_slug = slugify(entity_name)[:80].rstrip("-")
+        slug = f"{entity_slug}-{suffix}" if entity_slug else suffix
         html_path = os.path.join(out_dir, f"{slug}.html")
         pdf_path = os.path.join(out_dir, f"{slug}.pdf")
 
