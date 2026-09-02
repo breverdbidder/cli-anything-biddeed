@@ -16,6 +16,7 @@ first** — `PLAID_ENV=sandbox` today; going to production is a one-secret swap
 | `POST /sync` | `X-CFO-Secret` | Runs `/transactions/sync` for one connection (`{plaid_item_id}`) or all active connections. |
 | `POST /webhook` | Plaid JWT (`Plaid-Verification` header) — **not** `X-CFO-Secret` | Plaid webhook receiver. `SYNC_UPDATES_AVAILABLE`/`DEFAULT_UPDATE`/etc. trigger a sync for that item. |
 | `GET /healthz` | none | Liveness probe. |
+| `GET /privacy` | none | Renders §9 of `docs/security/EVEREST_INFOSEC_POLICY.md` as plain HTML (Plaid production questionnaire, 2026-09-02 addendum). Linked from the `/link` page footer. |
 
 Cron trigger (`wrangler.toml` `[triggers]`) runs every 6h and syncs every `status='active'`
 connection.

@@ -6,10 +6,14 @@ import { setVaultSecret, rpc, insertRow, logFinanceOps } from "./db";
 import { syncAllActiveConnections, syncOneByItemId } from "./sync";
 import { verifyPlaidWebhook } from "./webhookVerify";
 import { renderLinkPage } from "./linkPage";
+import { renderPrivacyPage } from "./privacyPage";
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.get("/healthz", (c) => c.json({ ok: true, service: "everest-bank-engine", env: c.env.PLAID_ENV }));
+
+// No auth (Plaid production questionnaire addendum, 2026-09-02) -- must be publicly reachable.
+app.get("/privacy", (c) => c.html(renderPrivacyPage()));
 
 // /webhook is exempt from the X-CFO-Secret gate (Plaid calls it directly) -- it is
 // JWT-verified instead. Every other route requires the shared secret.

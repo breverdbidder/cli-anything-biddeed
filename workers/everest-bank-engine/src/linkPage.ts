@@ -61,6 +61,9 @@ export function renderLinkPage(entityCode: string, key: string): string {
 
     main().catch((e) => { statusEl.textContent = "Error: " + e; });
   </script>
+  <footer style="margin-top:3rem; font-size:0.85rem; color:#94a3b8;">
+    <a href="/privacy" style="color:#F59E0B;">Privacy policy</a>
+  </footer>
 </body>
 </html>`;
 }

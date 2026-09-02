@@ -107,6 +107,20 @@ jobs:
             exit 1
           fi
 
+      - name: Verify live - /privacy
+        run: |
+          URL="${{ steps.deploy.outputs.worker_url }}"
+          CODE=$(curl -s -o /tmp/privacy.html -w "%{http_code}" "$URL/privacy" || echo "000")
+          echo "/privacy returned $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::/privacy did not return 200"
+            exit 1
+          fi
+          if ! grep -q "Privacy and consumer data rights" /tmp/privacy.html; then
+            echo "::error::/privacy response missing expected policy content"
+            exit 1
+          fi
+
       - name: Security gate - protected routes reject requests with no/wrong X-CFO-Secret
         run: |
           URL="${{ steps.deploy.outputs.worker_url }}"
