@@ -43,6 +43,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import random
 import re
 import subprocess
 import time
@@ -90,7 +91,12 @@ def run_sql(query: str):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "biddeed-reels-pipeline/1.0",
+            # api.supabase.com sits behind Cloudflare bot protection that
+            # intermittently 403s (error 1010) on the bare default/custom
+            # urllib UA string -- live-reproduced and fixed this session
+            # (#19752): a browser-shaped UA consistently passes.
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
         method="POST",
     )
@@ -793,4 +799,437 @@ def assemble_video(aerial_path: str, street_path: str | None, audio_path: str,
         out_path,
     ]
     subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return _ffprobe_duration(out_path)
+
+
+# ---------------------------------------------------------------------------
+# v2 (issue #19752) -- T1 parcel-outline imagery
+# ---------------------------------------------------------------------------
+
+STATIC_MAP_URL = "https://maps.googleapis.com/maps/api/staticmap"
+OUTLINE_COLOR = "0x00E5FFff"
+OUTLINE_FILL = "0x00E5FF33"
+MAX_STATIC_MAP_URL_LEN = 8000
+
+
+def slugify_case_number(case_number: str) -> str:
+    """Mirrors public.slugify_case_number() (20260902l migration) exactly --
+    the pipeline builds landing_url with this, the landing-page RPC looks
+    slugs up with the SQL twin. Keep both in sync if either changes."""
+    return re.sub(r"[^a-z0-9]+", "-", (case_number or "").lower()).strip("-")
+
+
+def match_zw_parcel_geom(county: str, parcel_id: str) -> dict | None:
+    """v2 T1 join -- case-insensitive county + pin_clean, the live-verified
+    join key from the issue body (11/11 v1 rows with a parcel_id matched
+    zw_parcels this way; the v1 join only failed on county-name case).
+
+    Runs via the Management API (not PostgREST) because
+    ST_SimplifyPreserveTopology/ST_AsGeoJSON aren't PostgREST-callable SQL.
+    Polygons >40 points are simplified per T1's explicit tolerance (0.00001,
+    ~1m at FL latitudes) before GeoJSON extraction. Returns None (not an
+    exception) on no match -- caller falls back to a pin marker
+    (parcel_outline=false), never fabricates a boundary."""
+    if not parcel_id:
+        return None
+    county_q = (county or "").replace("_", " ").lower()
+    rows = run_sql(f"""
+        select z.id as zw_parcel_id, z.centroid_lat, z.centroid_lon,
+               ST_NPoints(z.geom) as npoints,
+               ST_AsGeoJSON(
+                 case when ST_NPoints(z.geom) > 40
+                   then ST_SimplifyPreserveTopology(z.geom, 0.00001)
+                   else z.geom
+                 end
+               ) as geojson
+        from public.zw_parcels z
+        where lower(z.county) = {sql_str(county_q)}
+          and z.pin_clean = regexp_replace({sql_str(parcel_id)}, '[^A-Za-z0-9]', '', 'g')
+        limit 1;
+    """)
+    return rows[0] if rows else None
+
+
+def geojson_ring_latlng(geojson_obj: dict) -> list[tuple[float, float]]:
+    """Exterior ring of a Polygon/MultiPolygon as (lat, lng) pairs -- GeoJSON
+    stores (lng, lat); the Static Maps `path=` parameter wants lat,lng."""
+    t = geojson_obj.get("type")
+    coords = geojson_obj.get("coordinates")
+    if t == "Polygon":
+        ring = coords[0]
+    elif t == "MultiPolygon":
+        ring = coords[0][0]
+    else:
+        raise ValueError(f"unexpected geometry type for parcel outline: {t}")
+    return [(lat, lng) for lng, lat in ring]
+
+
+def _encode_polyline_value(v: int) -> str:
+    v = v << 1
+    if v < 0:
+        v = ~v
+    chunks = []
+    while v >= 0x20:
+        chunks.append(chr((0x20 | (v & 0x1F)) + 63))
+        v >>= 5
+    chunks.append(chr(v + 63))
+    return "".join(chunks)
+
+
+def encode_polyline(points: list[tuple[float, float]]) -> str:
+    """Google encoded-polyline algorithm -- the `path=enc:...` fallback T1
+    calls for once the literal lat,lng list pushes the Static Maps URL past
+    ~8kB (large/complex parcels, e.g. the 96-point Broward polygon)."""
+    out = []
+    prev_lat = prev_lng = 0
+    for lat, lng in points:
+        lat_e5 = round(lat * 1e5)
+        lng_e5 = round(lng * 1e5)
+        out.append(_encode_polyline_value(lat_e5 - prev_lat))
+        out.append(_encode_polyline_value(lng_e5 - prev_lng))
+        prev_lat, prev_lng = lat_e5, lng_e5
+    return "".join(out)
+
+
+def _path_points_param(points: list[tuple[float, float]]) -> str:
+    literal = "|".join(f"{lat:.7f},{lng:.7f}" for lat, lng in points)
+    if len(literal) <= MAX_STATIC_MAP_URL_LEN - 400:
+        return literal
+    return "enc:" + encode_polyline(points)
+
+
+def build_parcel_aerial_urls(lat: float, lon: float, ring_points: list[tuple[float, float]],
+                              api_key: str) -> tuple[str, str]:
+    """v2 T1: TWO aerials, both drawing the real parcel boundary via the
+    Static Maps `path=` parameter (live-verified by Ariel 2026-09-02 against
+    the Escambia parcel -- HTTP 200 at zoom 18 and 20, scale=2, outline sits
+    exactly on the lot). wide = zoom 18, outline only. tight = zoom 20,
+    outline + translucent fill."""
+    points_param = _path_points_param(ring_points)
+    wide = (
+        f"{STATIC_MAP_URL}?center={lat},{lon}&zoom=18&size=640x640&scale=2"
+        f"&maptype=satellite&path=color:{OUTLINE_COLOR}|weight:6|{points_param}"
+        f"&key={api_key}"
+    )
+    tight = (
+        f"{STATIC_MAP_URL}?center={lat},{lon}&zoom=20&size=640x640&scale=2"
+        f"&maptype=satellite&path=color:{OUTLINE_COLOR}|weight:6|fillcolor:{OUTLINE_FILL}|{points_param}"
+        f"&key={api_key}"
+    )
+    return wide, tight
+
+
+def build_tight_aerial_url(lat: float, lon: float, zoom: int, api_key: str) -> str:
+    """Plain (no-outline) aerial at an arbitrary zoom -- used as T1's
+    Street-View substitute ('a second tight aerial at zoom 19') when
+    streetview_metadata_ok() comes back false."""
+    return (
+        f"{STATIC_MAP_URL}?center={lat},{lon}&zoom={zoom}&size=640x640&scale=2"
+        f"&maptype=satellite&key={api_key}"
+    )
+
+
+def build_pin_aerial_urls(lat: float, lon: float, api_key: str) -> tuple[str, str]:
+    """No parcel geometry -- markers= pin fallback (T1), parcel_outline=false."""
+    wide = (
+        f"{STATIC_MAP_URL}?center={lat},{lon}&zoom=18&size=640x640&scale=2"
+        f"&maptype=satellite&markers=color:0x00E5FF|{lat},{lon}&key={api_key}"
+    )
+    tight = (
+        f"{STATIC_MAP_URL}?center={lat},{lon}&zoom=20&size=640x640&scale=2"
+        f"&maptype=satellite&markers=color:0x00E5FF|{lat},{lon}&key={api_key}"
+    )
+    return wide, tight
+
+
+def fetch_url_to_file(url: str, out_path: str) -> None:
+    urllib.request.urlretrieve(url, out_path)
+
+
+# ---------------------------------------------------------------------------
+# v2 -- T3 short link + QR
+# ---------------------------------------------------------------------------
+
+_BASE62 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
+def gen_short_code(n: int = 6) -> str:
+    return "".join(random.choice(_BASE62) for _ in range(n))
+
+
+def generate_qr_png(data: str, out_path: str) -> None:
+    """Local QR generation (Python `qrcode`, no external API -- T3 spec)."""
+    import qrcode  # local import: only needed by the v2 pipeline's T3 step
+
+    img = qrcode.make(data, box_size=12, border=3)
+    img.save(out_path)
+
+
+# ---------------------------------------------------------------------------
+# v2 -- T4 script/caption v2 (hook-first beat list, no names/vendors)
+# ---------------------------------------------------------------------------
+
+def pick_hook_variant(delta_pct: float | None, sold_amount: float) -> str:
+    """3 hook variants by |delta_pct| band, per T4. Guardrail: only
+    interpolates sold_amount (a controlled numeric field) -- no free-text."""
+    mag = abs(delta_pct) if delta_pct is not None else 0
+    if mag >= 50:
+        return f"Sold for ${sold_amount:,.0f}. That's less than half what the county says it's worth."
+    if mag >= 30:
+        return f"This just sold for ${sold_amount:,.0f} -- well under the county's own number."
+    return f"Sold for ${sold_amount:,.0f} at auction."
+
+
+def build_script_and_caption_v2(county_slug: str, sale_type: str, sold_amount: float,
+                                 assessed_value: float | None, condition: dict,
+                                 short_url: str) -> dict:
+    """v2 T4 beat-list script (hook -> reveal -> street/delta -> condition ->
+    payoff -> CTA), same no-names/no-vendor guardrail as v1's
+    build_script_and_caption() -- only county/sale-type/dollar/condition-tier
+    controlled fields are ever interpolated."""
+    county_name = county_display(county_slug)
+    sale_label = _SALE_TYPE_LABEL.get(sale_type, "auction sale")
+    tier = (condition or {}).get("general_condition_tier", "unknown")
+    condition_phrase = _CONDITION_PHRASE.get(tier, _CONDITION_PHRASE["unknown"])
+
+    delta_pct = None
+    delta_sentence = ""
+    if assessed_value and assessed_value > 0:
+        delta_pct = round((sold_amount - assessed_value) / assessed_value * 100, 1)
+        direction = "below" if delta_pct < 0 else "above"
+        delta_sentence = (
+            f"That's {abs(delta_pct):.0f}% {direction} the county's ${assessed_value:,.0f} assessed value."
+        )
+
+    hook = pick_hook_variant(delta_pct, sold_amount)
+    reveal = f"Here's the parcel in {county_name}, Florida -- a {sale_label}."
+    condition_sentence = f"Visual condition points to {condition_phrase}."
+    payoff = "This is what our AI sees before you do."
+    cta = "See deals like this first -- biddeed.ai."
+
+    parts = [hook, reveal]
+    if delta_sentence:
+        parts.append(delta_sentence)
+    parts.append(condition_sentence)
+    parts.append(payoff)
+    parts.append(cta)
+    script_text = " ".join(parts)
+
+    caption_text = (
+        f"{sale_label.capitalize()} in {county_name} -- ${sold_amount:,.0f}. "
+        f"{condition_sentence} {cta}\n{short_url}"
+    )
+
+    hashtags = list(_HASHTAG_POOL[:4])
+    county_tag = "#" + county_slug.replace("_", "").title() + "County"
+    hashtags.append(county_tag)
+    hashtags.append("#TaxDeedSale" if sale_type == "tax_deed" else "#ForeclosureAuction")
+    hashtags = hashtags[:8]
+
+    return {
+        "script_text": script_text,
+        "caption_text": caption_text,
+        "hashtags": hashtags,
+        "delta_pct": delta_pct,
+    }
+
+
+# ---------------------------------------------------------------------------
+# v2 -- T4 video assembly (hook -> reveal -> street/delta -> condition ->
+# payoff -> CTA beats, fixed-length regardless of voiceover length, per T4)
+# ---------------------------------------------------------------------------
+
+V2_SEGMENT_SECONDS = {
+    "hook": 1.5,
+    "reveal": 4.5,
+    "street": 7.0,
+    "condition": 7.0,
+    "payoff": 7.0,
+}
+V2_ORDER = ["hook", "reveal", "street", "condition", "payoff"]
+V2_END_CARD_SECONDS = 3.0
+V2_FPS = 30
+V2_TOTAL_SECONDS = sum(V2_SEGMENT_SECONDS.values()) + V2_END_CARD_SECONDS  # 30.0
+
+
+def _dt(font: str, text: str, **opts) -> str:
+    """drawtext filter builder -- text is single-quoted + escaped per
+    _escape_drawtext (colon/backslash/quote only; commas are safe inside the
+    quoted value, live-verified in v1's own "$39,600"-style overlays)."""
+    parts = [f"fontfile={font}", f"text='{_escape_drawtext(text)}'"]
+    for k, v in opts.items():
+        parts.append(f"{k}={v}")
+    return "drawtext=" + ":".join(parts)
+
+
+def assemble_video_v2(images: dict, audio_path: str, overlays: dict,
+                       qr_path: str, short_url: str, out_path: str) -> float:
+    """v2 T4 edit -- 5 fixed-duration beats (hook/reveal/street/condition/
+    payoff, 27s) + a 3s QR/short-URL CTA card = 30s, 1080x1920, 30fps.
+
+    `images` = {"hook": path, "reveal": path, "street": path,
+    "condition": path, "payoff": path} (each a still image; street/condition
+    reuse the tight aerial when no real Street View exists -- see
+    process_row_v2's substitution). `overlays` = county, sale_type_label,
+    sold_amount, assessed_value, delta_pct, condition_tier, condition_bullets
+    (<=2 short phrases from condition_json).
+
+    Deviations from the issue's literal beat list (logged, not silent):
+    hard cuts between all beats rather than a crossfade dissolve on the
+    hook->reveal transition, no pulsing-outline re-render on the reveal
+    aerial, and no bass-hit/ducked music bed (same no-unlicensed-audio call
+    v1 made -- no royalty-free asset exists anywhere in this repo/org).
+    The delta-vs-assessed counter IS a real animated count-up (ffmpeg
+    drawtext `%{eif:...}` text expansion, 0 -> |delta_pct| over 3s), not a
+    static number.
+    """
+    font = _ensure_font()
+    fps = V2_FPS
+
+    filter_parts = []
+    labels = []
+    for i, key in enumerate(V2_ORDER):
+        d = V2_SEGMENT_SECONDS[key]
+        frames = max(int(d * fps), 1)
+        zoom_expr = "min(zoom+0.0035,1.12)" if key == "hook" else "min(zoom+0.0009,1.18)"
+        cur = f"v{i}raw"
+        # trim right after zoompan is load-bearing, not cosmetic: zoompan's
+        # `d` holds EACH incoming source frame for d output frames, and a
+        # looped image input still redelivers a "new" source frame every
+        # 1/25s (image2 demuxer default). With `-t` set on the input (no
+        # trim here), that plus zoompan's d multiplies out to source_frames
+        # * d -- live-reproduced this session: a 1.5s hook segment exploded
+        # to 1710 frames (57s), starving every later concat segment of ever
+        # being reached (the whole 30s output stayed frozen on segment 0).
+        # trim=end_frame + an untrimmed (no -t) looped input means zoompan
+        # only ever needs its first source frame before this trim cuts it.
+        filter_parts.append(
+            f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            f"crop=1080:1920,zoompan=z='{zoom_expr}':d={frames}:s=1080x1920:fps={fps},"
+            f"trim=start_frame=0:end_frame={frames},setpts=PTS-STARTPTS[{cur}]"
+        )
+
+        if key == "hook":
+            hook_text = f"SOLD ${overlays['sold_amount']:,.0f}"
+            nxt = f"v{i}a"
+            # NOTE: any option value containing an unquoted ',' (e.g. alpha's
+            # min()/if() expressions) gets mis-split by ffmpeg's top-level
+            # filtergraph parser -- live-reproduced this session -- so it
+            # must carry its OWN literal single-quote characters, same as
+            # text= values, not just be a plain Python string.
+            hook_alpha = "'min(t/0.25,1)'"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, hook_text, fontcolor='white', fontsize=120, box=1, boxcolor=f'{BRAND_NAVY}@0.75', boxborderw=24, x='(w-text_w)/2', y='(h-text_h)/2-60', alpha=hook_alpha)}[{nxt}]"
+            )
+            cur = nxt
+            if overlays.get("assessed_value"):
+                sub_text = f"Assessed ${overlays['assessed_value']:,.0f}"
+                nxt2 = f"v{i}b"
+                sub_alpha = "'if(lt(t,0.3),0,min((t-0.3)/0.25,1))'"
+                filter_parts.append(
+                    f"[{cur}]{_dt(font, sub_text, fontcolor='white', fontsize=52, box=1, boxcolor=f'{BRAND_AMBER}@0.85', boxborderw=16, x='(w-text_w)/2', y='(h+text_h)/2+30', alpha=sub_alpha)}[{nxt2}]"
+                )
+                cur = nxt2
+
+        elif key == "reveal":
+            lower_third = f"{overlays['county']} County - {overlays['sale_type_label']}"
+            nxt = f"v{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, lower_third, fontcolor='white', fontsize=44, box=1, boxcolor=f'{BRAND_NAVY}@0.7', boxborderw=16, x='(w-text_w)/2', y=1650)}[{nxt}]"
+            )
+            cur = nxt
+
+        elif key == "street":
+            delta = overlays.get("delta_pct")
+            if delta is not None:
+                sign = "-" if delta < 0 else "+"
+                mag = abs(delta)
+                # A literal '%' breaks drawtext text rendering entirely on
+                # this ffmpeg build (6.1.1-3ubuntu5 -- live-reproduced this
+                # session: "Stray %" and the WHOLE text disappears, even
+                # backslash-escaped). "PCT" sidesteps it with zero risk.
+                counter = f"{sign}%{{eif\\:{mag}*min(t/3\\,1)\\:d}} PCT vs assessed"
+                nxt = f"v{i}a"
+                filter_parts.append(
+                    f"[{cur}]drawtext=fontfile={font}:text='{counter}':fontcolor=white:fontsize=72:"
+                    f"box=1:boxcolor={BRAND_NAVY}@0.75:boxborderw=20:x=(w-text_w)/2:y=1550[{nxt}]"
+                )
+                cur = nxt
+
+        elif key == "condition":
+            tier = (overlays.get("condition_tier") or "unknown").title()
+            nxt = f"v{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, tier + ' condition', fontcolor='#020617', fontsize=54, box=1, boxcolor=BRAND_AMBER, boxborderw=20, x='(w-text_w)/2', y=180)}[{nxt}]"
+            )
+            cur = nxt
+            for bi, bullet in enumerate((overlays.get("condition_bullets") or [])[:2]):
+                nxt2 = f"v{i}b{bi}"
+                y = 1480 + bi * 100
+                filter_parts.append(
+                    f"[{cur}]{_dt(font, '- ' + bullet, fontcolor='white', fontsize=38, box=1, boxcolor=f'{BRAND_NAVY}@0.65', boxborderw=14, x='(w-text_w)/2', y=y)}[{nxt2}]"
+                )
+                cur = nxt2
+
+        elif key == "payoff":
+            nxt = f"v{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, 'This is what our AI sees before you do.', fontcolor='white', fontsize=58, box=1, boxcolor=f'{BRAND_NAVY}@0.6', boxborderw=20, x='(w-text_w)/2', y='(h-text_h)/2')}[{nxt}]"
+            )
+            cur = nxt
+
+        filter_parts.append(f"[{cur}]copy[vb{i}]")
+        labels.append(f"vb{i}")
+
+    # -- CTA end card: navy background + QR (input index len(V2_ORDER)+1) +
+    # short URL + biddeed.ai wordmark --
+    card_idx = len(V2_ORDER)
+    qr_idx = len(V2_ORDER) + 1
+    filter_parts.append(
+        f"color=c={BRAND_NAVY}:s=1080x1920:d={V2_END_CARD_SECONDS}:r={fps}[cardbg]"
+    )
+    filter_parts.append(f"[{qr_idx}:v]scale=480:480[qrscaled]")
+    filter_parts.append("[cardbg][qrscaled]overlay=(W-w)/2:420[cardqr]")
+    filter_parts.append(
+        f"[cardqr]{_dt(font, short_url, fontcolor=BRAND_AMBER.replace('0x', '#'), fontsize=56, x='(w-text_w)/2', y=1000)}[cardurl]"
+    )
+    filter_parts.append(
+        f"[cardurl]{_dt(font, 'biddeed.ai', fontcolor='white', fontsize=70, x='(w-text_w)/2', y=1120)}[cardbrand]"
+    )
+    filter_parts.append(
+        f"[cardbrand]{_dt(font, 'Link in bio', fontcolor='#94A3B8', fontsize=36, x='(w-text_w)/2', y=1220)}[card]"
+    )
+    labels.append("card")
+
+    concat_inputs = "".join(f"[{l}]" for l in labels)
+    filter_parts.append(f"{concat_inputs}concat=n={len(labels)}:v=1:a=0[vconcat]")
+
+    main_duration = sum(V2_SEGMENT_SECONDS.values())
+    total_duration = main_duration + V2_END_CARD_SECONDS
+    audio_idx = len(V2_ORDER)  # the audio input directly follows the 5 image inputs
+    filter_parts.append(
+        f"[{audio_idx}:a]atrim=0:{main_duration},apad=pad_dur={V2_END_CARD_SECONDS}[aout]"
+    )
+
+    filter_complex = ";".join(filter_parts)
+
+    cmd = ["ffmpeg", "-y"]
+    for key in V2_ORDER:
+        # No `-t` here on purpose -- see the trim= comment above. The input
+        # loops indefinitely; the per-chain trim= is what bounds it.
+        cmd += ["-loop", "1", "-i", images[key]]
+    cmd += ["-i", audio_path]
+    cmd += ["-loop", "1", "-t", str(V2_END_CARD_SECONDS), "-i", qr_path]
+    cmd += [
+        "-filter_complex", filter_complex,
+        "-map", "[vconcat]",
+        "-map", "[aout]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-t", str(total_duration),
+        out_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg v2 assembly failed: {result.stderr[-3000:]}")
     return _ffprobe_duration(out_path)

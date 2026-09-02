@@ -2119,6 +2119,95 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         return new Response(withPublicShell(buildPioneersPage(), path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
+      // ── GET /deal/:county/:slug — BidDeed Reels v2 per-property landing
+      // page (issue #19752 T2). pending_approval rows only render with
+      // ?preview=<row id> so Ariel can QA before approval; approved/posted
+      // rows are always public. All fields come from public.get_reel_landing()
+      // (SECURITY DEFINER, see 20260902l_biddeed_reels_v2_rpc.sql) -- that
+      // function's own field allow-list is the guardrail against ever
+      // leaking a name/vendor field, not this route.
+      if (path.match(/^\/deal\/[^/]+\/[^/]+$/) && method === 'GET') {
+        const [, , countyParam, slugParam] = path.split('/');
+        const previewId = url.searchParams.get('preview') || null;
+        let reel = null;
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_reel_landing`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            body: JSON.stringify({ p_county: decodeURIComponent(countyParam), p_slug: decodeURIComponent(slugParam), p_preview_id: previewId }),
+          });
+          if (res.ok) reel = await res.json();
+        } catch (e) {
+          await logErr(env, '/deal', 'get_reel_landing failed', String(e), 500);
+        }
+        if (!reel) return new Response('Not found', { status: 404 });
+        const submitted = url.searchParams.get('submitted') === '1';
+        const html = buildDealLandingHtml(reel, path, submitted);
+        return new Response(withPublicShell(html, path), {
+          headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': reel.status === 'pending_approval' ? 'no-store' : 'public,max-age=300' },
+        });
+      }
+
+      // ── POST /deal/:county/:slug/lead — email capture. Writes to the
+      // EXISTING public.lead_profiles table via public.insert_reel_lead()
+      // with source='reel' (T2: "find it; don't create a parallel one").
+      if (path.match(/^\/deal\/[^/]+\/[^/]+\/lead$/) && method === 'POST') {
+        const parts = path.split('/'); // ['', 'deal', county, slug, 'lead']
+        const county = decodeURIComponent(parts[2]);
+        const basePath = `/deal/${parts[2]}/${parts[3]}`;
+        let form;
+        try { form = await request.formData(); } catch (_) {
+          return new Response('Invalid form submission', { status: 400 });
+        }
+        const email = (form.get('email') || '').toString().trim();
+        const caseNumber = (form.get('case_number') || '').toString().trim() || null;
+        const previewQs = url.searchParams.get('preview');
+        const backTo = previewQs ? `${basePath}?preview=${encodeURIComponent(previewQs)}` : basePath;
+        if (!email || !email.includes('@')) {
+          return Response.redirect(`${url.origin}${backTo}`, 302);
+        }
+        try {
+          await fetch(`${SUPABASE_URL}/rest/v1/rpc/insert_reel_lead`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            body: JSON.stringify({
+              p_email: email, p_case_number: caseNumber, p_county: county,
+              p_utm_source: url.searchParams.get('utm_source') || null,
+              p_utm_medium: url.searchParams.get('utm_medium') || null,
+              p_utm_campaign: url.searchParams.get('utm_campaign') || null,
+            }),
+          });
+        } catch (e) {
+          await logErr(env, '/deal/lead', 'insert_reel_lead failed', String(e), 500);
+        }
+        const joiner = backTo.includes('?') ? '&' : '?';
+        return Response.redirect(`${url.origin}${backTo}${joiner}submitted=1`, 302);
+      }
+
+      // ── GET /r/:code — BidDeed Reels v2 short link (T3). 302s to the
+      // landing page with utm_* appended, increments clicks atomically in
+      // public.resolve_reel_link() (SECURITY DEFINER).
+      if (path.match(/^\/r\/[A-Za-z0-9]+$/) && method === 'GET') {
+        const code = path.slice('/r/'.length);
+        let link = null;
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/resolve_reel_link`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            body: JSON.stringify({ p_code: code }),
+          });
+          if (res.ok) link = await res.json();
+        } catch (e) {
+          await logErr(env, '/r', 'resolve_reel_link failed', String(e), 500);
+        }
+        if (!link || !link.target) return new Response('Not found', { status: 404 });
+        const target = new URL(link.target);
+        if (link.utm_source) target.searchParams.set('utm_source', link.utm_source);
+        if (link.utm_medium) target.searchParams.set('utm_medium', link.utm_medium);
+        if (link.utm_campaign) target.searchParams.set('utm_campaign', link.utm_campaign);
+        return Response.redirect(target.toString(), 302);
+      }
+
       // ── /proof/:slug — shareable "we called it" result cards. Added Aug
       // 10 2026. Checked s5_pdf_cache before building this: zero rows
       // currently have a real captured auction_outcome.sale_price -- the
@@ -3026,6 +3115,97 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
   <p class="disclaimer">Informational only — not legal, financial, or investment advice. Historical result; individual outcomes vary. Verify independently before bidding.</p>
 </div>
 </body></html>`;
+}
+
+// ── BidDeed Reels v2 (issue #19752 T2) — per-property landing page ──────────
+// Rendered from public.get_reel_landing()'s field allow-list ONLY (see
+// 20260902l_biddeed_reels_v2_rpc.sql) -- no name/vendor field is ever
+// selectable there, so there is nothing here that could leak one. Server-
+// rendered, no JS required to read (T2 spec).
+function buildDealLandingHtml(reel, landingPath, submitted) {
+  const fmtMoney = (n) => (n == null ? null : '$' + Math.round(Number(n)).toLocaleString());
+  const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed Sale' : 'Foreclosure Sale';
+  const cond = reel.condition_json || {};
+  const tier = cond.general_condition_tier || 'unknown';
+  const tierLabel = tier === 'unknown' ? 'Condition pending review' : tier.charAt(0).toUpperCase() + tier.slice(1) + ' condition';
+  const obs = ['roof', 'exterior'].map(k => cond[k] && cond[k].observation).filter(Boolean).slice(0, 2);
+  const deltaPct = reel.delta_pct == null ? null : Number(reel.delta_pct);
+  const deltaLine = deltaPct == null ? null : `${Math.abs(deltaPct).toFixed(0)}% ${deltaPct < 0 ? 'below' : 'above'} assessed value`;
+  const soldFmt = fmtMoney(reel.sold_amount);
+  const title = `${soldFmt || 'Sold at auction'} — ${countyName} County ${saleLabel}`;
+  const description = [soldFmt ? `${soldFmt} sale in ${countyName} County.` : '', deltaLine ? `That's ${deltaLine}.` : ''].join(' ').trim();
+  const ogImage = reel.aerial_tight_url || reel.aerial_wide_url || '';
+  const previewBanner = reel.status === 'pending_approval'
+    ? `<div class="deal-preview-banner">PREVIEW — pending approval, not yet public</div>` : '';
+  const ctaBlock = submitted
+    ? `<div class="deal-thanks">Thanks — check your inbox for the full property signal report.</div>`
+    : `<form method="POST" action="${escHtml(landingPath)}/lead${escHtml(previewQueryFor(reel))}">
+<input type="hidden" name="case_number" value="${escHtml(reel.case_number)}">
+<input type="email" name="email" placeholder="you@email.com" required>
+<button type="submit">Send me the report</button>
+</form>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${escHtml(title)} — BidDeed.AI</title>
+<meta name="description" content="${escHtml(description)}">
+<meta property="og:title" content="${escHtml(title)}">
+<meta property="og:description" content="${escHtml(description)}">
+<meta property="og:type" content="website">
+${ogImage ? `<meta property="og:image" content="${escHtml(ogImage)}">` : ''}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escHtml(title)}">
+<meta name="twitter:description" content="${escHtml(description)}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;padding:2rem 1rem;display:flex;justify-content:center}
+.deal-card{max-width:520px;width:100%}
+.deal-preview-banner{background:#F59E0B;color:#020617;font-weight:700;text-align:center;padding:.5rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem}
+.deal-img{width:100%;border-radius:12px;margin-bottom:1rem;border:1px solid #1e293b;display:block}
+h1{font-size:1.6rem;margin-bottom:.25rem;color:#fff}
+.deal-sub{color:#94a3b8;font-size:.95rem;margin-bottom:1.25rem}
+.deal-stats{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem}
+.deal-stat{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:.85rem}
+.deal-stat .label{color:#64748b;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em}
+.deal-stat .value{color:#fff;font-size:1.15rem;font-weight:700;margin-top:.2rem}
+.deal-badge{display:inline-block;background:#F59E0B;color:#020617;font-weight:700;padding:.3rem .7rem;border-radius:999px;font-size:.8rem;margin:.5rem 0}
+.deal-obs{color:#cbd5e1;font-size:.9rem;line-height:1.6;margin-bottom:1.5rem}
+.deal-cta{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:1.25rem;margin-top:.75rem}
+.deal-cta h2{font-size:1.05rem;color:#fff;margin-bottom:.75rem}
+.deal-cta input{width:100%;padding:.7rem;border-radius:8px;border:1px solid #334155;background:#020617;color:#fff;margin-bottom:.6rem;font-size:.9rem}
+.deal-cta button{width:100%;padding:.75rem;border-radius:8px;border:none;background:#F59E0B;color:#020617;font-weight:700;font-size:.9rem;cursor:pointer}
+.deal-thanks{color:#4ade80;font-size:.9rem}
+</style>
+</head>
+<body>
+<div class="deal-card">
+${previewBanner}
+${ogImage ? `<img class="deal-img" src="${escHtml(ogImage)}" alt="Parcel aerial with boundary outline">` : ''}
+<h1>${escHtml(soldFmt || 'Sold at auction')}</h1>
+<div class="deal-sub">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)}${reel.auction_date ? ' &middot; ' + escHtml(reel.auction_date) : ''}</div>
+<div class="deal-stats">
+  <div class="deal-stat"><div class="label">Sold Price</div><div class="value">${escHtml(soldFmt || '&mdash;')}</div></div>
+  <div class="deal-stat"><div class="label">Assessed Value</div><div class="value">${escHtml(fmtMoney(reel.assessed_value) || '&mdash;')}</div></div>
+</div>
+${deltaLine ? `<div class="deal-stat"><div class="label">Vs. Assessed</div><div class="value">${escHtml(deltaLine)}</div></div>` : ''}
+<div class="deal-badge">${escHtml(tierLabel)}</div>
+${obs.length ? `<div class="deal-obs">${obs.map(escHtml).join('<br>')}</div>` : ''}
+${reel.street_url ? `<img class="deal-img" src="${escHtml(reel.street_url)}" alt="Street-level view">` : ''}
+<div class="deal-cta">
+<h2>Get the full property signal report</h2>
+${ctaBlock}
+</div>
+</div>
+</body>
+</html>`;
+}
+function previewQueryFor(reel) {
+  return reel.status === 'pending_approval' ? `?preview=${encodeURIComponent(reel.id)}` : '';
 }
 
 function buildPioneersPage() {
