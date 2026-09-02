@@ -52,9 +52,13 @@ async function validateProxyKey(key: string): Promise<boolean> {
   return data === true;
 }
 
-// gemini-2.0-flash, not 2.5 — matches claude-router's documented finding that
-// 2.5-flash needs large thinking budgets and is inconsistent from an edge fn.
-const GEMINI_MODEL = "gemini-2.0-flash";
+// gemini-2.0-flash was retired by Google (confirmed live 2026-09-02: 404
+// "model no longer available"). Switched to gemini-2.5-flash, the same model
+// claude-router/index.ts already runs in production for this exact
+// generateContent call shape. thinkingBudget:0 disables extended thinking so
+// the small maxOutputTokens budget isn't consumed before the JSON answer —
+// the failure mode the old 2.0 pin was originally chosen to avoid.
+const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 async function callGemini(apiKey: string, system: string, userText: string): Promise<string> {
@@ -66,7 +70,11 @@ async function callGemini(apiKey: string, system: string, userText: string): Pro
   const body = {
     contents: [{ role: "user", parts: [{ text: userText }] }],
     systemInstruction: { parts: [{ text: system }] },
-    generationConfig: { maxOutputTokens: 500, temperature: 0.1 },
+    generationConfig: {
+      maxOutputTokens: 500,
+      temperature: 0.1,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   };
 
   const reqHeaders: Record<string, string> = { "content-type": "application/json" };
