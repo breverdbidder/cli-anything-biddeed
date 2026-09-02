@@ -1,0 +1,28 @@
+name: "Stripe Payouts + Balance Transactions Sync"
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Unix epoch seconds cutoff (default 2026-01-01T00:00:00Z)"
+        required: false
+        type: string
+        default: "1767225600"
+  schedule:
+    - cron: '0 13 * * *'  # daily 8am ET
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install httpx
+      - name: "Sync payouts + balance_transactions"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: python3 scripts/stripe_payouts_sync.py --since "${{ inputs.since || '1767225600' }}"
