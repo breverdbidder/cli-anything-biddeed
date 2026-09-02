@@ -407,6 +407,18 @@ def sprint2b_tracerfy_skiptrace():
         result = tracerfy_client.trace_lead(
             lead["entity_name"], addr.get("own_addr1"), addr.get("own_city"), addr.get("own_state"), addr.get("own_zipcd"),
         )
+        # #19727: a Tracerfy account with 0 real credits returns HTTP 402 on
+        # every single call -- that's a whole-account ceiling for the rest of
+        # the day, not a per-lead retryable error. Looping through dozens of
+        # leads hitting the same 402 one at a time is what burned the entire
+        # 30-minute GHA timeout on 2026-09-02 (run 33590274879) and got the
+        # job killed before quote_drafts/routing ever ran. Stop immediately
+        # instead of grinding through the rest of the candidate list.
+        if result.get("parse_status") == "REQUEST_FAILED" and result.get("_raw_response", {}).get("http_status") == 402:
+            lookup_errors += 1
+            print("  Tracerfy account has 0 credits (HTTP 402) -- stopping Sprint 2b early "
+                  f"rather than retrying it for every remaining candidate ({len(candidates) - lookup_errors - hits - no_hits - no_address - cap_skipped} left untouched, stays retryable).")
+            break
         if result.get("phone") or result.get("email"):
             run_sql(f"""
                 update winnerdata.leads set
@@ -502,12 +514,31 @@ def main():
     sprint1b_brightdata_harvest()
     run_sql(SPRINT2)
     print("Sprint 2 done: leads created for non-placeholder-identity signals.")
-    sprint2b_tracerfy_skiptrace()
-    sprint3b_appraiser_verify()
+
+    # #19727 P0 fix: quote_drafts/routing must not sit behind contact
+    # enrichment. sprint2b (Tracerfy) and sprint3b (appraiser cross-verify)
+    # are slow, network-heavy, and neither one's output is read by SPRINT3 or
+    # SPRINT4 -- but they used to run BEFORE those two cheap, idempotent SQL
+    # inserts, so a hang (sprint2b looping on Tracerfy 402s until the 30min
+    # GHA timeout killed the job, 2026-09-02 run 33590274879) or an uncaught
+    # exception (sprint3b's parity_audit insert hitting a transient
+    # Cloudflare 521, 2026-08-29/30/31 runs) meant SPRINT3/SPRINT4 never ran
+    # at all -- 0 routing_decisions for that run's leads, 7 days running.
+    # Route first, enrich after; enrichment failures are now non-fatal.
     run_sql(SPRINT3)
     print("Sprint 3 done: quote_drafts assembled for un-drafted leads.")
     run_sql(SPRINT4)
     print("Sprint 4 done: producers seeded, leads routed (routing_reason=calibration).")
+
+    try:
+        sprint2b_tracerfy_skiptrace()
+    except Exception as e:
+        print(f"Sprint 2b FAILED (non-fatal, contact enrichment only -- routing already done): {e}")
+    try:
+        sprint3b_appraiser_verify()
+    except Exception as e:
+        print(f"Sprint 3b FAILED (non-fatal, appraiser cross-verify only -- routing already done): {e}")
+
     sprint5_deliver(batch_date)
 
     counts = run_sql("""

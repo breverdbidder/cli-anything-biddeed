@@ -37,10 +37,18 @@ def upsert_pending_batch(batch_date, lead_count, dry_run):
         print(f"[DRY-RUN] Would upsert winnerdata.ff_batches({batch_date}, pending_approval, lead_count={lead_count})")
         return "dry_run_pending_approval"
 
+    # #19727: a rerun for a batch_date that already has a row used to be a
+    # pure no-op (on conflict do nothing), so a batch stuck at lead_count=0
+    # because routing failed earlier that day could never be refreshed once
+    # routing was fixed -- only a NEW batch_date row ever got the real count.
+    # Still never touches an approved/sent batch (status guard below) --
+    # only refreshes the count while it's still pending_approval.
     run_sql(f"""
         insert into winnerdata.ff_batches (batch_date, status, lead_count, batch_kind)
         values ({sql_str(batch_date)}, 'pending_approval', {lead_count}, 'seller_digest')
-        on conflict (batch_date) do nothing;
+        on conflict (batch_date) do update
+          set lead_count = excluded.lead_count
+          where winnerdata.ff_batches.status = 'pending_approval';
     """)
     rows = run_sql(f"select status, lead_count from winnerdata.ff_batches where batch_date = {sql_str(batch_date)};")
     return rows[0] if rows else None

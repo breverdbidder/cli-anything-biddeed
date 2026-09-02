@@ -277,7 +277,14 @@ def get_bid_history(sess, daylist_url, aid):
     if footer_m:
         wtype = re.sub(r"<[^>]+>", "", footer_m.group(1)).strip()
         out["winner_type"] = "third_party" if "3rd party" in wtype.lower() else "plaintiff"
-        out["winner_name"] = re.sub(r"\s+", " ", footer_m.group(2)).strip()
+        winner_name = re.sub(r"\s+", " ", footer_m.group(2)).strip()
+        # #19727: Lee County's bid-history modal footer (confirmed live,
+        # cases 2026000036/086/141, 2026-09-01) renders the raw bidder_id
+        # number in this span instead of a resolved name. A bare digit
+        # string is never a real buyer/plaintiff name in this dataset --
+        # treat it as "no name resolved" rather than let a bidder ID leak
+        # into winnerdata.leads.entity_name as if it were the buyer.
+        out["winner_name"] = winner_name if not winner_name.isdigit() else None
     amt_m = re.search(r"In the total amount of:.*?<span[^>]*>\$?([\d,.]+)</span>", body, re.S)
     if amt_m:
         out["sold_amount"] = money(amt_m.group(1))
