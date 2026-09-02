@@ -2137,10 +2137,14 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
             body: JSON.stringify({ p_county: decodeURIComponent(countyParam), p_slug: decodeURIComponent(slugParam), p_preview_id: previewId }),
           });
+          const bodyText = await res.text();
+          if (url.searchParams.get('__debug') === '1') {
+            return new Response(JSON.stringify({ ok: res.ok, status: res.status, bodyText, sentCounty: decodeURIComponent(countyParam), sentSlug: decodeURIComponent(slugParam), previewId }), { headers: { 'Content-Type': 'application/json' } });
+          }
           if (res.ok) {
-            reel = await res.json();
+            reel = bodyText ? JSON.parse(bodyText) : null;
           } else {
-            await logErr(env, '/deal', 'get_reel_landing non-2xx', await res.text(), res.status);
+            await logErr(env, '/deal', 'get_reel_landing non-2xx', bodyText, res.status);
           }
         } catch (e) {
           await logErr(env, '/deal', 'get_reel_landing failed', String(e), 500);
