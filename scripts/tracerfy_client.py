@@ -46,7 +46,7 @@ TRACERFY_BASE = "https://tracerfy.com/v1/api/"
 TRACERFY_BASE_V2 = "https://tracerfy.com/v2/api/"
 TRACERFY_KEY = os.environ.get("TRACERFY_API_KEY", "")
 
-ENHANCED_COST_CENTS = 1500  # 15 credits, credit=~1 cent per issue comment; verify against real invoice
+ENHANCED_COST_CENTS = 2  # $0.02/call -- confirmed by Ariel 2026-09-02 (issue #19731), real Tracerfy PAYG rate
 DNC_COST_CENTS = 0  # cost model for DNC scrub not documented in issue comments -- leave 0 + note, never guess
 
 
