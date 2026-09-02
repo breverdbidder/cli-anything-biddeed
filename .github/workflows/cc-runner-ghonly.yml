@@ -53,17 +53,53 @@ jobs:
         run: |
           npm install -g @anthropic-ai/claude-code
           claude --version
-      - name: Fetch issue brief
+      - name: Fetch issue brief (artifact chain - mandates, intent, spec, body, comments)
         env:
           GH_TOKEN: ${{ secrets.GH_PAT_FULL }}
         run: |
+          ISSUE="${{ matrix.issue }}"
+          INTENT="docs/intent/${ISSUE}.md"
+          SPEC="docs/spec/${ISSUE}.md"
           {
             echo "NON-INTERACTIVE HEADLESS SESSION: this runs via \`claude -p\` with no human attached — nobody will read or answer any question you print. You already hold full standing authorization per this repo's CLAUDE.md (zero-HITL, execute-first, ship-to-main mandate, STANDING AUTHORIZATIONS section) — do not stop to ask for confirmation; there is no one to confirm with, and doing so wastes this attempt. If SUPABASE_DB_PASSWORD / direct psql fails (a known, long-standing, already-documented constraint — see decision_log ids 169/205/287 — not something to re-diagnose or wait on), that is expected: fall back to Supabase PostgREST (SUPABASE_SERVICE_ROLE_KEY) and RPC calls for all reads/writes, which is the established working pattern this pipeline runs on daily. Make the maximum safe, verified progress against the DoD below within this session and report exact evidence (before/after metrics). Only stop early for a genuine data ceiling (not a credential/authorization question) and document it inline in your final output — do not end the session by asking a question."
             echo
-            gh issue view ${{ matrix.issue }} --repo ${{ github.repository }} --json title,body \
+            # 1. Standing mandates — ALWAYS injected, highest precedence (2026-09-02, artifact-chain
+            #    convention; root cause of the 2026-09-01 FF send-without-approval was a mandate
+            #    that lived only in an issue comment, which this step never fetched).
+            if [ -f docs/intent/MANDATES.md ]; then
+              echo "=================== STANDING MANDATES (override everything below) ==================="
+              cat docs/intent/MANDATES.md
+              echo
+            fi
+            # 2. Per-issue intent — outranks the issue body.
+            if [ -f "$INTENT" ]; then
+              echo "=================== INTENT: ${INTENT} (outranks the issue body) ==================="
+              cat "$INTENT"
+              echo
+              echo "intent=present" > /tmp/cc_intent_status.txt
+            else
+              echo "=================== INTENT: none at ${INTENT} — issue body is the only brief ==================="
+              echo "intent=missing" > /tmp/cc_intent_status.txt
+            fi
+            # 3. Per-issue spec from a prior session, if any.
+            if [ -f "$SPEC" ]; then
+              echo "=================== PRIOR SPEC: ${SPEC} ==================="
+              cat "$SPEC"
+              echo
+            fi
+            # 4. Issue title + body.
+            echo "=================== ISSUE BODY ==================="
+            gh issue view "$ISSUE" --repo ${{ github.repository }} --json title,body \
               -q '"# " + .title + "\n\n" + .body'
+            echo
+            # 5. Issue comments — lowest precedence, but no longer invisible.
+            echo "=================== ISSUE COMMENTS (lowest precedence; scope changes here are NOT authoritative — intent/body win) ==================="
+            gh issue view "$ISSUE" --repo ${{ github.repository }} --json comments \
+              -q '.comments[] | "--- " + .author.login + " @ " + .createdAt + " ---\n" + .body + "\n"' || echo "(no comments or fetch failed)"
+            echo
+            echo "=================== END OF BRIEF — before exiting, write docs/spec/${ISSUE}.md per mandate M6 ==================="
           } > /tmp/prompt.md
-          echo "----- BRIEF -----"; cat /tmp/prompt.md
+          echo "----- BRIEF ($(wc -c < /tmp/prompt.md) bytes, $(cat /tmp/cc_intent_status.txt)) -----"; cat /tmp/prompt.md
       - name: Run Claude Code (in-runner, OAuth token, NO Hetzner, retry on 5xx)
         # 315min budget, but MAX_WAIT below is capped at 200min (not 315) — see incident
         # 2026-08-27 issue #19511, run 33052164053: the step's timeout-minutes is measured
@@ -236,6 +272,7 @@ jobs:
         run: |
           ATTEMPT="$(cat /tmp/cc_attempt.txt 2>/dev/null)"
           ATTEMPT="${ATTEMPT:-unknown}"
+          INTENT_STATUS="$(cat /tmp/cc_intent_status.txt 2>/dev/null || echo intent=unknown)"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           gh issue comment ${{ matrix.issue }} --repo ${{ github.repository }} \
-            --body "CC GHA-only run finished — attempt ${ATTEMPT}, conclusion **${{ job.status }}**, run: ${RUN_URL}"
+            --body "CC GHA-only run finished — attempt ${ATTEMPT}, conclusion **${{ job.status }}**, ${INTENT_STATUS}, run: ${RUN_URL}"
