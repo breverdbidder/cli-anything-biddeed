@@ -1,0 +1,14 @@
+# CMO Factory CP3b (issue #19781) -- ADOPTED-only video-tooling deps for the
+# bolt32 pipeline (#19779). Scanned by scripts/bolt32_license_gate.py before
+# any install step. See docs/gtm/VIDEO_STACK.md for the full verdict table.
+#
+# NOT installed by this issue's session -- #19779 has no pipeline code to run
+# them against yet (docs/gtm/VIDEO_STACK.md #3). Declared here so the gate
+# has something real to scan, and so #19779 can `pip install -r
+# requirements-bolt32.txt` once the render pipeline lands.
+
+whisperx>=3.1.1          # BSD-2-Clause -- m-bain/whisperX -- primary caption source
+faster-whisper>=1.0.0    # MIT -- SYSTRAN/faster-whisper -- whisperX backend / 6-min-budget fallback
+kokoro>=0.9.4            # Apache-2.0 -- hexgrad/kokoro -- draft/multilingual TTS fallback, env-gated OFF
+chatterbox-tts>=0.1.0    # MIT -- resemble-ai/chatterbox -- 2nd/3rd TTS fallback, env-gated OFF
+auto-editor>=26.0.0      # Unlicense -- WyattBlue/auto-editor -- long-form lane ONLY, never bolt32
