@@ -401,6 +401,9 @@ def main():
     ap.add_argument("--force", action="store_true", help="re-render rows that already have a video_url")
     ap.add_argument("--dry-run", action="store_true", help="no DB writes, no external API calls beyond the read query")
     ap.add_argument("--limit", type=int, default=None, help="cap number of rows processed (testing only)")
+    ap.add_argument("--min-sold", type=float, default=None,
+                     help="skip candidates whose sold_amount is below this floor (e.g. 5000 to exclude "
+                          "sub-$5k raw-land tax certificates that cannot carry a SIGNAL$ house-deal story).")
     args = ap.parse_args()
 
     auction_date = args.auction_date or get_yesterday()
@@ -451,6 +454,10 @@ def main():
     else:
         sightings = get_third_party_wins(auction_date)
         print(f"{len(sightings)} third-party win(s) for {auction_date}.")
+    if args.min_sold is not None:
+        _before = len(sightings)
+        sightings = [s for s in sightings if float(s.get("sold_amount") or 0) >= args.min_sold]
+        print(f"--min-sold {args.min_sold:g}: {_before} -> {len(sightings)} candidate(s) after floor")
     if args.limit:
         sightings = sightings[: args.limit]
 
