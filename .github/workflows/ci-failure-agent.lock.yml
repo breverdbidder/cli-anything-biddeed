@@ -31,8 +31,19 @@ name: "Ci Failure Agent"
     - main
     types:
     - completed
+    # 2026-09-03 (#19767): narrowed from ["*"] — see ci-failure-agent.md for rationale.
     workflows:
-    - "*"
+    - "CI — Full Test Suite"
+    - "AgentShield — Weekly Security Scan"
+    - "RLS Gate (scheduled + on migration push)"
+    - "EG14 Gate (parameterized)"
+    - "Playwright Verify — Hetzner SSH (generic)"
+    - "BrandGuard PR Check"
+    - "qa-visual-regression"
+    - "Weekly DesignMD Drift Check"
+    - "CC Runner — GHA-only (no Hetzner)"
+    - "Gemini Runner — T2/T3 grunt lane (no Hetzner, no Claude Code)"
+    - "SUMMIT: Task from Issue"
 
 permissions: {}
 

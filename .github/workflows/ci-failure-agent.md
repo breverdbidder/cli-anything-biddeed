@@ -1,8 +1,33 @@
 ---
 engine: claude
 on:
+  # 2026-09-03 (#19767): narrowed from workflows: ["*"], found during a sweep
+  # for other wildcard workflow_run triggers contributing to a run-storm
+  # (see sentinel-v2.yml / task-lifecycle.yml for the primary fix + evidence).
+  # This workflow is currently `disabled_manually` (gh api workflows/250146872
+  # -> state: disabled_manually) so it was not a live contributor to the
+  # measured storm, but the wildcard is the same latent landmine and would
+  # reproduce the fan-out the moment someone re-enables it. Scoped to the
+  # build/gate/deploy/security surface plus the SUMMIT dispatch workflows —
+  # narrower than "every workflow" but still covers the CI-shaped failures
+  # this agent exists to diagnose. This list is INFERRED from workflow names
+  # (ci.yml, security-scan.yml, rls-gate.yml, eg14-gate.yml,
+  # playwright-verify.yml, brandguard-pr-check.yml, qa-visual-regression.yml,
+  # weekly-designmd-drift.yml) rather than verified against a canonical "this
+  # is CI" definition — review before re-enabling if the intent was broader.
   workflow_run:
-    workflows: ["*"]
+    workflows:
+      - "CI — Full Test Suite"
+      - "AgentShield — Weekly Security Scan"
+      - "RLS Gate (scheduled + on migration push)"
+      - "EG14 Gate (parameterized)"
+      - "Playwright Verify — Hetzner SSH (generic)"
+      - "BrandGuard PR Check"
+      - "qa-visual-regression"
+      - "Weekly DesignMD Drift Check"
+      - "CC Runner — GHA-only (no Hetzner)"
+      - "Gemini Runner — T2/T3 grunt lane (no Hetzner, no Claude Code)"
+      - "SUMMIT: Task from Issue"
     types: [completed]
     branches: [main]
 permissions:

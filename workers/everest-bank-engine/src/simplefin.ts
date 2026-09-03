@@ -89,6 +89,19 @@ interface SimplefinAccount {
   transactions?: Array<{ id?: string; posted: number; amount: string; description?: string; pending?: boolean }>;
 }
 
+// SimpleFIN's protocol has no top-level "mask" field -- the account's last-4
+// is embedded in its name instead, e.g. "BUSINESS CHECKING ...3519 (3519)".
+// Previously this hardcoded `mask: null` on every sync, and
+// bank_engine_upsert_accounts()'s unconditional `mask = excluded.mask` on
+// ON CONFLICT blanked out the mask on every single 6h cron tick (issue
+// #19768 finding -- confirmed live on 2026-09-03: all 4 real WF accounts had
+// mask=NULL despite being populated at account-creation time). The SQL side
+// now also coalesces against the existing value, but this is the actual
+// source of a correct mask going forward.
+function extractMask(name: string): string | null {
+  return name.match(/\((\d{4})\)\s*$/)?.[1] ?? null;
+}
+
 export async function syncSimplefin(
   env: Env,
   params: { entityCode: string; startDate?: number; endDate?: number }
@@ -141,7 +154,7 @@ export async function syncSimplefin(
         {
           plaid_account_id: plaidAccountId,
           name: account.name,
-          mask: null,
+          mask: extractMask(account.name),
           subtype: null,
           currency: account.currency ?? null,
           current_balance_cents: account.balance != null ? Math.round(Number.parseFloat(account.balance) * 100) : null,
