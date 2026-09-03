@@ -1,0 +1,120 @@
+-- Gold Standard brevard, letter I (property card completeness) -- FIX applied
+-- Issue #19806, 2026-09-03. Consumes the diagnose-only finding from the
+-- immediately-prior session on the same snapshot
+-- (auctions_total=7491, card_complete=6322 (84.4%), 1169 failing rows,
+-- gap-to-95%-threshold=795 rows).
+--
+-- ── BEFORE (VERIFIED, fresh public.pencil_dod_evaluate_county('brevard')
+--    call at session start) ──
+--   I: {"pass": false, "detail": "card_complete=6322 of 7491", "metric": 84.4}
+--
+-- ── METHOD (two new levers, never tried in a prior brevard-I session) ──
+--
+-- Lever 1 -- VALUE_MISSING (2 rows): rows already had parcel_id/address/geo
+-- complete; only assessed_value/market_value were NULL. Backfilled
+-- assessed_value = LAND_VALUE + BLDG_VALUE read live from Brevard County's
+-- own GIS parcel layer (Base_Map/Parcel_New_WKID2881/MapServer/5), keyed by
+-- the row's existing parcel_id (TaxAcct). Prior sessions only ever queried
+-- STREET_NAME on this same layer for this letter.
+--   case 260209 / TaxAcct 2300905 -> assessed_value=99750 (LAND=99750, BLDG=0)
+--   case 260212 / TaxAcct 2316356 -> assessed_value=46470 (LAND=35000, BLDG=11470)
+--
+-- Lever 2 -- SKELETON (159 rows): true skeleton rows (only case_number/
+-- sale_type/county/auction_date populated, bcpao_enriched=false -- a
+-- pipeline-lag population, not the previously-documented STREET_NAME=UNKNOWN
+-- structural ceiling). Two-step live lookup by case_number:
+--   (a) tax-deed numeric case_number -> brevard.realtdm.com/public/cases/list
+--       (public portal, no auth; same mechanism as
+--       scripts/realtdm_cases_sweep.py, reused as a synchronous per-case
+--       lookup) -> "Parcel Number" (=TaxAcct) off the case card.
+--   (b) foreclosure/civil case_number (has dashes) -> Brevard Clerk
+--       AcclaimWeb (vaclmweb1.brevardclerk.us) case search -> legal
+--       description LT/BLK/PB/PG regex -> resolve against the same Base_Map
+--       GIS layer. Identical mechanism to
+--       scripts/brevard_i_clerk_platform_legal_backfill_e91f7a52.py, reused
+--       verbatim, applied to a disjoint population (skeleton rows, not the
+--       data_source-filtered population that script targeted).
+--   Resolved TaxAcct -> second Base_Map GIS query for
+--   PARCEL_ID/STREET_NUMBER/STREET_NAME/STREET_TYPE/CITY/ZIP_CODE/
+--   LAND_VALUE/BLDG_VALUE + polygon centroid. Same fabrication guard as
+--   every prior brevard-I script: property_address only written if
+--   STREET_NAME is populated and not UNKNOWN/blank/CONFIDENTIAL.
+--
+-- Script: scripts/gold_standard_brevard_i_shard19806_fix.py
+--   Dry-run validated first (5-row sample, then a partial 94-row run that
+--   hit an outer `timeout 600` wrapper and was killed -- exit 143, zero
+--   writes attempted in that run since it was --apply-less). Full --apply
+--   run executed separately end-to-end, completed in ~950s.
+--
+-- ── RESULT (VERIFIED via curl re-fetch of every candidate id post-write) ──
+--   161 candidate rows (2 value-missing + 159 skeleton).
+--   125 RESOLVED and PATCHed live -- 125/125 writes returned HTTP 204
+--     (TOTAL applied: 125/125 in script output, zero silent failures).
+--   36 BLOCKED and left untouched (fabrication guard / no-match), broken
+--     down as:
+--     - 13 rows: no AcclaimWeb case match / no parseable legal description
+--     - 5 rows: legal description resolved but GIS PLAT/BLOCK/LOT query
+--       returned 0 or >1 features (ambiguous, not written)
+--     - 17 rows: resolved TaxAcct but STREET_NAME=UNKNOWN/blank in the
+--       county's own GIS (genuine no-situs vacant land, same structural
+--       ceiling pattern documented in every prior brevard-I session)
+--     - 1 row: resolved TaxAcct but STREET_NAME=CONFIDENTIAL (Address
+--       Confidentiality Program, real record but not a writable public
+--       address per fabrication guard)
+--
+--   Spot-verified 4 of the 125 writes live post-apply (curl re-fetch):
+--     260256 (040b0307) -> parcel_id=2936837, addr="329 AWIN CIR, PALM BAY,
+--       FL 32909", lat=27.9666957399771, lon=-80.6684481999416,
+--       assessed_value=204790 -- matches RealTDM Parcel Number + GIS
+--       LAND_VALUE/BLDG_VALUE exactly.
+--     05-2025-CA-048681-XXCA-BC (00cb844d) -> parcel_id=2949673,
+--       addr="844 TEDDER RD, PALM BAY, FL 32909", assessed_value=233460 --
+--       matches AcclaimWeb legal-description resolution + GIS exactly.
+--     260209 (26ffb46e) -> assessed_value=99750 (Lever 1).
+--     260212 (fbc227a6) -> assessed_value=46470 (Lever 1).
+--
+-- ── AFTER (VERIFIED, fresh public.pencil_dod_evaluate_county('brevard')
+--    call post-write, same session) ──
+--   I: {"pass": false, "detail": "card_complete=6444 of 7491", "metric": 86.0}
+--   Delta: +122 card_complete (6322 -> 6444).
+--
+-- ── Reconciliation of 125 written vs +122 flipped (NOT an unexplained
+--    residual -- fully traced) ──
+--   Of the 125 field-complete (address+geo+value) rows after this write,
+--   122 also pass the 4th card_complete predicate (parcel_id/tax_account
+--   linked in v_zoning_gold_standard_card with zone_code NOT NULL). The
+--   remaining 3 are field-complete but NOT yet zone-linked:
+--     260147 / TaxAcct 2317094 / 328 BROADWAY BLVD, COCOA
+--     260123 / TaxAcct 2443033 / 1459 PARADISE LN, COCOA
+--     260154 / TaxAcct 2314974 / 4290 KIPLING DR, COCOA
+--   This script does NOT attempt a parcel_zones INSERT (out of scope --
+--   that is the separate, already-proven lever in
+--   scripts/gold_standard_brevard_i_countyzoning_2row_20260826.py). These 3
+--   rows remain in the residual/failing bucket until a follow-up zoning-
+--   link pass runs against them.
+--   125 resolved - 3 not-yet-zone-linked = 122 = exact observed delta.
+--
+-- ── RESIDUAL ──
+--   card_complete gap to 95% threshold: 7117 - 6444 = 673 rows (down from
+--   795 before this session).
+--   Total still-failing rows: 7491 - 6444 = 1047 (down from 1169).
+--   Dominant remaining population is unchanged: the previously-documented
+--   STREET_NAME=UNKNOWN / no-GIS-feature structural ceiling (~925+50 rows,
+--   re-confirmed unchanged across 5+ prior sessions), plus the 36 rows
+--   blocked this session by the same fabrication guard, plus the 3
+--   zone-link-pending rows above, plus any remaining data_source=
+--   brevard_clerk parcel_id-IS-NULL rows already documented as exhausted.
+--
+-- FABRICATION GUARD: every written field traced to a live upstream feature
+-- attribute (RealTDM public case card `Parcel Number`, or AcclaimWeb
+-- `DocLegalDescription` -> GIS PLAT/BLOCK/LOT resolution, or Brevard
+-- County's own GIS `LAND_VALUE`/`BLDG_VALUE`/`STREET_*` fields). No
+-- inference, no fallback value, no STREET_NAME=UNKNOWN/CONFIDENTIAL ever
+-- written as property_address. Zero rows force-fixed.
+--
+-- This file is documentation-only (no DDL/DML) -- all writes were applied
+-- live via PostgREST PATCH by scripts/gold_standard_brevard_i_shard19806_fix.py
+-- --apply, not via this migration. Included per repo convention of
+-- committing a migration record alongside every gold-standard session for
+-- audit trail purposes.
+SELECT 1;
