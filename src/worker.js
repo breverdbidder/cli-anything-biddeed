@@ -3420,7 +3420,7 @@ ${ogImage ? `<meta property="og:image" content="${escHtml(ogImage)}">` : ''}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;padding:2rem 1rem;display:flex;justify-content:center}
-.psale-card{max-width:520px;width:100%}
+.psale-card{max-width:520px;width:100%;background:#020617;border-radius:16px;padding:1.5rem}
 .psale-banner{background:#F59E0B;color:#020617;font-weight:700;text-align:center;padding:.5rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem}
 .psale-img{width:100%;border-radius:12px;margin-bottom:1rem;border:1px solid #1e293b;display:block}
 h1{font-size:1.35rem;margin-bottom:.25rem;color:#fff}
