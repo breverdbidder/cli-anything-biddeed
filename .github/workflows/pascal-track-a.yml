@@ -12,6 +12,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: pascal-track-a-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FORK_ORG: everestcapitalusa
   FORK_REPO: pascal-625-ocean

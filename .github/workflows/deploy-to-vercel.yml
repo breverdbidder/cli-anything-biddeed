@@ -8,6 +8,10 @@ on:
         required: false
         default: 'biddeed-demo'
 
+concurrency:
+  group: deploy-to-vercel-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

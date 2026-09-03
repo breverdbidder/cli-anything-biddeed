@@ -21,6 +21,10 @@ on:
         type: choice
         options: [production, preview]
 
+concurrency:
+  group: mcp-vercel-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     name: "Deploy /api/mcp to Vercel"
