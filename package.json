@@ -12,6 +12,7 @@
   },
   "scripts": {
     "test:e2e": "playwright test",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "test:worker": "node --test tests/support-bot.test.js"
   }
 }

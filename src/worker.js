@@ -9,6 +9,7 @@
  *   GET  /county/:name        → County deep-link landing page
  *   GET  /counties            → All counties index
  *   POST /chat/api            → Streaming SSE chat (via anthropic-proxy Smart Router — never api.anthropic.com directly)
+ *   POST /support/bot         → Chatwoot Agent Bot webhook (biddeed.ai + winnerdataai.com inboxes) — same Smart Router, AI-only, no human handoff
  *   POST /chat/lead           → Email capture → Supabase lead_profiles
  *   GET  /chat/county-data    → County card JSON
  *   GET  /auctions            → Property cards JSON for the chat right panel (?county=&days=&type=&limit=)
@@ -85,6 +86,16 @@ function corsHeaders(origin) {
     'Access-Control-Allow-Headers': 'Content-Type,Authorization,apikey,x-api-key',
   };
 }
+
+// ── Chatwoot Agent Bot webhook state (in-memory, per-isolate) ────────────────
+// message.id idempotency window and the winnerdata_canon_v1 fetch-once-per-
+// isolate cache. Both are plain module-level state — Cloudflare Workers keep
+// one isolate warm across many requests, so this is a real (if best-effort)
+// cache, not per-request dead weight.
+const CHATWOOT_SEEN_MSG_IDS = new Map(); // msgId -> firstSeenAtMs
+const CHATWOOT_IDEMPOTENCY_WINDOW_MS = 10 * 60 * 1000;
+let WINNERDATA_CANON_CACHE = { text: null, fetchedAt: 0 };
+const WINNERDATA_CANON_TTL_MS = 60 * 60 * 1000;
 
 // ── Error logger ──────────────────────────────────────────────────────────────
 async function logErr(env, endpoint, message, detail, status, severity = 'error') {
@@ -1315,7 +1326,7 @@ const AUCTION_INTENT_RE = /(?:show|find|list|what|upcoming|auction|properties?|f
 // on the homepage (see HOMEPAGE_HTML .cfw block), so it needs frame-ancestors
 // 'self' / X-Frame-Options SAMEORIGIN instead of the site-wide 'none'/DENY —
 // otherwise the browser blocks the frame and it renders as a broken box.
-const SECURITY_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://us-assets.i.posthog.com https://us.i.posthog.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://mocerqjnksmhcjzxrewo.supabase.co https://static.cloudflareinsights.com https://api.elevenlabs.io wss://api.elevenlabs.io; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+const SECURITY_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://us-assets.i.posthog.com https://us.i.posthog.com https://static.cloudflareinsights.com https://app.chatwoot.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://mocerqjnksmhcjzxrewo.supabase.co https://static.cloudflareinsights.com https://api.elevenlabs.io wss://api.elevenlabs.io https://app.chatwoot.com wss://app.chatwoot.com; frame-src https://app.chatwoot.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
 const SECURITY_CSP_CHAT = SECURITY_CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'");
 function withSecurityHeaders(response, path) {
   const headers = new Headers(response.headers);
@@ -1357,6 +1368,228 @@ async function captureError(error, request, env) {
   } catch (e) {
     // Never let error reporting break the worker
   }
+}
+
+// ── Chatwoot Agent Bot — POST /support/bot ────────────────────────────────────
+// Chatwoot Cloud (Hacker tier) MIT Agent Bot webhook, not Captain (enterprise-
+// licensed). Reuses the exact claude-router call from /chat/api — no second
+// LLM path. AI-only support: there is no human handoff. When the bot can't
+// resolve something in chat it asks for an email, logs a lead via the
+// existing /chat/lead upsert (source='support_escalation'), and resolves the
+// conversation. Chatwoot is a log/history surface only.
+const CHATWOOT_ESCALATE_RE = /\b(talk to (a )?(human|person|agent|representative|someone)|speak (to|with) (a )?(human|person|agent|representative|someone)|real (person|human)|customer service rep|refund|chargeback|charge.?back|billing dispute|dispute (this|the) charge|lawsuit|sue (you|us|biddeed|winner ?data)|legal action|attorney|lawyer|file a complaint)\b/i;
+const CHATWOOT_EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
+function chatwootIsDuplicate(msgId) {
+  const now = Date.now();
+  for (const [id, ts] of CHATWOOT_SEEN_MSG_IDS) {
+    if (now - ts > CHATWOOT_IDEMPOTENCY_WINDOW_MS) CHATWOOT_SEEN_MSG_IDS.delete(id);
+  }
+  if (msgId === undefined || msgId === null) return false;
+  if (CHATWOOT_SEEN_MSG_IDS.has(msgId)) return true;
+  CHATWOOT_SEEN_MSG_IDS.set(msgId, now);
+  return false;
+}
+
+function parseChatwootInboxMap(env) {
+  try {
+    const parsed = JSON.parse(env.CHATWOOT_INBOX_MAP || '{}');
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (_) { return {}; }
+}
+
+// Fetched once per isolate, cached 1h — winnerdata_canon_v1 overrides any
+// prior log or chat per its own `source` field (see unified_context row).
+async function fetchWinnerdataCanon(env) {
+  const now = Date.now();
+  if (WINNERDATA_CANON_CACHE.text && (now - WINNERDATA_CANON_CACHE.fetchedAt) < WINNERDATA_CANON_TTL_MS) {
+    return WINNERDATA_CANON_CACHE.text;
+  }
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/unified_context?select=content&key=eq.winnerdata_canon_v1&limit=1`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    );
+    const rows = res.ok ? await res.json() : [];
+    const text = (Array.isArray(rows) && rows[0] && rows[0].content) ? JSON.stringify(rows[0].content) : '';
+    WINNERDATA_CANON_CACHE = { text, fetchedAt: now };
+    return text;
+  } catch (_) {
+    return WINNERDATA_CANON_CACHE.text || '';
+  }
+}
+
+function buildSupportBotSystemPrompt(site, canonText) {
+  const shared = `Reply in plain text, no markdown, 120 words or fewer. If the sender's email is missing and this needs a follow-up, ask for their email. Never give legal advice. Never promise or imply a specific auction, sale, or financial outcome. If the user demands a human, disputes a charge/refund, or raises anything legal, respond briefly and end your reply with exactly [[HANDOFF]] on its own — do not explain that token to the user.`;
+  if (site === 'winnerdata') {
+    return `You are the support assistant for Winner Data (winnerdataai.com), a B2B property-data and analytics platform.\n\nCanon facts about the business (source of truth, overrides anything else):\n${canonText}\n\nRules: never contact or reference homeowners directly, never use foreclosure-relief or "save your home" language, never tie compensation or pricing claims to a specific outcome. Answer product/pricing/how-it-works questions for business buyers (insurance agencies, moving companies, contractors, investors) using only the canon facts above.\n\n${shared}`;
+  }
+  return `You are the support assistant for BidDeed.AI, a Florida foreclosure and tax-deed auction intelligence product. Answer product, pricing, and how-to questions using only biddeed.ai's public pages (SIGNAL$ Property Reports $25 each, Investor tier $99/mo, coverage across FL counties, Gold Standard certified counties have full report capability).\n\nRules: never give legal advice, never promise or imply a specific auction outcome or bid result.\n\n${shared}`;
+}
+
+async function chatwootApiCall(env, path, body) {
+  const base = env.CHATWOOT_BASE_URL || 'https://app.chatwoot.com';
+  return fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'api_access_token': env.CHATWOOT_BOT_TOKEN },
+    body: JSON.stringify(body || {}),
+  });
+}
+
+async function chatwootReply(env, accountId, conversationId, text) {
+  try {
+    const res = await chatwootApiCall(env, `/api/v1/accounts/${accountId}/conversations/${conversationId}/messages`, {
+      content: text,
+      message_type: 'outgoing',
+    });
+    if (!res.ok) await logErr(env, '/support/bot', 'Chatwoot reply failed', await res.text(), res.status);
+  } catch (e) {
+    await logErr(env, '/support/bot', 'Chatwoot reply threw', String(e), 500);
+  }
+}
+
+async function chatwootResolve(env, accountId, conversationId) {
+  try {
+    const res = await chatwootApiCall(env, `/api/v1/accounts/${accountId}/conversations/${conversationId}/toggle_status`, {
+      status: 'resolved',
+    });
+    if (!res.ok) await logErr(env, '/support/bot', 'Chatwoot resolve failed', await res.text(), res.status);
+  } catch (e) {
+    await logErr(env, '/support/bot', 'Chatwoot resolve threw', String(e), 500);
+  }
+}
+
+// AI-only escalation (SCOPE CHANGE, Ariel, Sep 3 2026 — replaces the original
+// "handoff to a human agent" design; there is no human on this inbox). Logs
+// the lead through the EXISTING /chat/lead upsert path so no new table or
+// column is introduced. lead_profiles has no notes/transcript column, so the
+// transcript excerpt goes to the existing worker error/info log instead
+// (log_worker_error via logErr) — this is a deliberate deviation from the
+// issue comment's "notes/context field it already has" claim, which does not
+// match the live lead_profiles schema (verified via REST, see docs/spec/19776.md).
+async function chatwootEscalate(env, ctx, accountId, conversationId, email, content, source) {
+  const foundEmail = email || (CHATWOOT_EMAIL_RE.exec(content || '') || [])[0] || '';
+  const base = "I can't resolve this in chat. Leave your email and we'll follow up in writing.";
+  const reply = foundEmail ? base : `${base} What's the best email to reach you?`;
+  await chatwootReply(env, accountId, conversationId, reply);
+  await logErr(env, '/support/bot', `escalation (${source})`, `email=${foundEmail || 'none'} content=${String(content || '').slice(0, 500)}`, 200, 'info');
+  if (foundEmail) {
+    try {
+      const leadReq = new Request('https://biddeed.ai/chat/lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: foundEmail, source: 'support_escalation' }),
+      });
+      await handleRequest(leadReq, env, ctx);
+    } catch (e) {
+      await logErr(env, '/support/bot', 'escalation lead log failed', String(e), 500);
+    }
+    await chatwootResolve(env, accountId, conversationId);
+  }
+  // No email yet — leave the conversation open so a follow-up reply with the
+  // email re-triggers this same path (message_created fires again).
+}
+
+async function handleSupportBot(request, env, ctx, url) {
+  const jsonHeaders = { 'Content-Type': 'application/json' };
+
+  if (!env.CHATWOOT_BOT_TOKEN || !env.CHATWOOT_WEBHOOK_SECRET || !env.CHATWOOT_INBOX_MAP) {
+    await logErr(env, '/support/bot', 'Missing Chatwoot Worker secret binding(s)', '', 503);
+    return new Response(JSON.stringify({ error: 'Service configuration error' }), { status: 503, headers: jsonHeaders });
+  }
+
+  const providedKey = url.searchParams.get('k') || '';
+  if (!providedKey || providedKey !== env.CHATWOOT_WEBHOOK_SECRET) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
+  }
+
+  let body = {};
+  try { body = await request.json(); } catch (_) {}
+
+  if (body.event !== 'message_created' || body.message_type !== 'incoming' || body.private === true) {
+    return new Response(JSON.stringify({ ignored: true }), { headers: jsonHeaders });
+  }
+
+  const msgId = body.id ?? body.message?.id;
+  if (chatwootIsDuplicate(msgId)) {
+    return new Response(JSON.stringify({ ignored: true, duplicate: true }), { headers: jsonHeaders });
+  }
+
+  const accountId = body.account?.id;
+  const inboxId = body.inbox?.id;
+  const conversationId = body.conversation?.id;
+  const content = String(body.content || '');
+  const senderEmail = body.sender?.email || '';
+
+  if (!accountId || !inboxId || !conversationId) {
+    return new Response(JSON.stringify({ ignored: true, reason: 'missing account/inbox/conversation id' }), { headers: jsonHeaders });
+  }
+
+  const inboxMap = parseChatwootInboxMap(env);
+  const site = inboxMap[String(inboxId)];
+
+  if (!site) {
+    await chatwootEscalate(env, ctx, accountId, conversationId, senderEmail, content, 'unknown_inbox');
+    return new Response(JSON.stringify({ ok: true, escalated: true, reason: 'unknown_inbox' }), { headers: jsonHeaders });
+  }
+
+  if (CHATWOOT_ESCALATE_RE.test(content)) {
+    await chatwootEscalate(env, ctx, accountId, conversationId, senderEmail, content, 'trigger_match');
+    return new Response(JSON.stringify({ ok: true, escalated: true, reason: 'trigger_match' }), { headers: jsonHeaders });
+  }
+
+  const routerProxyKey = env.ROUTER_PROXY_KEY;
+  if (!routerProxyKey) {
+    await logErr(env, '/support/bot', 'Missing ROUTER_PROXY_KEY binding', '', 500);
+    await chatwootEscalate(env, ctx, accountId, conversationId, senderEmail, content, 'router_unconfigured');
+    return new Response(JSON.stringify({ ok: true, escalated: true, reason: 'router_unconfigured' }), { headers: jsonHeaders });
+  }
+
+  const canonText = site === 'winnerdata' ? await fetchWinnerdataCanon(env) : '';
+  const systemPrompt = buildSupportBotSystemPrompt(site, canonText);
+
+  let aiText = '';
+  let routerOk = false;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    const routerResp = await fetch(`${SUPABASE_URL}/functions/v1/claude-router`, {
+      method: 'POST',
+      headers: { 'X-Router-Key': routerProxyKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content }],
+        system: systemPrompt,
+        max_tokens: 300,
+        stream: false,
+        source: 'support-bot',
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (routerResp.ok) {
+      const data = await routerResp.json();
+      aiText = data.text || '';
+      routerOk = true;
+    } else {
+      await logErr(env, '/support/bot', 'claude-router non-200', await routerResp.text(), routerResp.status);
+    }
+  } catch (e) {
+    await logErr(env, '/support/bot', 'claude-router fetch failed/timeout', String(e), 502);
+  }
+
+  if (!routerOk || !aiText) {
+    await chatwootEscalate(env, ctx, accountId, conversationId, senderEmail, content, 'router_failure');
+    return new Response(JSON.stringify({ ok: true, escalated: true, reason: 'router_failure' }), { headers: jsonHeaders });
+  }
+
+  if (aiText.includes('[[HANDOFF]]')) {
+    await chatwootEscalate(env, ctx, accountId, conversationId, senderEmail, content, 'llm_handoff');
+    return new Response(JSON.stringify({ ok: true, escalated: true, reason: 'llm_handoff' }), { headers: jsonHeaders });
+  }
+
+  await chatwootReply(env, accountId, conversationId, aiText);
+  await logErr(env, '/support/bot', `reply (${site})`, `inbox=${inboxId} conv=${conversationId}`, 200, 'info');
+  return new Response(JSON.stringify({ ok: true, replied: true, site }), { headers: jsonHeaders });
 }
 
 // ── Shared public-site shell ───────────────────────────────────────────────────
@@ -1424,6 +1657,20 @@ function withPublicShell(html, path) {
   const shell = `<aside class="bd-shell-sidebar" aria-label="Primary navigation"><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></aside><header class="bd-shell-topbar"><button class="bd-shell-menu" type="button" aria-label="Open navigation" aria-controls="bd-mobile-drawer" aria-expanded="false" data-menu-toggle>☰</button><span class="bd-shell-route">${label}</span><div class="bd-shell-top-actions"><button class="bd-shell-theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark mode">☾ 
 <span>Dark</span></button><a class="bd-shell-cta" href="/subscribe?tier=investor">Investor $99/mo</a></div></header><div class="bd-shell-scrim" data-menu-scrim></div><aside class="bd-shell-drawer" id="bd-mobile-drawer" aria-label="Mobile navigation" data-mobile-drawer><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></aside><script>(function(){var d=document.querySelector('[data-mobile-drawer]'),s=document.querySelector('[data-menu-scrim]'),m=document.querySelector('[data-menu-toggle]');function close(){if(d)d.dataset.open='false';if(s)s.dataset.open='false';if(m)m.setAttribute('aria-expanded','false')}function open(){if(d)d.dataset.open='true';if(s)s.dataset.open='true';if(m)m.setAttribute('aria-expanded','true')}if(m)m.addEventListener('click',function(){d&&d.dataset.open==='true'?close():open()});if(s)s.addEventListener('click',close);document.querySelectorAll('[data-mobile-drawer] a').forEach(function(a){a.addEventListener('click',close)});document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});})();</script><script>(function(){var root=document.documentElement;var buttons=document.querySelectorAll('[data-theme-toggle]');function apply(theme){root.dataset.theme=theme;buttons.forEach(function(b){var light=theme==='dark';b.setAttribute('aria-label','Switch to '+(light?'light':'dark')+' mode');b.innerHTML=(light?'☼ <span>Light</span>':'☾ <span>Dark</span>')})}apply('light');buttons.forEach(function(b){b.addEventListener('click',function(){apply(root.dataset.theme==='dark'?'light':'dark')})})})();</script>`;
   return html.replace('</head>', PUBLIC_SHELL_STYLE + '</head>').replace(/<body[^>]*>/i, match => `${match}${shell}<div class="bd-shell-content">`).replace(/<\/body>/i, '</div></body>');
+}
+
+// ── Chatwoot website widget — additive to the existing full-page /chat, not a
+// replacement. No-ops (renders nothing) when the website token isn't bound
+// yet, so this ships dark until Ariel provisions the Cloudflare Worker secret.
+function injectChatwootWidget(html, env) {
+  const token = env.CHATWOOT_WEBSITE_TOKEN_BIDDEED;
+  if (!token) return html;
+  const base = env.CHATWOOT_BASE_URL || 'https://app.chatwoot.com';
+  const snippet = `<script>
+window.chatwootSettings={position:"right",type:"standard",launcherTitle:"Ask BidDeed",darkMode:"dark"};
+(function(d,t){var BASE_URL="${base}";var g=d.createElement(t),s=d.getElementsByTagName(t)[0];g.src=BASE_URL+"/packs/js/sdk.js";g.defer=true;g.async=true;s.parentNode.insertBefore(g,s);g.onload=function(){window.chatwootSDK.run({websiteToken:"${token}",baseUrl:BASE_URL})}})(document,"script");
+</script>`;
+  return html.replace(/<\/body>/i, snippet + '</body>');
 }
 
 // Named export so the internal-preview script
@@ -1721,7 +1968,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
 </html>
 `;
 
-      if (path === '/terms' || path === '/tos') return new Response(withPublicShell(TERMS_HTML, path),      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/terms' || path === '/tos') return new Response(injectChatwootWidget(withPublicShell(TERMS_HTML, path), env),      { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/unsubscribe') {
         const uEmail = (url.searchParams.get('email') || '').trim();
         let uMsg = 'No email address provided.';
@@ -1742,11 +1989,11 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const uHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Unsubscribed — BidDeed.AI</title><style>body{background:#020617;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:2rem}.card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:16px;padding:2rem;max-width:440px;text-align:center}h1{color:white;font-size:1.3rem;margin-bottom:.75rem}p{color:#94a3b8;font-size:.9rem;line-height:1.5}a{color:#f59e0b}</style></head><body><div class="card"><h1>${uOk ? 'Unsubscribed' : 'Request received'}</h1><p>${uMsg}</p><p style="margin-top:1rem"><a href="/">Return to BidDeed.AI</a></p></div></body></html>`;
         return new Response(withPublicShell(uHtml, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
-      if (path === '/privacy')                  return new Response(withPublicShell(PRIVACY_HTML, path),    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/privacy')                  return new Response(injectChatwootWidget(withPublicShell(PRIVACY_HTML, path), env),    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/section18-teaser')           return new Response(withPublicShell(SECTION18_TEASER_HTML, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/disclaimer')                return new Response(withPublicShell(DISCLAIMER_HTML, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/security')                  return new Response(withPublicShell(SECURITY_HTML, path),   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
-      if (path === '/data-retention')            return new Response(withPublicShell(DATA_RETENTION_HTML, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/disclaimer')                return new Response(injectChatwootWidget(withPublicShell(DISCLAIMER_HTML, path), env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/security')                  return new Response(injectChatwootWidget(withPublicShell(SECURITY_HTML, path), env),   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/data-retention')            return new Response(injectChatwootWidget(withPublicShell(DATA_RETENTION_HTML, path), env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
       // ── /subscribe ───────────────────────────────────────────────────────
       // Served as an HTML interstitial (not a raw 302) so PostHog can record
@@ -1772,7 +2019,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           .replace('INTERVAL_PLACEHOLDER_annual_active', safeInterval === 'annual' ? 'active' : '')
           .replace(/INTERVAL_PLACEHOLDER/g, safeInterval)
           .replace(/TIER_PLACEHOLDER/g, safeTier), path);
-        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
+        return new Response(injectChatwootWidget(html, env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
       // ── POST /subscribe/checkout — proxies to biddeed-checkout's cold
@@ -1878,7 +2125,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const pDate = url.searchParams.get('date') || '';
         const prefill = pMcaId ? { mca_id: pMcaId, address: pAddress, county: pCounty, county_name: pCounty ? toDisplay(pCounty) : '', date: pDate } : null;
         const prefillJson = JSON.stringify(prefill).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
-        const html = withPublicShell(BUY_REPORT_HTML.replace('"PREFILL_PLACEHOLDER"', prefillJson), path);
+        const html = injectChatwootWidget(withPublicShell(BUY_REPORT_HTML.replace('"PREFILL_PLACEHOLDER"', prefillJson), path), env);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': prefill ? 'no-store' : 'public,max-age=300' } });
       }
 
@@ -2102,14 +2349,14 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const slug = path.replace('/county/', '').toLowerCase().replace(/-/g,'_').replace(/\/.*$/,'');
         if (!slug) return Response.redirect('/counties', 302);
         const [data, lots, rtConfig] = await Promise.all([fetchCountyData(slug), fetchCountyLots(slug), fetchRuntimeConfig()]);
-        const html = withPublicShell(buildCountyPage(slug, data, lots, rtConfig), path);
+        const html = injectChatwootWidget(withPublicShell(buildCountyPage(slug, data, lots, rtConfig), path), env);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=120' } });
       }
 
       // ── /counties — all counties index ───────────────────────────────────
       if (path === '/counties') {
         const ciConfig = await fetchRuntimeConfig();
-        const html = withPublicShell(buildCountiesIndex(ciConfig), path);
+        const html = injectChatwootWidget(withPublicShell(buildCountiesIndex(ciConfig), path), env);
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
@@ -2432,13 +2679,13 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // marketing. Server-rendered like /county pages so it's fully
       // crawlable; BLOG_POSTS is a plain array below, add new posts there.
       if (path === '/blog') {
-        return new Response(withPublicShell(buildBlogIndex(), path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        return new Response(injectChatwootWidget(withPublicShell(buildBlogIndex(), path), env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
       if (path.startsWith('/blog/')) {
         const slug = path.slice('/blog/'.length);
         const post = BLOG_POSTS.find(p => p.slug === slug);
         if (!post) return new Response('Not found', { status: 404 });
-        return new Response(withPublicShell(buildBlogPost(post), path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        return new Response(injectChatwootWidget(withPublicShell(buildBlogPost(post), path), env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
       }
 
       // ── GET /auctions?county=&days=&type=&limit= — property cards for chat ──
@@ -2929,6 +3176,11 @@ ${DISCLAIMER_SHORT}`;
         return new Response(readable, {
           headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', ...corsHeaders(origin) },
         });
+      }
+
+      // ── POST /support/bot — Chatwoot Agent Bot webhook ───────────────────
+      if (path === '/support/bot' && method === 'POST') {
+        return handleSupportBot(request, env, ctx, url);
       }
 
       // ── GET /chat ────────────────────────────────────────────────────────
