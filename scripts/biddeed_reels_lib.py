@@ -907,7 +907,7 @@ def match_zw_parcel_geom(county: str, parcel_id: str) -> dict | None:
         return None
     county_q = (county or "").replace("_", " ").lower()
     rows = run_sql(f"""
-        select z.id as zw_parcel_id, z.centroid_lat, z.centroid_lon,
+        select z.id as zw_parcel_id, z.centroid_lat, z.centroid_lon, z.pa_link,
                ST_NPoints(z.geom) as npoints,
                ST_AsGeoJSON(
                  case when ST_NPoints(z.geom) > 40
@@ -1336,4 +1336,303 @@ def assemble_video_v2(images: dict, audio_path: str, overlays: dict,
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg v2 assembly failed: {result.stderr[-3000:]}")
+    return _ffprobe_duration(out_path)
+
+
+# ---------------------------------------------------------------------------
+# v3 (issue #19761) -- PRESALE (calendar/upcoming-auction) reels + deal pages.
+# Builds on v2's parcel-outline imagery / short-link / QR path -- everything
+# above this section (match_zw_parcel_geom, build_parcel_aerial_urls,
+# build_pin_aerial_urls, geocode_address, streetview_metadata_ok,
+# fetch_streetview, score_condition, ensure/gen_short_code, generate_qr_png,
+# elevenlabs_tts_v3) is reused as-is. Only ranking, script/caption, and video
+# assembly are presale-specific (different beat text: opening bid instead of
+# sold price, a countdown instead of a sale-outcome delta).
+# ---------------------------------------------------------------------------
+
+# T4 price_tier -> numeric component. v_upcoming_auctions_ssot.price_tier was
+# null on all 8 live 2026-09-04 rows checked this session -- no real tier
+# value has been observed yet, so this mapping is INFERRED from the column
+# name alone, not from a confirmed enum. Any value not in this map (including
+# null) falls back to the 50 neutral midpoint, same as every other unscored
+# input to rank_presale_score() below -- a guessed mapping never has more
+# than +/-15 * 0.5 = 7.5pts of influence on the final 0-100 score either way.
+_PRICE_TIER_SCORE = {
+    "entry": 65.0, "starter": 65.0, "low": 65.0,
+    "mid": 50.0, "core": 50.0,
+    "premium": 35.0, "high": 35.0, "luxury": 20.0,
+}
+
+
+def rank_presale_score(gap_pct: float | None, zip_score: float | None,
+                        price_tier: str | None, condition_score: int | None) -> float:
+    """v3 T4: presale_rank = f(assessed-vs-bid gap %, zip_score, price_tier,
+    condition_score). Weights (0.4 gap / 0.25 zip / 0.2 condition / 0.15
+    price_tier) mirror rank_score()'s existing discount/condition/size split
+    for postsale rows, extended with a zip factor. Every input can be null on
+    a real row (opening_bid/judgment_amount/price_tier/zip_score were null on
+    8/8 live rows checked for 2026-09-04) -- a null input contributes the 50
+    neutral midpoint rather than crashing or zeroing the row out of ranking
+    entirely. Distinct from rank_score()/the `rank_score` column, which stay
+    postsale-only (see the `presale_rank` column's own comment)."""
+    gap_component = 50.0 if gap_pct is None else max(0.0, min(gap_pct, 100.0))
+    zip_component = 50.0 if zip_score is None else max(0.0, min(float(zip_score), 100.0))
+    condition_component = 50.0 if condition_score is None else (100 - condition_score)
+    price_component = _PRICE_TIER_SCORE.get((price_tier or "").strip().lower(), 50.0)
+    return round(
+        gap_component * 0.4 + zip_component * 0.25 + condition_component * 0.2 + price_component * 0.15, 2
+    )
+
+
+def pick_presale_hook_variant(gap_pct: float | None) -> str:
+    """3 hook variants keyed to |gap_pct| band, per T4 (>=50%, 25-50%, <25%).
+    A 4th case (gap_pct unknown -- no opening_bid/judgment_amount posted yet)
+    is not one of the issue's 3 named bands but is a real, common live state
+    (8/8 rows checked 2026-09-04) that must not crash or fabricate a number."""
+    if gap_pct is None:
+        return "Auction day is almost here for this Florida property."
+    mag = abs(gap_pct)
+    if mag >= 50:
+        return "This opens at less than half what the county says it's worth."
+    if mag >= 25:
+        return "This opens well under the county's own assessed value."
+    return "This opens close to the county's full assessed value."
+
+
+def build_presale_script_and_caption(county_slug: str, sale_type: str,
+                                      opening_bid: float | None, judgment_amount: float | None,
+                                      assessed_value: float | None, condition: dict,
+                                      days_to_auction: int | None, short_url: str) -> dict:
+    """v3 T4 presale beat-list script (hook -> bid -> reveal -> gap ->
+    condition -> payoff -> CTA). Same no-names/no-vendor guardrail as v1/v2's
+    script builders -- only county/sale-type/dollar/condition-tier controlled
+    fields are ever interpolated, never a free-text field."""
+    county_name = county_display(county_slug)
+    sale_label = _SALE_TYPE_LABEL.get(sale_type, "auction sale")
+    tier = (condition or {}).get("general_condition_tier", "unknown")
+    condition_phrase = _CONDITION_PHRASE.get(tier, _CONDITION_PHRASE["unknown"])
+
+    basis_bid = opening_bid if opening_bid is not None else judgment_amount
+    basis_label = "Opening bid" if opening_bid is not None else ("Judgment amount" if judgment_amount is not None else None)
+
+    gap_pct = None
+    gap_sentence = ""
+    if basis_bid and assessed_value and assessed_value > 0:
+        gap_pct = round((assessed_value - basis_bid) / assessed_value * 100, 1)
+        direction = "below" if gap_pct > 0 else "above"
+        gap_sentence = f"That's {abs(gap_pct):.0f}% {direction} the county's ${assessed_value:,.0f} assessed value."
+
+    hook = pick_presale_hook_variant(gap_pct)
+    bid_sentence = f"{basis_label} is ${basis_bid:,.0f}." if basis_bid else "Opening bid hasn't posted yet."
+    day_word = "day" if days_to_auction == 1 else "days"
+    reveal = (
+        f"Here's the parcel in {county_name}, Florida -- a {sale_label} coming up in "
+        f"{days_to_auction if days_to_auction is not None else 'a few'} {day_word}."
+    )
+    condition_sentence = f"Visual condition points to {condition_phrase}."
+    payoff = "Bid with data, not guesses."
+    cta = "Track it now -- biddeed.ai."
+
+    parts = [hook, bid_sentence, reveal]
+    if gap_sentence:
+        parts.append(gap_sentence)
+    parts.append(condition_sentence)
+    parts.append(payoff)
+    parts.append(cta)
+    script_text = " ".join(parts)
+
+    # v3 eleven_v3-tagged variant for TTS only -- same tag convention as
+    # build_script_and_caption_v2 (hook [excited], CTA [warm], everything
+    # else untagged/neutral). Never leaks into caption_text.
+    v3_parts = [f"[excited] {hook}", bid_sentence, reveal]
+    if gap_sentence:
+        v3_parts.append(f"[surprised] {gap_sentence}")
+    v3_parts.append(condition_sentence)
+    v3_parts.append(payoff)
+    v3_parts.append(f"[warm] {cta}")
+    script_text_v3 = " ".join(v3_parts)[:650]
+
+    caption_text = f"{hook}\n▶ Track it: {short_url}"
+
+    hashtags = list(_HASHTAG_POOL[:4])
+    county_tag = "#" + county_slug.replace("_", "").title() + "County"
+    hashtags.append(county_tag)
+    hashtags.append("#TaxDeedSale" if sale_type == "tax_deed" else "#ForeclosureAuction")
+    hashtags.append("#UpcomingAuction")
+    hashtags = hashtags[:8]
+
+    return {
+        "script_text": script_text,
+        "script_text_v3": script_text_v3,
+        "caption_text": caption_text,
+        "hashtags": hashtags,
+        "gap_pct": gap_pct,
+        "basis_bid": basis_bid,
+        "basis_label": basis_label,
+    }
+
+
+def month_abbr_day(date_str: str) -> str:
+    """'2026-09-04' -> 'SEP 4' (no strftime %-d -- not portable across libc,
+    live-verified failure mode on some ffmpeg/py builds)."""
+    import datetime
+    d = datetime.date.fromisoformat(date_str)
+    months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+    return f"{months[d.month - 1]} {d.day}"
+
+
+def assemble_video_presale(images: dict, audio_path: str, overlays: dict,
+                            qr_path: str, short_url: str, out_path: str) -> float:
+    """v3 T4 presale edit -- same 5-beat + CTA-card structure as
+    assemble_video_v2 (hook/reveal/street/condition/payoff, 27s, + 3s
+    QR/short-URL CTA card = 30s, 1080x1920, 30fps), with presale beat text:
+    hook = "AUCTION {DAY}" slam + opening-bid sub (v2's hook was "SOLD $X"),
+    street beat = a static "Assessed $Y" figure (v2 animated a delta-%
+    count-up here; presale has no sale-outcome delta to animate against, so
+    this is a static drawtext, not a re-implementation of the count-up),
+    payoff = "Bid with data, not guesses." (v2's was different), CTA card
+    gains a "{N} days to auction" countdown chip. `overlays` requires an
+    `auction_date_label` (pre-formatted "SEP 4" via _month_abbr_day),
+    `opening_bid_label` ("Opening bid $X,XXX" or "Opening bid TBD"),
+    `assessed_value`, `county`, `sale_type_label`, `condition_tier`,
+    `condition_bullets` (<=2), `days_to_auction`.
+
+    Deviations from the issue's literal beat list (logged, not silent): hard
+    cuts between beats (no crossfade/pulsing-outline re-render), no bass-hit
+    audio cue on the hook and no music bed under the voice track -- same
+    no-unlicensed-audio call v1/v2 already made (no royalty-free asset exists
+    anywhere in this repo/org).
+    """
+    font = _ensure_font()
+    fps = V2_FPS
+
+    filter_parts = []
+    labels = []
+    for i, key in enumerate(V2_ORDER):
+        d = V2_SEGMENT_SECONDS[key]
+        frames = max(int(d * fps), 1)
+        zoom_expr = "min(zoom+0.0035,1.12)" if key == "hook" else "min(zoom+0.0009,1.18)"
+        cur = f"p{i}raw"
+        # Same load-bearing trim= as assemble_video_v2 -- see that function's
+        # comment for why an untrimmed looped input + trim=end_frame is
+        # required (a bare -t on the input multiplies frame count with
+        # zoompan's own `d` and starves later concat segments).
+        filter_parts.append(
+            f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            f"crop=1080:1920,zoompan=z='{zoom_expr}':d={frames}:s=1080x1920:fps={fps},"
+            f"trim=start_frame=0:end_frame={frames},setpts=PTS-STARTPTS[{cur}]"
+        )
+
+        if key == "hook":
+            hook_text = f"AUCTION {overlays['auction_date_label']}"
+            nxt = f"p{i}a"
+            hook_alpha = "'min(t/0.25,1)'"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, hook_text, fontcolor='white', fontsize=110, box=1, boxcolor=f'{BRAND_NAVY}@0.75', boxborderw=24, x='(w-text_w)/2', y='(h-text_h)/2-60', alpha=hook_alpha)}[{nxt}]"
+            )
+            cur = nxt
+            sub_text = overlays.get("opening_bid_label") or "Opening bid TBD"
+            nxt2 = f"p{i}b"
+            sub_alpha = "'if(lt(t,0.3),0,min((t-0.3)/0.25,1))'"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, sub_text, fontcolor='white', fontsize=48, box=1, boxcolor=f'{BRAND_AMBER}@0.85', boxborderw=16, x='(w-text_w)/2', y='(h+text_h)/2+30', alpha=sub_alpha)}[{nxt2}]"
+            )
+            cur = nxt2
+
+        elif key == "reveal":
+            lower_third = f"{overlays['county']} County - {overlays['sale_type_label']}"
+            nxt = f"p{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, lower_third, fontcolor='white', fontsize=44, box=1, boxcolor=f'{BRAND_NAVY}@0.7', boxborderw=16, x='(w-text_w)/2', y=1650)}[{nxt}]"
+            )
+            cur = nxt
+
+        elif key == "street":
+            if overlays.get("assessed_value"):
+                assessed_text = f"Assessed ${overlays['assessed_value']:,.0f}"
+                nxt = f"p{i}a"
+                filter_parts.append(
+                    f"[{cur}]{_dt(font, assessed_text, fontcolor='white', fontsize=64, box=1, boxcolor=f'{BRAND_NAVY}@0.75', boxborderw=20, x='(w-text_w)/2', y=1550)}[{nxt}]"
+                )
+                cur = nxt
+
+        elif key == "condition":
+            tier = (overlays.get("condition_tier") or "unknown").title()
+            nxt = f"p{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, tier + ' condition', fontcolor='#020617', fontsize=54, box=1, boxcolor=BRAND_AMBER, boxborderw=20, x='(w-text_w)/2', y=180)}[{nxt}]"
+            )
+            cur = nxt
+            for bi, bullet in enumerate((overlays.get("condition_bullets") or [])[:2]):
+                nxt2 = f"p{i}b{bi}"
+                y = 1480 + bi * 100
+                filter_parts.append(
+                    f"[{cur}]{_dt(font, '- ' + bullet, fontcolor='white', fontsize=38, box=1, boxcolor=f'{BRAND_NAVY}@0.65', boxborderw=14, x='(w-text_w)/2', y=y)}[{nxt2}]"
+                )
+                cur = nxt2
+
+        elif key == "payoff":
+            nxt = f"p{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, 'Bid with data, not guesses.', fontcolor='white', fontsize=58, box=1, boxcolor=f'{BRAND_NAVY}@0.6', boxborderw=20, x='(w-text_w)/2', y='(h-text_h)/2')}[{nxt}]"
+            )
+            cur = nxt
+
+        filter_parts.append(f"[{cur}]copy[pb{i}]")
+        labels.append(f"pb{i}")
+
+    # -- CTA end card: navy background + QR + short URL + biddeed.ai wordmark
+    # + a countdown chip (the presale-only addition vs v2's card) --
+    card_idx = len(V2_ORDER)
+    qr_idx = len(V2_ORDER) + 1
+    filter_parts.append(
+        f"color=c={BRAND_NAVY}:s=1080x1920:d={V2_END_CARD_SECONDS}:r={fps}[pcardbg]"
+    )
+    filter_parts.append(f"[{qr_idx}:v]scale=440:440[pqrscaled]")
+    filter_parts.append("[pcardbg][pqrscaled]overlay=(W-w)/2:360[pcardqr]")
+    days = overlays.get("days_to_auction")
+    countdown_text = f"{days} day{'s' if days != 1 else ''} to auction" if days is not None else "Auction coming up"
+    filter_parts.append(
+        f"[pcardqr]{_dt(font, countdown_text, fontcolor='#020617', fontsize=44, box=1, boxcolor=BRAND_AMBER, boxborderw=16, x='(w-text_w)/2', y=850)}[pcardcd]"
+    )
+    filter_parts.append(
+        f"[pcardcd]{_dt(font, short_url, fontcolor=BRAND_AMBER.replace('0x', '#'), fontsize=52, x='(w-text_w)/2', y=980)}[pcardurl]"
+    )
+    filter_parts.append(
+        f"[pcardurl]{_dt(font, 'biddeed.ai', fontcolor='white', fontsize=66, x='(w-text_w)/2', y=1090)}[pcardbrand]"
+    )
+    filter_parts.append(
+        f"[pcardbrand]{_dt(font, 'Link in bio', fontcolor='#94A3B8', fontsize=34, x='(w-text_w)/2', y=1190)}[pcard]"
+    )
+    labels.append("pcard")
+
+    concat_inputs = "".join(f"[{l}]" for l in labels)
+    filter_parts.append(f"{concat_inputs}concat=n={len(labels)}:v=1:a=0[pvconcat]")
+
+    main_duration = sum(V2_SEGMENT_SECONDS.values())
+    total_duration = main_duration + V2_END_CARD_SECONDS
+    audio_idx = len(V2_ORDER)
+    filter_parts.append(
+        f"[{audio_idx}:a]atrim=0:{main_duration},apad=pad_dur={V2_END_CARD_SECONDS}[paout]"
+    )
+
+    filter_complex = ";".join(filter_parts)
+
+    cmd = ["ffmpeg", "-y"]
+    for key in V2_ORDER:
+        cmd += ["-loop", "1", "-i", images[key]]
+    cmd += ["-i", audio_path]
+    cmd += ["-loop", "1", "-t", str(V2_END_CARD_SECONDS), "-i", qr_path]
+    cmd += [
+        "-filter_complex", filter_complex,
+        "-map", "[pvconcat]",
+        "-map", "[paout]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-t", str(total_duration),
+        out_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg presale assembly failed: {result.stderr[-3000:]}")
     return _ffprobe_duration(out_path)

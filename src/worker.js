@@ -103,6 +103,39 @@ async function sha256Hex(str) {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// issue #19761 T2 — presale deal-page paid gate. This site's only auth is
+// the MCP API key issued after a real Stripe checkout (Bearer header or
+// ?key= query param, same shape /report/:mca_id already accepts) -- there is
+// no cookie/session login anywhere in this Worker, so reusing that exact
+// mechanism IS "reuse the existing biddeed.ai auth", not a new auth system.
+function extractApiKey(request, url) {
+  const authHeader = request.headers.get('Authorization') || '';
+  if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
+  return url.searchParams.get('key') || '';
+}
+
+async function fetchPaidTier(env, apiKey) {
+  if (!apiKey) return { ok: false, tier: null };
+  const keyHash = await sha256Hex(apiKey);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_paid_tier`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ p_key_hash: keyHash }),
+    });
+    if (!res.ok) {
+      await logErr(env, '/deal', 'check_paid_tier non-2xx', await res.text(), res.status);
+      return { ok: false, tier: null };
+    }
+    const rows = await res.json().catch(() => null);
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    return row || { ok: false, tier: null };
+  } catch (e) {
+    await logErr(env, '/deal', 'check_paid_tier failed', String(e), 500);
+    return { ok: false, tier: null };
+  }
+}
+
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
@@ -2146,9 +2179,29 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         }
         if (!reel) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
         const submitted = url.searchParams.get('submitted') === '1';
-        const html = buildDealLandingHtml(reel, path, submitted);
+        // issue #19761 T2: presale rows (phase='presale', calendar/upcoming
+        // auctions) render the UPCOMING template with a paid-tier gate on the
+        // intel block; postsale rows (phase='postsale', the v1/v2 default)
+        // keep the existing template untouched.
+        const apiKey = extractApiKey(request, url);
+        let html;
+        if (reel.phase === 'presale') {
+          const paidTier = apiKey ? await fetchPaidTier(env, apiKey) : { ok: false, tier: null };
+          html = buildPresaleDealHtml(reel, path, submitted, !!paidTier.ok);
+        } else {
+          html = buildDealLandingHtml(reel, path, submitted);
+        }
+        // A URL carrying a `key`/Bearer credential is a personalized variant
+        // of this page -- never let a crawler index it (T2: "noindex for
+        // gated URLs"). Cache-Control follows the same rule so a CDN never
+        // serves one visitor's gated render to another.
+        const personalized = !!apiKey;
         return new Response(method === 'HEAD' ? null : withPublicShell(html, path), {
-          headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': reel.status === 'pending_approval' ? 'no-store' : 'public,max-age=300' },
+          headers: {
+            'Content-Type': 'text/html;charset=UTF-8',
+            'Cache-Control': (reel.status === 'pending_approval' || personalized) ? 'no-store' : 'public,max-age=300',
+            ...(personalized ? { 'X-Robots-Tag': 'noindex' } : {}),
+          },
         });
       }
 
@@ -2165,6 +2218,12 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         }
         const email = (form.get('email') || '').toString().trim();
         const caseNumber = (form.get('case_number') || '').toString().trim() || null;
+        // issue #19761 T2: presale's "Set alert" form carries a hidden
+        // source=presale_deal field; postsale's form has none, so this
+        // defaults to 'reel' exactly like before this change. The RPC itself
+        // also allow-lists this value server-side (never trusts the client).
+        const sourceRaw = (form.get('source') || '').toString().trim();
+        const source = sourceRaw === 'presale_deal' ? 'presale_deal' : 'reel';
         const previewQs = url.searchParams.get('preview');
         const backTo = previewQs ? `${basePath}?preview=${encodeURIComponent(previewQs)}` : basePath;
         if (!email || !email.includes('@')) {
@@ -2179,6 +2238,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
               p_utm_source: url.searchParams.get('utm_source') || null,
               p_utm_medium: url.searchParams.get('utm_medium') || null,
               p_utm_campaign: url.searchParams.get('utm_campaign') || null,
+              p_source: source,
             }),
           });
         } catch (e) {
@@ -3268,6 +3328,153 @@ ${ctaBlock}
 }
 function previewQueryFor(reel) {
   return reel.status === 'pending_approval' ? `?preview=${encodeURIComponent(reel.id)}` : '';
+}
+
+// ── BidDeed Reels v3 (issue #19761 T2) — PRESALE (calendar/upcoming-auction)
+// deal-page variant. Same public/no-names/no-vendor guardrail as
+// buildDealLandingHtml (fields still come from get_reel_landing()'s
+// allow-list) plus a login+paid-tier gate on one block. Security note: the
+// gated numbers are only ever interpolated into the returned HTML when
+// `paidOk` is true -- an unauthorized viewer's HTML never contains the real
+// figures at all (not a CSS-only blur of real data), so there is nothing to
+// recover via view-source.
+function presaleMonthAbbrDay(isoDate) {
+  if (!isoDate) return '';
+  const [y, m, d] = String(isoDate).split('-').map(Number);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[(m || 1) - 1]} ${d || ''}`.trim();
+}
+
+function buildPresaleDealHtml(reel, landingPath, submitted, paidOk) {
+  const fmtMoney = (n) => (n == null ? null : '$' + Math.round(Number(n)).toLocaleString());
+  const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed' : 'Foreclosure';
+  const cond = reel.condition_json || {};
+  const intel = cond.presale_intel || {};
+  const tier = cond.general_condition_tier || 'unknown';
+  const tierLabel = tier === 'unknown' ? 'Condition pending review' : tier.charAt(0).toUpperCase() + tier.slice(1) + ' condition';
+  const obs = ['roof', 'exterior'].map(k => cond[k] && cond[k].observation).filter(Boolean).slice(0, 2);
+  const dateLabel = presaleMonthAbbrDay(reel.auction_date);
+  const title = `AUCTION ${dateLabel} — ${countyName} County ${saleLabel}`;
+  const openingBidFmt = fmtMoney(reel.opening_bid);
+  const judgmentFmt = fmtMoney(reel.judgment_amount);
+  const assessedFmt = fmtMoney(reel.assessed_value);
+  const description = `${saleLabel} sale ${dateLabel ? 'on ' + dateLabel : ''} in ${countyName} County.${assessedFmt ? ` Assessed ${assessedFmt}.` : ''}`.trim();
+  const ogImage = reel.aerial_tight_url || reel.aerial_wide_url || '';
+  const days = reel.days_to_auction;
+  const countdownLabel = days == null ? 'Auction date set' : `${days} day${days === 1 ? '' : 's'} to auction`;
+  const previewBanner = reel.status === 'pending_approval'
+    ? `<div class="psale-banner">PREVIEW — pending approval, not yet public</div>` : '';
+  const canonicalUrl = `https://biddeed.ai${landingPath}`;
+
+  const ctaBlock = submitted
+    ? `<div class="psale-thanks">Alert set — we'll email you before the gavel drops.</div>`
+    : `<form method="POST" action="${escHtml(landingPath)}/lead${escHtml(previewQueryFor(reel))}">
+<input type="hidden" name="case_number" value="${escHtml(reel.case_number)}">
+<input type="hidden" name="source" value="presale_deal">
+<input type="email" name="email" placeholder="you@email.com" required>
+<button type="submit">Set alert</button>
+</form>`;
+
+  const gatedInner = paidOk
+    ? `
+<div class="psale-gate-row"><span class="label">Est. Max Bid</span><span class="value">${escHtml(fmtMoney(intel.ml_max_bid) || 'Pending')}</span></div>
+<div class="psale-gate-row"><span class="label">Deal Signal</span><span class="value">${escHtml(intel.ml_recommendation || 'Pending')}</span></div>
+<div class="psale-gate-row"><span class="label">Flip Rate (ZIP)</span><span class="value">${intel.flip_rate_pct != null ? escHtml(Number(intel.flip_rate_pct).toFixed(1) + '%') : 'Pending'}</span></div>
+<div class="psale-gate-row"><span class="label">Avg ROI (ZIP)</span><span class="value">${intel.avg_roi != null ? escHtml(Number(intel.avg_roi).toFixed(1) + '%') : 'Pending'}</span></div>
+<div class="psale-gate-row"><span class="label">ZIP Score</span><span class="value">${intel.zip_score != null ? escHtml(String(intel.zip_score)) : 'Pending'}</span></div>
+<div class="psale-gate-row"><span class="label">Anchors in ZIP</span><span class="value">${intel.anchors_in_zip != null ? escHtml(String(intel.anchors_in_zip)) : 'Pending'}</span></div>
+<div class="psale-gate-row"><span class="label">Senior Liens</span><span class="value">${escHtml(intel.senior_liens || 'Pending — title search not run')}</span></div>
+${intel.pa_link ? `<div class="psale-gate-row"><span class="label">Property Record</span><span class="value"><a href="${escHtml(intel.pa_link)}" target="_blank" rel="noopener">County Appraiser &rarr;</a></span></div>` : ''}
+${judgmentFmt ? `<div class="psale-gate-row"><span class="label">Judgment Amount</span><span class="value">${escHtml(judgmentFmt)}</span></div>` : ''}
+`
+    : `
+<div class="psale-gate-row blur"><span class="label">Est. Max Bid</span><span class="value">$•••,•••</span></div>
+<div class="psale-gate-row blur"><span class="label">Deal Signal</span><span class="value">••••• •••••</span></div>
+<div class="psale-gate-row blur"><span class="label">Flip Rate (ZIP)</span><span class="value">••.•%</span></div>
+<div class="psale-gate-row blur"><span class="label">Avg ROI (ZIP)</span><span class="value">••.•%</span></div>
+<div class="psale-gate-row blur"><span class="label">ZIP Score</span><span class="value">••</span></div>
+<div class="psale-gate-row blur"><span class="label">Anchors in ZIP</span><span class="value">•</span></div>
+<div class="psale-gate-row blur"><span class="label">Senior Liens</span><span class="value">••••••••</span></div>
+<div class="psale-gate-row blur"><span class="label">Property Record</span><span class="value">••••••••</span></div>
+`;
+
+  const gateOverlay = paidOk ? '' : `<div class="psale-gate-overlay"><a href="/subscribe?tier=investor">Unlock with BidDeed Pro &rarr;</a></div>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${escHtml(title)} — BidDeed.AI</title>
+<meta name="description" content="${escHtml(description)}">
+<link rel="canonical" href="${escHtml(canonicalUrl)}">
+<meta property="og:title" content="${escHtml(title)}">
+<meta property="og:description" content="${escHtml(description)}">
+<meta property="og:type" content="website">
+${ogImage ? `<meta property="og:image" content="${escHtml(ogImage)}">` : ''}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escHtml(title)}">
+<meta name="twitter:description" content="${escHtml(description)}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;padding:2rem 1rem;display:flex;justify-content:center}
+.psale-card{max-width:520px;width:100%}
+.psale-banner{background:#F59E0B;color:#020617;font-weight:700;text-align:center;padding:.5rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem}
+.psale-img{width:100%;border-radius:12px;margin-bottom:1rem;border:1px solid #1e293b;display:block}
+h1{font-size:1.35rem;margin-bottom:.25rem;color:#fff}
+.psale-sub{color:#94a3b8;font-size:.95rem;margin-bottom:.75rem}
+.psale-countdown{display:inline-block;background:#F59E0B;color:#020617;font-weight:800;padding:.35rem .8rem;border-radius:999px;font-size:.8rem;margin-bottom:1rem}
+.psale-stats{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem}
+.psale-stat{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:.85rem}
+.psale-stat .label{color:#64748b;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em}
+.psale-stat .value{color:#fff;font-size:1.1rem;font-weight:700;margin-top:.2rem}
+.psale-badge{display:inline-block;background:#F59E0B;color:#020617;font-weight:700;padding:.3rem .7rem;border-radius:999px;font-size:.8rem;margin:.5rem 0}
+.psale-obs{color:#cbd5e1;font-size:.9rem;line-height:1.6;margin-bottom:1.5rem}
+.psale-cta{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:1.25rem;margin-top:.75rem}
+.psale-cta h2{font-size:1.05rem;color:#fff;margin-bottom:.75rem}
+.psale-cta input{width:100%;padding:.7rem;border-radius:8px;border:1px solid #334155;background:#020617;color:#fff;margin-bottom:.6rem;font-size:.9rem}
+.psale-cta button{width:100%;padding:.75rem;border-radius:8px;border:none;background:#F59E0B;color:#020617;font-weight:700;font-size:.9rem;cursor:pointer}
+.psale-thanks{color:#4ade80;font-size:.9rem}
+.psale-gate{position:relative;background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:1.25rem;margin-top:1.25rem;overflow:hidden}
+.psale-gate h2{font-size:1.05rem;color:#fff;margin-bottom:.9rem}
+.psale-gate-row{display:flex;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid #1e293b;font-size:.85rem}
+.psale-gate-row:last-child{border-bottom:none}
+.psale-gate-row .label{color:#94a3b8}
+.psale-gate-row .value{color:#fff;font-weight:600;text-align:right}
+.psale-gate-row .value a{color:#F59E0B;text-decoration:none}
+.psale-gate-row.blur{filter:blur(5px);user-select:none;pointer-events:none}
+.psale-gate-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(15,23,42,0)0%,rgba(15,23,42,.85)40%)}
+.psale-gate-overlay a{background:#F59E0B;color:#020617;font-weight:800;padding:.7rem 1.2rem;border-radius:8px;text-decoration:none;font-size:.9rem}
+</style>
+</head>
+<body>
+<div class="psale-card">
+${previewBanner}
+${ogImage ? `<img class="psale-img" src="${escHtml(ogImage)}" alt="Parcel aerial with boundary outline">` : ''}
+<h1>${escHtml(title)}</h1>
+<div class="psale-sub">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)} Sale${reel.auction_date ? ' &middot; ' + escHtml(reel.auction_date) : ''}</div>
+<div class="psale-countdown">${escHtml(countdownLabel)}</div>
+<div class="psale-stats">
+  <div class="psale-stat"><div class="label">Opening Bid</div><div class="value">${escHtml(openingBidFmt || 'Pending')}</div></div>
+  <div class="psale-stat"><div class="label">Assessed Value</div><div class="value">${escHtml(assessedFmt || '&mdash;')}</div></div>
+</div>
+<div class="psale-badge">${escHtml(tierLabel)}</div>
+${obs.length ? `<div class="psale-obs">${obs.map(escHtml).join('<br>')}</div>` : ''}
+${reel.street_url ? `<img class="psale-img" src="${escHtml(reel.street_url)}" alt="Street-level view">` : ''}
+<div class="psale-gate">
+<h2>Premium intel</h2>
+${gatedInner}
+${gateOverlay}
+</div>
+<div class="psale-cta">
+<h2>Get notified before the gavel drops</h2>
+${ctaBlock}
+</div>
+</div>
+</body>
+</html>`;
 }
 
 // ── BidDeed Reels v2 (issue #19752 directive #4C, new T8) — reels gallery +

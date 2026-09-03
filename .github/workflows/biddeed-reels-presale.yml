@@ -1,0 +1,64 @@
+name: biddeed-reels-presale
+# BidDeed Reels v3 (issue #19761) -- PRESALE (calendar/upcoming-auction) deal
+# pages + reels, T-2 days before the auction date. GENERATES AND STAGES
+# ONLY: every row lands at status='pending_approval' or 'error' (see
+# scripts/biddeed_reels_lib.py and scripts/biddeed_reels_pipeline_presale.py).
+# This workflow never posts to a social platform and never sends anything to
+# anyone -- same guardrail as biddeed-reels-daily.yml (v1/v2, postsale).
+#
+# CRON TIMING: independent of the postsale pipeline's auction_buyer_sightings
+# dependency (that data only exists AFTER an auction closes) -- this reads
+# public.v_upcoming_auctions_ssot instead, which is calendar data populated
+# ahead of the sale. 10:00 UTC gives Ariel a full business day to review
+# before the T-2 window closes, and stays clear of biddeed-reels-daily.yml's
+# 11:00 UTC postsale run so the two never contend for the same ffmpeg-heavy
+# runner slot.
+on:
+  workflow_dispatch:
+    inputs:
+      auction_date:
+        description: 'YYYY-MM-DD, defaults to today+2 (UTC) if blank'
+        required: false
+        default: ''
+      force:
+        description: 'Re-fetch imagery / re-render reels for rows that already have them'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: "0 10 * * *"    # 6:00 AM EDT / 5:00 AM EST (10:00 UTC)
+concurrency: {group: biddeed-reels-presale, cancel-in-progress: false}
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          pip install qrcode
+
+      - name: Run BidDeed Reels presale pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ROUTER_PROXY_KEY: ${{ secrets.ROUTER_PROXY_KEY }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.auction_date }}" ]; then
+            ARGS="$ARGS --auction-date ${{ github.event.inputs.auction_date }}"
+          fi
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          python scripts/biddeed_reels_pipeline_presale.py $ARGS
