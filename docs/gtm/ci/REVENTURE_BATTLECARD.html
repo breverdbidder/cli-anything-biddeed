@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BidDeed.AI / Winner Data vs Reventure — Battle Card</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#1E3A5F;--orange:#F59E0B;--slate:#0F172A;
+  --green:#22C55E;--red:#EF4444;--text:#E2E8F0;
+  --muted:#94A3B8;--border:#1E3A5F;--card:#0F172A;--void:#020617;
+}
+body{background:var(--void);color:var(--text);font-family:Inter,system-ui,sans-serif;font-size:14px;line-height:1.6}
+a{color:var(--orange);text-decoration:none}
+h1,h2,h3{font-weight:700;letter-spacing:-.02em}
+.container{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
+.header{text-align:center;padding:32px 0 24px;border-bottom:1px solid var(--border)}
+.header h1{font-size:1.9rem;color:white}
+.header h1 span{color:var(--orange)}
+.header .subtitle{color:var(--muted);margin-top:8px;font-size:.95rem}
+.header .updated{color:var(--muted);font-size:.8rem;margin-top:4px}
+.badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:10px}
+.badge-high{background:#7F1D1D;color:var(--red)}
+.badge-low{background:#166534;color:var(--green)}
+
+section{margin-top:32px}
+section h2{font-size:1.15rem;color:white;border-left:4px solid var(--orange);padding-left:10px;margin-bottom:14px}
+
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.two-col{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px}
+.card h3{font-size:.95rem;color:var(--orange);margin-bottom:10px}
+.card ul{list-style:none}
+.card li{padding:4px 0 4px 18px;position:relative;font-size:.85rem;color:var(--text)}
+.win li::before{content:"✅";position:absolute;left:0;font-size:.72rem}
+.lose li::before{content:"❌";position:absolute;left:0;font-size:.72rem}
+
+.pitch{background:var(--navy);border:1px solid var(--orange);border-radius:10px;padding:18px;font-size:.9rem;color:#F1F5F9;font-style:italic}
+
+.table-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;min-width:640px}
+th{background:var(--navy);padding:10px 12px;text-align:left;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid #1E293B;vertical-align:middle;font-size:.82rem}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#111827}
+.winner-bd{color:var(--green);font-weight:700}
+.winner-rv{color:#A78BFA;font-weight:700}
+
+.score-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:16px}
+.score-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center}
+.score-card .val{font-size:2rem;font-weight:800;line-height:1}
+.score-card .lbl{color:var(--muted);font-size:.72rem;margin-top:6px;text-transform:uppercase;letter-spacing:.06em}
+.score-card.bd .val{color:var(--green)}
+.score-card.rv .val{color:#A78BFA}
+.score-card.gap .val{color:var(--red)}
+
+.obj{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px}
+.obj .q{color:var(--muted);font-size:.8rem;font-style:italic;margin-bottom:6px}
+.obj .a{font-size:.85rem;color:var(--text)}
+
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;margin-top:14px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+.stat .n{font-size:1.5rem;font-weight:800;color:var(--orange)}
+.stat .l{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px}
+
+.unknown{background:#3F2D0B;border:1px solid var(--orange);border-radius:6px;padding:2px 8px;font-size:.7rem;color:var(--orange);font-weight:700}
+.footer{text-align:center;color:var(--muted);font-size:.75rem;margin-top:40px;padding-top:20px;border-top:1px solid var(--border)}
+
+@media print{
+  body{background:white;color:black}
+  .container{max-width:100%}
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>BidDeed.AI / Winner Data <span>vs</span> Reventure</h1>
+    <div class="subtitle">Parcel-level auction intelligence vs. ZIP-level housing forecast content-to-app funnel</div>
+    <div class="updated">Public-source research 2026-09-03 · CI protocol v6.5 · reventure.app / YouTube @ReventureConsulting</div>
+    <span class="badge badge-high">Playbook threat: HIGH (distribution)</span>
+    &nbsp;
+    <span class="badge badge-low">Data-depth threat: LOW</span>
+  </div>
+
+  <section>
+    <h2>Reventure — verified scale (public sources)</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="n">~681K</div><div class="l">YouTube subscribers*</div></div>
+      <div class="stat"><div class="n">~1,403</div><div class="l">Videos published*</div></div>
+      <div class="stat"><div class="n">30,000+</div><div class="l">ZIP codes covered</div></div>
+      <div class="stat"><div class="n">$39/mo</div><div class="l">Premium (monthly)</div></div>
+      <div class="stat"><div class="n"><span class="unknown">UNKNOWN</span></div><div class="l">Funding — no round found publicly</div></div>
+      <div class="stat"><div class="n">0</div><div class="l">Parcel-level or auction products found</div></div>
+    </div>
+    <p style="color:var(--muted);font-size:.75rem;margin-top:10px">*Third-party aggregator (vidiq) estimate, corroborating a Sep 3 2026 screenshot — not a first-party YouTube API read this pass, re-verify with API access for a harder number. Full source list in the internal dossier.</p>
+  </section>
+
+  <section>
+    <h2>One-line positioning</h2>
+    <div class="pitch">
+      "BidDeed.AI: parcel-level, auction-event data for actual foreclosure/tax-deed bidders — a resolved sale, a lien hierarchy, a bid ceiling, for one address.<br><br>
+      Reventure: the best free housing-market-trend content on YouTube, backing a ZIP/metro-level forecasting app — built for someone deciding whether to buy a house, not someone bidding at a courthouse auction next week."
+    </div>
+  </section>
+
+  <section>
+    <h2>When you win / lose</h2>
+    <div class="two-col">
+      <div class="card win">
+        <h3>✅ You win when the prospect needs</h3>
+        <ul>
+          <li>A specific parcel's auction outcome, lien position, or bid ceiling — Reventure has no parcel/auction product</li>
+          <li>An event signal ("this sold yesterday, here's the resolved buyer") — Reventure's unit of analysis stops at ZIP/metro</li>
+          <li>An 18-section per-property report — Reventure has no per-property report of any kind</li>
+          <li>Florida foreclosure/tax-deed specific depth</li>
+        </ul>
+      </div>
+      <div class="card lose">
+        <h3>❌ You lose when the prospect needs</h3>
+        <ul>
+          <li>A brand they already trust from years of free YouTube content (~681K subscribers vs. our ~0)</li>
+          <li>A polished consumer mobile app (iOS + Android, 4.5–4.7★) — we have none today</li>
+          <li>National ZIP/metro-level price-forecast trend data, not FL auction-day data</li>
+          <li>A low, simple $39/mo consumer price point vs. a comparably-priced enterprise-feeling report</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Feature comparison matrix</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Feature</th><th>BidDeed.AI / Winner Data</th><th>Reventure</th><th>Winner</th></tr></thead>
+        <tbody>
+          <tr><td>Parcel-level data</td><td>✅ Core product</td><td>❌ ZIP/metro level only</td><td class="winner-bd">BidDeed.AI</td></tr>
+          <tr><td>Auction-event signal (resolved sale/buyer)</td><td>✅ Core product</td><td>❌ None found</td><td class="winner-bd">BidDeed.AI</td></tr>
+          <tr><td>18-section per-property report</td><td>✅ SIGNAL$ Property Report</td><td>❌ None</td><td class="winner-bd">BidDeed.AI</td></tr>
+          <tr><td>Lien/title hierarchy</td><td>✅</td><td>❌ Not their product</td><td class="winner-bd">BidDeed.AI</td></tr>
+          <tr><td>Distribution (audience reach)</td><td>❌ ~0 subscribers today</td><td>✅ ~681K YouTube subscribers*</td><td class="winner-rv">Reventure</td></tr>
+          <tr><td>Consumer mobile app</td><td>❌ None</td><td>✅ iOS + Android live, 4.5–4.7★</td><td class="winner-rv">Reventure</td></tr>
+          <tr><td>National ZIP/metro price-forecast index</td><td>❌ Not the product</td><td>✅ "Reventure Score"</td><td class="winner-rv">Reventure</td></tr>
+          <tr><td>Brand trust from broadcast/press appearances</td><td><span class="unknown">UNKNOWN</span> not publicly comparable</td><td>✅ CNBC + Fox Business segments</td><td class="winner-rv">Reventure</td></tr>
+          <tr><td>Public pricing transparency</td><td>✅</td><td>✅ $39/mo monthly, $33/mo annual</td><td>Tie</td></tr>
+          <tr><td>Free-tier-with-visible-locked-value gate</td><td><span class="unknown">UNKNOWN</span> not yet built this way</td><td>✅ Free tier + paid unlock, in-app</td><td class="winner-rv">Reventure</td></tr>
+          <tr><td>Video-as-product-demo cadence</td><td>⚠️ Just starting (this CP3 factory)</td><td>✅ Every video shows the app live</td><td class="winner-rv">Reventure</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="score-grid">
+      <div class="score-card bd"><div class="val">4</div><div class="lbl">BidDeed.AI wins (data depth)</div></div>
+      <div class="score-card rv"><div class="val">6</div><div class="lbl">Reventure wins (distribution + polish)</div></div>
+      <div class="score-card gap"><div class="val">~681K → ~0</div><div class="lbl">subscriber gap to close</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Objection handling</h2>
+    <div class="obj"><div class="q">"I already watch [that housing YouTube channel] / use that app."</div><div class="a">Great signal — that means you already care about this data. Ask directly: does it tell you what a specific address sold for at auction yesterday, or who the resolved buyer was? It can't — its unit of analysis stops at the ZIP code. We start where that data ends: one parcel, one auction, one bid ceiling.</div></div>
+    <div class="obj"><div class="q">"They have hundreds of thousands of subscribers, you have none."</div><div class="a">True, and it's the single biggest gap on this scorecard — see the steal list for exactly how we're closing it (video-as-product-demo is item #1). We're not claiming their reach yet. We're claiming a narrower, deeper edge on data no ZIP-level forecast app can produce: what actually happened at a specific courthouse auction this week.</div></div>
+    <div class="obj"><div class="q">"Their app is nicer / they have a mobile app and you don't."</div><div class="a">Fair — their consumer polish and app-store presence beat us today, logged here as an open gap, not waved away. What we have that a ZIP-level app structurally cannot build without becoming a different product: parcel-level auction data and a resolved-lien hierarchy for one address.</div></div>
+  </section>
+
+  <section>
+    <h2>Threat monitoring triggers (Sentinel — see steal list registration)</h2>
+    <div class="card">
+      <ul style="list-style:disc;padding-left:18px">
+        <li style="padding-left:0">Reventure announces any parcel-level or auction/foreclosure-specific product → <b>immediate escalation</b>, this is the one move that turns them into a direct competitor instead of an adjacent one</li>
+        <li style="padding-left:0">Reventure publishes new public pricing or a new tier → re-run the pricing table above</li>
+        <li style="padding-left:0">Reventure launches a newsletter or a distinct lead-magnet page (currently absent, per the dossier) → re-check the lead-capture teardown, this would close a funnel gap they currently have</li>
+        <li style="padding-left:0">BidDeed's own reel program (this CP3 factory) crosses a meaningful subscriber/view threshold → re-score the distribution row above</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="footer">
+    Full dossier (internal-only, contains named individual per M7 exception): <code>docs/gtm/ci/REVENTURE_DOSSIER.md</code><br>
+    Steal list: <code>docs/gtm/ci/REVENTURE_STEAL_LIST.md</code> · DB row: <code>ci_competitor_master</code> / <code>ci_dossiers</code> slug <code>reventure</code><br>
+    All UNKNOWN/UNVERIFIED items marked explicitly — none fabricated. No Reventure branding or copied UI used above.
+  </div>
+
+</div>
+</body>
+</html>
