@@ -3,3 +3,6 @@ httpx>=0.24.0
 beautifulsoup4>=4.11.0
 lxml>=4.9.0
 pypdf>=4.0.0
+
+# BidDeed Reels v2 (issue #19752) -- scripts/biddeed_reels_lib.py generate_qr_png()
+qrcode>=7.4.2
