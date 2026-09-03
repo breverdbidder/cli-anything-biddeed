@@ -143,3 +143,28 @@ The public reel player emits watch-progress events (play, 25%, 50%, 75%,
 of any third-party platform analytics. A reel template is promotable to the
 next factory checkpoint only once its median viewer reaches 100% watch-
 through (or loops) across at least 20 real plays.
+
+## Methodology Note — reconciling the issue's ~40%/~61% figures (issue #19794, addendum)
+
+A second, concurrent #19794 dispatch (see "Discount-Pct vs Dollar-Delta Archetype Framing"
+above) computed p75 `pct_below_assessed` per-row and found foreclosure leading tax_deed on
+discount percentage, apparently contradicting the issue's own claim that tax deed "usually wins"
+on discount percentage. Both results are correct — they answer different questions:
+
+- **Per-row percentile** (p75 of `pct_below_assessed` computed per row, above): answers "what
+  does a top-quartile SALE look like." Dominated by tax deed's own bimodal distribution — a large
+  share of tax_deed certs sell near or above assessed value (median sold/assessed ratio ~108%),
+  pulling the percentile view toward foreclosure.
+- **Ratio of averages** (`avg(sold_amount) / avg(assessed_value)`, i.e. "if you summed every
+  dollar sold and every dollar assessed, what's the ratio"): reproduces the issue's own headline
+  numbers exactly — foreclosure 60.5% (avg sold $161,208 / avg assessed $266,540), tax_deed 39.9%
+  (avg sold $17,263 / avg assessed $43,241), both VERIFIED live 2026-09-03 against the same
+  `multi_county_auctions` sold-row population. This is portfolio-level economics (aggregate
+  dollars at stake), not a statement about the typical individual sale.
+
+Neither methodology is wrong; they measure different things and a reader citing "tax deed sells
+at ~40% of assessed value" should know that is the aggregate-dollar view, not the typical-sale
+view. `recommend_framing_archetype()`'s p75-per-row thresholds are the correct choice for a
+per-property archetype bias (it is scoring one property against the population of individual
+sales, not aggregate portfolio economics) — this note exists so the two numbers in this file
+don't read as contradictory without explanation.

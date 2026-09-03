@@ -43,6 +43,106 @@ def get_third_party_wins(auction_date: str) -> list[dict]:
     return lib.pg_rest("auction_buyer_sightings", params, timeout=60)
 
 
+def get_reel_candidates(start_date: str, end_date: str) -> list[dict]:
+    """issue #19794 -- reel-candidate query, extended over a date RANGE
+    (not a single auction_date) and sale-type-aware on the buyer_type gate.
+
+    Two real, verified findings from #19794's investigation drove this:
+
+    1. STARVATION WAS A CADENCE GAP, NOT A COVERAGE GAP. The upstream tables
+       (public.auction_buyer_sightings / public.multi_county_auctions)
+       already carry far more tax_deed candidates than winnerdata.biddeed_reels
+       has ever rendered -- verified live 2026-09-03: 88 tax_deed/third_party
+       sightings in the trailing 14 days across 9 counties (vs. biddeed_reels'
+       3 tax_deed rows), because the v1 pipeline has only ever been invoked
+       for one or two discrete auction_date values, never a rolling window.
+       Widening the query to a date range is the actual fix.
+
+    2. FORECLOSURE-SPECIFIC VALIDATION WAS LEAKING ONTO TAX_DEED ROWS. The
+       old query required buyer_type='third_party' for every sale_type. That
+       gate exists because a foreclosure sold_amount alone is AMBIGUOUS -- the
+       plaintiff/bank can bid the judgment and reclaim the property, so a real
+       third-party buyer must be independently confirmed. Florida tax deed
+       sales are ABSOLUTE AUCTIONS: no plaintiff/bank can reclaim, so
+       sold_amount > 0 is BY ITSELF sufficient proof of a genuine third-party
+       sale (see docs/gtm/REEL_SPEC_BOLT32.md "Absolute Auction Data-Quality
+       Assertion"). Requiring buyer_type='third_party' for tax_deed rows
+       silently drops real sales whose buyer_type was simply never classified
+       -- live-verified: 7 real Flagler County tax_deed sales (sold_amount
+       populated, e.g. $208,900.00 on 2025-08-12) sitting in
+       auction_buyer_sightings with buyer_type IS NULL, invisible to the old
+       query. This function keeps the third_party gate for foreclosure and
+       drops it for tax_deed (still excluding any row explicitly classified
+       buyer_type='plaintiff', which would mean a reclaim, not a sale).
+
+    public.clerk_ssot_sale_rows (the clerk-scraped tax-deed calendar table
+    this issue was framed around) is wired in as a SECOND, ADDITIVE source
+    for tax_deed only, de-duplicated against auction_buyer_sightings on
+    (county, normalized case_number) so a sale is never double-counted
+    (negative test (b)). It is deliberately NOT the primary source: verified
+    live 2026-09-03, clerk_ssot_sale_rows has no sold_amount column at all
+    (it is a scheduling/docket table, not a results table); of its 11,396
+    tax_deed rows, only ~3,655 carry a "sold"-shaped status token in
+    raw_comment (free text, format varies per county), and of those, price
+    and a joinable parcel identifier co-occur in the SAME county for
+    essentially none of the 17 counties (nassau/hardee: price yes, parcel no;
+    highlands: parcel yes [100% zw_parcels match], price no). See
+    docs/spec/19794.md for the full per-county breakdown. This UNION branch
+    exists so a future county whose clerk raw_comment DOES carry both (or a
+    future re-scrape that adds a price field) is picked up automatically --
+    it contributes 0 rows against live data as of this writing, verified.
+    """
+    sql = f"""
+        with mca_source as (
+            select
+                s.case_number, s.county, s.sale_type, s.auction_date,
+                s.property_address, s.sold_amount, s.buyer_type,
+                'auction_buyer_sightings' as source
+            from public.auction_buyer_sightings s
+            where s.auction_date >= date {lib.sql_str(start_date)}
+              and s.auction_date <= date {lib.sql_str(end_date)}
+              and s.sold_amount is not null and s.sold_amount > 0
+              and (
+                    (s.sale_type = 'foreclosure' and s.buyer_type = 'third_party')
+                    or
+                    -- absolute-auction rule (docs/gtm/REEL_SPEC_BOLT32.md):
+                    -- tax_deed needs no winning_bidder-type ambiguity check,
+                    -- only that it wasn't explicitly reclaimed by a plaintiff.
+                    (s.sale_type = 'tax_deed' and (s.buyer_type is null or s.buyer_type = 'third_party'))
+              )
+        ),
+        clerk_priced as (
+            select
+                c.case_number, c.county_slug as county, 'tax_deed' as sale_type,
+                c.sale_date as auction_date, null::text as property_address,
+                replace((regexp_match(c.raw_comment, '\\$\\s?([0-9][0-9,]*\\.?[0-9]*)'))[1], ',', '')::numeric as sold_amount,
+                'third_party'::text as buyer_type,
+                'clerk_ssot_sale_rows' as source
+            from public.clerk_ssot_sale_rows c
+            where c.sale_type = 'tax_deed' and c.cancelled = false
+              and c.raw_comment ~* 'sold' and c.raw_comment !~* 'redeem' and c.raw_comment !~* 'cancel'
+              and (regexp_match(c.raw_comment, '\\$\\s?([0-9][0-9,]*\\.?[0-9]*)')) is not null
+              and c.sale_date >= date {lib.sql_str(start_date)}
+              and c.sale_date <= date {lib.sql_str(end_date)}
+              and not exists (
+                  select 1 from mca_source m
+                  where lower(m.county) = lower(c.county_slug)
+                    and upper(regexp_replace(m.case_number, '[^A-Za-z0-9]', '', 'g'))
+                        = upper(regexp_replace(c.case_number, '[^A-Za-z0-9]', '', 'g'))
+              )
+        )
+        select case_number, county, sale_type, auction_date::text as auction_date,
+               property_address, sold_amount, source
+        from mca_source
+        union all
+        select case_number, county, sale_type, auction_date::text as auction_date,
+               property_address, sold_amount, source
+        from clerk_priced
+        order by auction_date, county, case_number;
+    """
+    return lib.run_sql(sql)
+
+
 def get_existing_reel(case_number: str, county: str) -> dict | None:
     rows = lib.run_sql(
         f"""select video_url, voiceover_source, audio_url, status,
@@ -276,13 +376,19 @@ def apply_shortlist(auction_date: str, dry_run: bool, top_n: int = 5) -> list[di
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--auction-date", default=None, help="YYYY-MM-DD, defaults to yesterday (UTC)")
+    ap.add_argument("--days-back", type=int, default=None,
+                     help="issue #19794 -- backfill mode: query get_reel_candidates() over "
+                          "[today - N days, yesterday] instead of a single --auction-date. "
+                          "Fixes the tax-deed starvation gap, which was a query date-range gap, "
+                          "not a missing-source gap (see get_reel_candidates() docstring).")
     ap.add_argument("--force", action="store_true", help="re-render rows that already have a video_url")
     ap.add_argument("--dry-run", action="store_true", help="no DB writes, no external API calls beyond the read query")
     ap.add_argument("--limit", type=int, default=None, help="cap number of rows processed (testing only)")
     args = ap.parse_args()
 
     auction_date = args.auction_date or get_yesterday()
-    print(f"Auction date: {auction_date}")
+    if not args.days_back:
+        print(f"Auction date: {auction_date}")
 
     def resolve_key(env_name: str, vault_names: list[str]) -> str:
         """env var wins (GHA runner sets these from repo secrets); falls back
@@ -314,20 +420,35 @@ def main():
         print(f"ERROR: missing required keys (env + vault both empty) for: {missing}", file=sys.stderr)
         sys.exit(1)
 
-    sightings = get_third_party_wins(auction_date)
-    print(f"{len(sightings)} third-party win(s) for {auction_date}.")
+    if args.days_back:
+        start_date = lib.run_sql(
+            f"select (current_date - interval '{int(args.days_back)} days')::date::text as d;"
+        )[0]["d"]
+        end_date = get_yesterday()
+        print(f"Backfill window: {start_date} .. {end_date} (--days-back {args.days_back})")
+        sightings = get_reel_candidates(start_date, end_date)
+        by_source = {}
+        for s in sightings:
+            by_source[s.get("source")] = by_source.get(s.get("source"), 0) + 1
+        print(f"{len(sightings)} candidate(s) in window, by source: {by_source}")
+    else:
+        sightings = get_third_party_wins(auction_date)
+        print(f"{len(sightings)} third-party win(s) for {auction_date}.")
     if args.limit:
         sightings = sightings[: args.limit]
 
     t0 = time.time()
     results = []
     for s in sightings:
-        print(f"Processing {s['case_number']} / {s['county']} ...")
+        print(f"Processing {s['case_number']} / {s['county']} / {s.get('sale_type')} ...")
         r = process_row(s, args.force, args.dry_run, keys)
         print(f"  -> {r['status']}" + (f" ({r['error']})" if r.get("error") else ""))
         results.append(r)
 
-    shortlisted = apply_shortlist(auction_date, args.dry_run)
+    dates_to_shortlist = sorted({s["auction_date"] for s in sightings}) if args.days_back else [auction_date]
+    shortlisted = []
+    for d in dates_to_shortlist:
+        shortlisted.extend(apply_shortlist(d, args.dry_run))
     wall_time = time.time() - t0
 
     n_ok = sum(1 for r in results if r["status"] == "pending_approval")
@@ -337,8 +458,7 @@ def main():
     total_tts_chars = sum(r["tts_chars"] for r in results)
 
     print("\n=== SUMMARY ===")
-    print(f"auction_date={auction_date} rows={len(results)} pending_approval={n_ok} error={n_err} "
-          f"skipped_has_video={n_skip}")
+    print(f"rows={len(results)} pending_approval={n_ok} error={n_err} skipped_has_video={n_skip}")
     print(f"image_calls_total={total_images} tts_chars_total={total_tts_chars} wall_time_sec={wall_time:.1f}")
     print(f"shortlisted={len(shortlisted)}")
     for r in sorted(shortlisted, key=lambda x: x.get("rank_score") or 0, reverse=True):
