@@ -1730,7 +1730,13 @@ export default {
 // and withSecurityHeaders() only fills in a CSP when one is absent - so the
 // nonce survives. Overwriting it would make the browser refuse every script and
 // paint a blank page, which is the exact failure this rebuild already fixed.
-const RADAR_ORIGIN = "https://biddeed-web.vercel.app";
+// 2026-09-03 (#19820): pointed at the Cloudflare Worker, not the Vercel deploy.
+// A prior session (#19813) flipped this origin via a code-only `wrangler deploy`
+// without committing the change here — deploy-worker.yml redeploys this file
+// from source on every push to main, so the next push silently reverted
+// production to Vercel. The rule going forward: no production origin change
+// without a matching commit on main in the same session.
+const RADAR_ORIGIN = "https://biddeed-web-production.brevardbidderai.workers.dev";
 
 async function proxyToRadar(request, url) {
   const upstream = new URL(url.pathname + url.search, RADAR_ORIGIN);
