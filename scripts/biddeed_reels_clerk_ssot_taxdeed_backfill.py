@@ -90,6 +90,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import biddeed_reels_lib as lib
@@ -162,7 +163,22 @@ def main():
 
     parcel_ok, parcel_fail = [], []
     for i, c in enumerate(audit_pool):
-        parcel = lib.match_parcel(c["property_address"], c["county"])
+        # pg_rest() already retries transient Cloudflare 520/521/503s internally
+        # (see biddeed_reels_lib docstring); this second-layer retry covers the
+        # case where all in-request retries are exhausted on one candidate --
+        # observed live 2026-09-03 (HTTP 520 killed the whole run on candidate
+        # 1/77). One extra attempt after a pause, then treat as a real fail so
+        # edge flakiness isn't silently counted the same as a genuine address miss.
+        parcel = None
+        try:
+            parcel = lib.match_parcel(c["property_address"], c["county"])
+        except Exception as e:
+            print(f"  ...transient error on {c['county']}/{c['case_number']}, retrying once: {e}", flush=True)
+            time.sleep(5)
+            try:
+                parcel = lib.match_parcel(c["property_address"], c["county"])
+            except Exception as e2:
+                print(f"  ...retry also failed for {c['county']}/{c['case_number']}: {e2}", flush=True)
         if parcel and parcel.get("centroid_lat") is not None:
             parcel_ok.append(c)
         else:
