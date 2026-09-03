@@ -1,6 +1,6 @@
-name: One-off — copy CF_API_TOKEN to biddeed-web cloudflare-staging env
+name: oneoff-copy-cf-token
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 permissions:
   contents: read
 jobs:
