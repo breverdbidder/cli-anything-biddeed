@@ -61,6 +61,47 @@ EMOTION_PAIRS = [
 
 DNA_AXES = ["archetype", "emotion_pair", "voice_register", "caption_style", "music_mood", "edit_style"]
 
+# issue #19794 step 6 -- discount-pct vs dollar-delta archetype framing.
+# Thresholds are the p75 (top-quartile) pct_below_assessed / dollar_delta
+# across all genuinely-sold multi_county_auctions rows (sale_result=
+# 'SOLD_THIRD_PARTY' or tier1_sale_status='SOLD', assessed_value>$500),
+# both sale types combined, re-derived live 2026-09-03 (n=2303):
+# p75 pct_below_assessed=65.6%, p75 dollar_delta=$115,460 (rounded below).
+# NOTE contradicts this issue's own stated calibration ("tax deed usually
+# wins on discount pct"): live per-sale-type numbers are foreclosure
+# p75 pct_below=79.6%/dollar_delta=$149,900 vs tax_deed p75 pct_below=
+# 46.8%/dollar_delta=$5,500 -- foreclosure leads on BOTH axes at this
+# percentile. Thresholds are applied per-property against the property's
+# own sold_amount/assessed_value, never asserted from sale_type, so a
+# tax-deed row that genuinely clears a bar still gets that framing and a
+# foreclosure row that doesn't still falls through to unbiased selection.
+HIGH_DOLLAR_DELTA_THRESHOLD = 115_000
+HIGH_DISCOUNT_PCT_THRESHOLD = 65.0
+
+
+def recommend_framing_archetype(sold_amount: float | None, assessed_value: float | None) -> str | None:
+    """Returns the archetype this property's OWN numbers support -- 'shock_number'
+    for a top-quartile dollar delta, 'hidden_value_reveal' for a top-quartile
+    discount pct, or None if neither bar clears (weak data: fall through to
+    unbiased random selection rather than forcing a framing). Checked before
+    dollar_delta so a property that clears both bars gets the bigger-number
+    story, matching the issue's own priority ("shock_number for high dollar
+    deltas, hidden_value_reveal for high discount pct"). bank_vs_house is
+    deliberately not forced here even though the issue names it as a
+    discount-pct option -- it has its own hard precondition (confirmed
+    bank/lender plaintiff, see check_archetype_data_match) that this
+    function has no visibility into, so forcing it here risks producing an
+    archetype the row's own facts don't support."""
+    if not sold_amount or not assessed_value or assessed_value <= 0:
+        return None
+    dollar_delta = assessed_value - sold_amount
+    pct_below = dollar_delta / assessed_value * 100
+    if dollar_delta >= HIGH_DOLLAR_DELTA_THRESHOLD:
+        return "shock_number"
+    if pct_below >= HIGH_DISCOUNT_PCT_THRESHOLD:
+        return "hidden_value_reveal"
+    return None
+
 _FIRST_SECOND_PERSON = re.compile(r"\b(i|me|my|we|our|us|you|your|you're|youre)\b", re.IGNORECASE)
 _EMOJI_RE = re.compile(
     "["
@@ -1129,9 +1170,16 @@ def generate_variants_for_reel(reel: dict, k: int = K_VARIANTS, max_retries: int
     sequential repair pass to satisfy no-duplicate-archetype. Pinning
     upfront makes diversity-by-construction the common case; any individual
     slot that still fails validation (e.g. a malformed title) is retried
-    sequentially with the same pinned archetype."""
+    sequentially with the same pinned archetype. One slot is reserved for
+    the framing this property's own numbers support (recommend_framing_
+    archetype) when one clears the threshold -- the rest stay random for
+    diversity, same as before."""
     used_pairs: list = []
-    archetypes = random.sample(ARCHETYPES, k)
+    preferred = recommend_framing_archetype(reel.get("sold_amount"), reel.get("assessed_value"))
+    if preferred:
+        archetypes = [preferred] + random.sample([a for a in ARCHETYPES if a != preferred], k - 1)
+    else:
+        archetypes = random.sample(ARCHETYPES, k)
 
     def _gen(archetype):
         return generate_one_variant_with_retry(reel, [], used_pairs, max_retries, forced_archetype=archetype)

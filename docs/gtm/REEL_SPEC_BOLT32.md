@@ -61,6 +61,81 @@ music bed under the voice where a licensed track is available.
 
 Total: 32.000 seconds ±0.1s.
 
+## Sale-Type-Specific Data-Quality Rules (issue #19794, CMO Factory CP3c-D)
+
+Florida tax-deed sales are **absolute auctions**: there is no plaintiff or
+lender able to credit-bid and reclaim the property the way a foreclosure
+bank can. Every tax_deed row that closes to a genuine third-party buyer is
+therefore a real transaction by construction, once you have confirmed a
+sale to a third party actually happened.
+
+- A `tax_deed` row with `sale_result = 'SOLD_THIRD_PARTY'` (or the schema's
+  own verified-outcome override, `tier1_sale_status = 'SOLD'`) and a real
+  `sold_amount`/`tier1_sold_amount` > 0 does **not** need the
+  `winning_bidder`-ambiguity check that a `foreclosure` row needs — there is
+  no lender able to be the buyer of record instead of a third party, so
+  that specific ambiguity cannot arise for a tax deed.
+- This is **not** the same thing as "any tax_deed row with a status is a
+  sale." A tax certificate applicant/holder CAN still end up owning the
+  property when nobody outbids the minimum required bid (raw status
+  "SOLD APPLICANT" / "SOLD_PLAINTIFF" in this schema) — that is a real,
+  distinct, non-third-party outcome and must still be excluded from reel
+  candidates, exactly as `SOLD_PLAINTIFF` is excluded on the foreclosure
+  side. So does a redeemed certificate (owner paid off the debt before
+  auction — no sale occurred at all) or a still-scheduled/pending auction.
+  Do not conflate "tax deed needs no winning-bidder check" with "tax deed
+  needs no sale-happened check" — they are different checks; only the first
+  is waived.
+- `opening_bid` / `base_bid` / `po_opening_bid` are the certificate's
+  minimum required bid, published before the auction — never treat these as
+  `sold_amount`. Live-verified 2026-09-03: for case 2026-0083TD (Walton),
+  `opening_bid` was $2,103.10 while the schema's own re-verified
+  `tier1_sold_amount` was $2,700 — real bidding happened above the minimum,
+  and using `opening_bid` as the sale price would have understated it.
+- `public.clerk_ssot_sale_rows` (the calendar-parity SSOT) carries no price
+  or parcel column of its own — it must be joined to
+  `public.multi_county_auctions` on `(case_number, county)` to get
+  `sold_amount`/`parcel_id`/`property_address`/`assessed_value`. See
+  `scripts/biddeed_reels_clerk_ssot_taxdeed_backfill.py` for the
+  qualifying-candidate query and `docs/spec/19794.md` for the live
+  join-rate/schema evidence this was derived from.
+
+## Discount-Pct vs Dollar-Delta Archetype Framing (issue #19794 step 6)
+
+`agents/reel_studio/hook_writer.py::recommend_framing_archetype()` computes,
+per property, `dollar_delta = assessed_value - sold_amount` and
+`pct_below_assessed = dollar_delta / assessed_value * 100`, then biases one
+of the K archetype slots toward whichever framing the property's OWN
+numbers support — never asserted from `sale_type` alone:
+
+- `dollar_delta >= $115,000` -> `shock_number` (the big-number story)
+- `pct_below_assessed >= 65%` -> `hidden_value_reveal` (the big-discount story)
+- neither bar cleared -> no bias; falls through to unbiased random selection
+
+Thresholds are the top-quartile (p75) of `pct_below_assessed`/`dollar_delta`
+across every genuinely-sold `multi_county_auctions` row (`sale_result =
+'SOLD_THIRD_PARTY'` or `tier1_sale_status = 'SOLD'`, `assessed_value >
+$500`), both sale types combined, re-derived live 2026-09-03 (n=2,303):
+p75 `pct_below_assessed` = 65.6%, p75 `dollar_delta` = $115,460.
+
+**This corrects, not confirms, this issue's own stated calibration.** The
+issue assumed tax deed "usually wins" on discount percentage. Live
+per-sale-type numbers say the opposite at the p75 mark:
+
+| sale_type   | n (genuinely sold, w/ assessed) | p75 pct_below_assessed | p75 dollar_delta |
+|---|---|---|---|
+| tax_deed    | 826  | 46.8% | $5,500 |
+| foreclosure | 1,477 | 79.6% | $149,900 |
+
+Foreclosure leads on BOTH axes at this percentile in this dataset — tax
+deed's typical (median) sale is close to assessed value (median
+sold/assessed ratio 108.3%, i.e. near or slightly above assessed), not the
+~40%-of-assessed the issue cited. `bank_vs_house` remains a valid discount-
+framing option per the issue text but is deliberately not force-picked by
+`recommend_framing_archetype()` — it has its own hard precondition
+(confirmed bank/lender plaintiff, see `check_archetype_data_match`) that
+this function has no visibility into.
+
 ## Measurement
 
 The public reel player emits watch-progress events (play, 25%, 50%, 75%,
