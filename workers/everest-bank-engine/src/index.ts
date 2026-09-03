@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import type { Env } from "./env";
 import { isAuthorized } from "./auth";
-import { plaidClient } from "./plaid";
+import { plaidClient, checkPlaidProductionStatus } from "./plaid";
 import { setVaultSecret, rpc, insertRow, logFinanceOps } from "./db";
 import { syncAllActiveConnections, syncOneByItemId } from "./sync";
 import { verifyPlaidWebhook } from "./webhookVerify";
 import { renderLinkPage } from "./linkPage";
 import { renderPrivacyPage } from "./privacyPage";
-import { renderImportPage } from "./importPage";
+import { renderImportPage, type ImportAccountOption } from "./importPage";
 import { importFile } from "./fileImport";
 import { claimSetupToken, syncSimplefin, syncSimplefinCron } from "./simplefin";
 
@@ -130,6 +130,19 @@ app.post("/link/exchange", async (c) => {
   }
 });
 
+// Issue #19770 step 1: check whether Plaid production access has been granted, without
+// requiring a Production secret in this Worker yet (Ariel supplies that only once it's live).
+// Gated the same as /sync -- not public, since a repeated probe against Plaid's own API is not
+// something to leave open.
+app.post("/plaid/production-status", async (c) => {
+  if (!isAuthorized(c.req.raw, c.env.CFO_AGENT_SHARED_SECRET)) {
+    return c.json({ error: "unauthorized", hint: "Pass the shared secret as header 'X-CFO-Secret' or ?key=" }, 401);
+  }
+  const result = await checkPlaidProductionStatus(c.env);
+  await logFinanceOps(c.env, "everest_capital", "plaid_production_status_check", "VERIFIED", null, result, "info", "19770");
+  return c.json(result);
+});
+
 app.post("/sync", async (c) => {
   const body = await c.req.json<{ plaid_item_id?: string }>().catch(() => ({}) as any);
   if (body.plaid_item_id) {
@@ -180,13 +193,13 @@ app.post("/webhook", async (c) => {
 // ---------------------------------------------------------------------------------------------
 
 app.get("/import", async (c) => {
-  let entities: Array<{ code: string; name: string }> = [];
+  let accounts: ImportAccountOption[] = [];
   try {
-    entities = await rpc(c.env, "bank_engine_list_entities", {});
+    accounts = await rpc<ImportAccountOption[]>(c.env, "bank_engine_import_account_options", {});
   } catch {
-    entities = [];
+    accounts = [];
   }
-  return c.html(renderImportPage(entities));
+  return c.html(renderImportPage(accounts));
 });
 
 app.post("/import", async (c) => {

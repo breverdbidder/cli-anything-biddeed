@@ -73,3 +73,44 @@ class PlaidRestClient {
 export function plaidClient(env: Env): PlaidRestClient {
   return new PlaidRestClient(env);
 }
+
+export interface PlaidProductionStatus {
+  checked_at: string;
+  http_status: number;
+  plaid_error_type: string | null;
+  plaid_error_code: string | null;
+  plaid_error_message: string | null;
+  production_access_state: "PENDING" | "LIVE_OR_CHANGED" | "UNKNOWN";
+}
+
+// Issue #19770 step 1: "call /link/token/create against https://production.plaid.com with the
+// vault plaid_client_id + the sandbox secret -> expect INVALID_API_KEYS while pending; a
+// different error or success means status changed." This always targets production.plaid.com
+// directly (not env.PLAID_ENV's base URL) using whatever client_id/secret this Worker currently
+// holds -- today that's the sandbox pair, since PLAID_ENV=sandbox. Never returns the client_id or
+// secret in the response, only Plaid's own (non-secret) error envelope.
+export async function checkPlaidProductionStatus(env: Env): Promise<PlaidProductionStatus> {
+  const res = await fetch("https://production.plaid.com/link/token/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: env.PLAID_CLIENT_ID,
+      secret: env.PLAID_SECRET,
+      user: { client_user_id: "plaid-production-status-check" },
+      client_name: "Everest Bank Engine",
+      products: ["transactions"],
+      country_codes: ["US"],
+      language: "en",
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as any;
+  const errorCode: string | null = data?.error_code ?? null;
+  return {
+    checked_at: new Date().toISOString(),
+    http_status: res.status,
+    plaid_error_type: data?.error_type ?? null,
+    plaid_error_code: errorCode,
+    plaid_error_message: data?.error_message ?? null,
+    production_access_state: res.ok ? "LIVE_OR_CHANGED" : errorCode === "INVALID_API_KEYS" ? "PENDING" : "UNKNOWN",
+  };
+}

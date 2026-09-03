@@ -18,6 +18,15 @@ export interface FileImportResult {
   skipped_no_account: number;
   status: "VERIFIED" | "BLOCKED";
   error?: string;
+  // Issue #19770 scope item 3: "After import, automatically run categorize -> post ->
+  // finance.recon_run(null,'2026-01-01') and show the new coverage." daily_close_summary is
+  // whatever public.bank_engine_run_daily_close() returns (categorize/post/recon/balance-check,
+  // #19765's existing pipeline reused here rather than re-implemented); coverage is the fresh
+  // finance.v_data_coverage snapshot taken right after. Both are best-effort: a failure here
+  // does not flip the import itself to BLOCKED (the file WAS imported; the pipeline step is
+  // reported separately so a partial failure is visible, not silently retried as a full import).
+  daily_close_summary?: unknown;
+  coverage?: unknown;
 }
 
 // Sign convention -- the single point of negation for this pipeline (documented in README.md).
@@ -122,6 +131,22 @@ export async function importFile(
     skipped_no_account: applyResult.skipped_no_account,
     status: "VERIFIED",
   };
+
+  // Issue #19770 scope item 3 -- reuses #19765's existing daily_close pipeline (sync/categorize/
+  // post/recon/balance-check) rather than re-implementing categorize->post->recon_run by hand.
+  // Best-effort: caught separately so a pipeline hiccup doesn't relabel a successful import as
+  // BLOCKED -- the rows are already safely upserted at this point.
+  try {
+    result.daily_close_summary = await rpc(env, "bank_engine_run_daily_close", { p_from: "2026-01-01" });
+  } catch (err: any) {
+    result.daily_close_summary = { error: String(err?.message ?? err) };
+  }
+  try {
+    result.coverage = await rpc(env, "bank_engine_data_coverage", {});
+  } catch (err: any) {
+    result.coverage = { error: String(err?.message ?? err) };
+  }
+
   await logFinanceOps(env, params.entityCode, "bank_engine_file_import", "VERIFIED", plaidItemId, result, "info", "19749");
   return result;
 }

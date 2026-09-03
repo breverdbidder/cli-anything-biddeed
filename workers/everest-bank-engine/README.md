@@ -15,8 +15,9 @@ first** — `PLAID_ENV=sandbox` today; going to production is a one-secret swap
 | `POST /link/exchange` | `X-CFO-Secret` | Exchanges a `public_token` for an `access_token`, stores it in vault, inserts `finance.bank_connections` + `finance.bank_accounts`. |
 | `POST /sync` | `X-CFO-Secret` | Runs `/transactions/sync` for one connection (`{plaid_item_id}`) or all active connections. |
 | `POST /webhook` | Plaid JWT (`Plaid-Verification` header) — **not** `X-CFO-Secret` | Plaid webhook receiver. `SYNC_UPDATES_AVAILABLE`/`DEFAULT_UPDATE`/etc. trigger a sync for that item. |
-| `GET /import?key=<secret>` | none (page itself, same pattern as `GET /link`) | Minimal upload form — entity dropdown (from `finance.entities`), account label, mask, file picker. |
-| `POST /import?entity_code=&mask=&account_label=` | `X-CFO-Secret` / `?key=` | Imports a Wells Fargo CSV or QFX/OFX file (multipart `file` field or raw body). See "Bank file importer" below. |
+| `GET /import?key=<secret>` | none (page itself, same pattern as `GET /link`) | Minimal upload form — account dropdown (from `public.bank_engine_import_account_options()`, real `simplefin`/`manual` accounts only, each labeled with its live coverage/gap), file picker. |
+| `POST /import?entity_code=&mask=&account_label=` | `X-CFO-Secret` / `?key=` | Imports a Wells Fargo CSV or QFX/OFX file (multipart `file` field or raw body), then runs the daily-close pipeline (categorize/post/recon) and returns the fresh coverage snapshot. See "Bank file importer" below. |
+| `POST /plaid/production-status` | `X-CFO-Secret` | Issue #19770 step 1 — probes `production.plaid.com/link/token/create` with this Worker's current `PLAID_CLIENT_ID`/`PLAID_SECRET` to check whether Plaid production access has been granted. Never returns the client_id/secret, only Plaid's error envelope. |
 | `POST /simplefin/claim` | `X-CFO-Secret` | One-time: exchanges a SimpleFIN setup token for an access URL, stored in vault. |
 | `POST /simplefin/sync` | `X-CFO-Secret` | Pulls accounts + transactions from the stored SimpleFIN access URL for one `entity_code`. |
 | `GET /healthz` | none | Liveness probe. |
@@ -44,8 +45,15 @@ the Plaid cron's sweep and produce a spurious `BLOCKED` result every 6h since it
 access token in vault). `bank_connections.plaid_item_id = 'file:'||mask`,
 `bank_accounts.plaid_account_id = 'file:'||mask`, `institution_name='Wells Fargo'`,
 `status='manual'`. Idempotency key: OFX `FITID` when present, else
-`sha256(date|amount|description|mask)` — re-importing the same file is a no-op re-upsert, not a
-duplicate.
+`sha256(date|amount|description|mask)` — re-importing the same file is a no-op re-upsert
+(`on conflict (plaid_transaction_id) do update`), not a duplicate insert.
+
+**Post-import pipeline (issue #19770)**: on a successful import, `POST /import` also calls
+`public.bank_engine_run_daily_close('2026-01-01')` (reuses #19765's existing categorize/post/
+recon/balance-check pipeline rather than re-implementing it) and reads back
+`finance.v_data_coverage` — both are returned in the response body as
+`daily_close_summary`/`coverage`, and both are best-effort (a failure there is reported inline,
+not treated as a failed import — the rows were already safely upserted by that point).
 
 ## SimpleFIN Bridge connector (issue #19749 Part 2)
 
