@@ -1,0 +1,103 @@
+name: youtube-publish
+
+# CMO FACTORY CP3f (issue #19788) -- YouTube upload lane. DORMANT until
+# youtube_client_id / youtube_client_secret / youtube_oauth_refresh_token
+# land in the vault (absent as of 2026-09-03) -- agents/youtube/uploader.py
+# degrades to NOT_CONFIGURED and exits 0 whenever they're missing, so this
+# workflow is safe to schedule now and starts working the moment the
+# secrets exist, with zero further build (M8: every upload is
+# privacyStatus='private', gated behind Ariel's per-video LMS approval
+# before any status change -- there is no public-publish code path here).
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 15 * * *"   # 8:00 AM PST / 7:00 AM PDT -- after Pacific
+                            # midnight quota reset, ahead of the US morning
+                            # audience window.
+concurrency: {group: youtube-publish, cancel-in-progress: false}
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+
+      - name: Negative-test gate (a)-(d) -- fails the job if any regress, e.g. privacyStatus != 'private'
+        run: python3 agents/youtube/uploader.py --self-test
+
+      - name: Halt check (fails closed) -- spi_gates.gtm_factory_halt
+        id: halt
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set +e
+          HALTED=0
+          REASONS=""
+          GATE=$(curl -s --max-time 15 "${SUPABASE_URL}/rest/v1/spi_gates?gate_key=eq.gtm_factory_halt&select=verified_at" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+          if [ -z "$GATE" ]; then
+            HALTED=1; REASONS="${REASONS} spi_gates-unreadable(fails-closed)"
+          else
+            OPEN=$(echo "$GATE" | python3 -c "import json,sys; d=json.load(sys.stdin); print('1' if d and d[0].get('verified_at') is None else '0')" 2>/dev/null || echo "1")
+            if [ "$OPEN" = "1" ]; then
+              HALTED=1; REASONS="${REASONS} spi_gates.gtm_factory_halt-open"
+            fi
+          fi
+          echo "halted=$HALTED" >> "$GITHUB_OUTPUT"
+          echo "reasons=$REASONS" >> "$GITHUB_OUTPUT"
+          echo "halt check: halted=$HALTED reasons=[$REASONS]"
+
+      - name: Token health gate -- youtube_token_health.ok (latest row)
+        id: token_health
+        if: steps.halt.outputs.halted == '0'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          ROWS=$(curl -s --max-time 15 "${SUPABASE_URL}/rest/v1/youtube_token_health?select=ok,checked_at&order=checked_at.desc&limit=1" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+          echo "latest token_health row: $ROWS"
+          # No row yet (never configured / never checked) is NOT a failure --
+          # that's the expected NOT_CONFIGURED-forever state. Only an
+          # explicit ok=false blocks this run.
+          OK=$(echo "$ROWS" | python3 -c "import json,sys; d=json.load(sys.stdin); print('1' if (not d or d[0].get('ok') is not False) else '0')" 2>/dev/null || echo "1")
+          echo "token_health_ok=$OK" >> "$GITHUB_OUTPUT"
+
+      - name: Quota gate check (public.quota_gate_check('engineering'))
+        id: quota
+        if: steps.halt.outputs.halted == '0' && steps.token_health.outputs.token_health_ok == '1'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          RESP=$(curl -s --max-time 30 -X POST "${SUPABASE_URL}/rest/v1/rpc/quota_gate_check" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" -d '{"p_category":"engineering"}')
+          echo "quota_gate_check response: $RESP"
+          ALLOW=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d.get("allow")).lower())' 2>/dev/null || echo "error")
+          REASON=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("reason",""))' 2>/dev/null || echo "unreachable")
+          if [ "$ALLOW" = "true" ] || [ "$REASON" = "NO_READING" ]; then
+            MODE="run"
+          else
+            MODE="skip"
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "quota gate mode: $MODE (allow=$ALLOW reason=$REASON)"
+
+      - name: Run uploader (NOT_CONFIGURED-safe)
+        if: steps.halt.outputs.halted == '0' && steps.token_health.outputs.token_health_ok == '1' && steps.quota.outputs.mode == 'run'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: python3 agents/youtube/uploader.py
+
+      - name: Stop here if halted / token-unhealthy / quota-denied (logged, not silent)
+        if: steps.halt.outputs.halted == '1' || steps.token_health.outputs.token_health_ok == '0' || steps.quota.outputs.mode == 'skip'
+        run: |
+          echo "::warning::youtube-publish did not run this cycle -- halted=${{ steps.halt.outputs.halted }} token_health_ok=${{ steps.token_health.outputs.token_health_ok }} quota_mode=${{ steps.quota.outputs.mode }}"
