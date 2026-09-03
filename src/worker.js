@@ -1736,7 +1736,12 @@ async function proxyToRadar(request, url) {
   const upstream = new URL(url.pathname + url.search, RADAR_ORIGIN);
   const headers = new Headers(request.headers);
   headers.delete("host");
+  // Vercel may replace X-Forwarded-Host with its internal alias before the
+  // request reaches Next. Preserve the public route identity in a separate
+  // Worker-owned header for canonical-domain Clerk gating.
+  headers.delete("x-biddeed-canonical-host");
   headers.set("X-Forwarded-Host", url.host);
+  headers.set("X-Biddeed-Canonical-Host", "biddeed.ai");
   headers.set("X-Forwarded-Proto", "https");
 
   const init = { method: request.method, headers, redirect: "manual" };
