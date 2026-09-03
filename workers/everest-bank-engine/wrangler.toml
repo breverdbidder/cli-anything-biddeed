@@ -11,9 +11,12 @@ account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
 # here at all (nothing to fall back FROM).
 workers_dev = true
 
-# Cron: every 6h, /sync all active finance.bank_connections rows (scope item 1).
+# Cron: every 6h, /sync all active finance.bank_connections rows (scope item 1). Plus a 09:00
+# UTC (05:00 ET) daily close tick (issue #19765) -- categorize/post/reconcile/alert on top of
+# whatever the 6h ticks have synced. The scheduled handler in src/index.ts routes on
+# event.cron so one cron entry doesn't trigger the other's work.
 [triggers]
-crons = ["0 */6 * * *"]
+crons = ["0 */6 * * *", "0 9 * * *"]
 
 # Secrets (set via `wrangler secret put` / .github/workflows/deploy-bank-engine.yml, never
 # committed):

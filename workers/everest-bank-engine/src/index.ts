@@ -261,32 +261,72 @@ app.post("/simplefin/sync", async (c) => {
   return c.json(result, httpStatus);
 });
 
+// Issue #19765: two cron entries now share this one handler (wrangler.toml [triggers]).
+// event.cron tells them apart -- "0 9 * * *" (09:00 UTC / 05:00 ET) runs the full daily close;
+// every other tick ("0 */6 * * *") keeps the existing Plaid + SimpleFIN transaction-only sync.
+// Both branches are independently idempotent (safe to run twice / to overlap a missed tick).
+async function runTransactionSync(env: Env, ctx: ExecutionContext): Promise<void> {
+  ctx.waitUntil(
+    syncAllActiveConnections(env).then((results) =>
+      insertRow(env, "agent_ops_log", {
+        dispatch_id: "19737",
+        task: "bank_engine_cron_sync",
+        status: results.every((r) => r.status === "VERIFIED") ? "VERIFIED" : "PARTIAL",
+        evidence: { results },
+        severity: results.every((r) => r.status === "VERIFIED") ? "info" : "warn",
+      })
+    )
+  );
+  // SimpleFIN sync alongside Plaid, same 6h tick (issue #19749 Part 2).
+  ctx.waitUntil(
+    syncSimplefinCron(env).then((result) =>
+      insertRow(env, "agent_ops_log", {
+        dispatch_id: "19749",
+        task: "bank_engine_simplefin_cron_sync",
+        status: result.status,
+        evidence: result,
+        severity: result.status === "BLOCKED" ? "error" : "info",
+      })
+    )
+  );
+}
+
+// Issue #19765: 09:00 UTC daily close -- routes through the SQL RPC (finance.daily_close via
+// public.bank_engine_run_daily_close), which itself calls the SQL-side finance.simplefin_sync(7)
+// as its sync step (one proven code path, per the issue's scope item 1), then categorizes,
+// posts, reconciles, verifies balance, and self-alerts on failure. This Worker's job is only to
+// invoke it and log the outcome -- all pipeline logic lives in the SQL function.
+async function runDailyClose(env: Env, ctx: ExecutionContext): Promise<void> {
+  ctx.waitUntil(
+    rpc<Record<string, unknown>>(env, "bank_engine_run_daily_close", {})
+      .then((summary) =>
+        insertRow(env, "agent_ops_log", {
+          dispatch_id: "19765",
+          task: "cfo_daily_close_cron",
+          status: summary.status === "VERIFIED" ? "VERIFIED" : "BLOCKED",
+          evidence: summary,
+          severity: summary.status === "VERIFIED" ? "info" : "error",
+        })
+      )
+      .catch((err: unknown) =>
+        insertRow(env, "agent_ops_log", {
+          dispatch_id: "19765",
+          task: "cfo_daily_close_cron",
+          status: "BLOCKED",
+          evidence: { error: String((err as Error)?.message ?? err) },
+          severity: "error",
+        })
+      )
+  );
+}
+
 export default {
   fetch: app.fetch,
-  scheduled: async (_event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    ctx.waitUntil(
-      syncAllActiveConnections(env).then((results) =>
-        insertRow(env, "agent_ops_log", {
-          dispatch_id: "19737",
-          task: "bank_engine_cron_sync",
-          status: results.every((r) => r.status === "VERIFIED") ? "VERIFIED" : "PARTIAL",
-          evidence: { results },
-          severity: results.every((r) => r.status === "VERIFIED") ? "info" : "warn",
-        })
-      )
-    );
-    // SimpleFIN sync alongside Plaid, same 6h tick (issue #19749 Part 2) -- no second
-    // [triggers] cron entry needed. No-ops (status=SKIPPED) until /simplefin/claim has run.
-    ctx.waitUntil(
-      syncSimplefinCron(env).then((result) =>
-        insertRow(env, "agent_ops_log", {
-          dispatch_id: "19749",
-          task: "bank_engine_simplefin_cron_sync",
-          status: result.status,
-          evidence: result,
-          severity: result.status === "BLOCKED" ? "error" : "info",
-        })
-      )
-    );
+  scheduled: async (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
+    if (event.cron === "0 9 * * *") {
+      await runDailyClose(env, ctx);
+      return;
+    }
+    await runTransactionSync(env, ctx);
   },
 };
