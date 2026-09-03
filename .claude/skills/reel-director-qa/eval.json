@@ -1,8 +1,8 @@
 {
   "skill_id": "reel-director-qa",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "pattern": "cmo-factory/reel-variant-studio",
-  "task": "Catch 5/5 planted defects (name in caption, vendor name in script, 30.0s cut, missing beat0/Street View equivalent, broken loop seam) and pass 5/5 clean controls with zero false positives",
+  "task": "Catch 5/5 planted defects (name in caption, vendor name in script, 30.0s cut, missing beat0/Street View equivalent, broken loop seam) and pass 5/5 clean controls with zero false positives. issue #19792 PART 1: also catch the 5 title-rule violations the pre-fix validator rubber-stamped -- payoff leak, emoji placement, ellipsis form, title-case drift, archetype/data mismatch -- each with its own fail+pass fixture (assertions 26-35).",
   "pass_threshold": 1.0,
   "autoloop_compatible": true,
   "assertions": [
@@ -30,6 +30,16 @@
     {"id": 22, "input": "qa_pass computed for a variant where only not_applicable_phase_a checks are null", "expected": "qa_pass=True (null checks excluded from the all() over applicable checks)", "type": "binary"},
     {"id": 23, "input": "Director attempts to set status='approved'", "expected": "no such code path exists in director_qa.py -- review_reel never writes .status", "type": "binary"},
     {"id": 24, "input": "beat timing with a 0.5s gap between beats", "expected": "check_beat_timing_drift fails (gap > 0.3s tolerance)", "type": "binary"},
-    {"id": 25, "input": "beat timing with a 0.1s gap between beats", "expected": "check_beat_timing_drift passes (within 0.3s tolerance)", "type": "binary"}
+    {"id": 25, "input": "beat timing with a 0.1s gap between beats", "expected": "check_beat_timing_drift passes (within 0.3s tolerance)", "type": "binary"},
+    {"id": 26, "planted_defect": "payoff_leak", "input": "title contains the exact sold-price figure ('$279,200') the payoff beat delivers", "expected": "check_payoff_leak fails (pass=False)", "type": "binary"},
+    {"id": 27, "input": "title states stakes without resolving them ('Less Than Half')", "expected": "check_payoff_leak passes", "type": "binary"},
+    {"id": 28, "planted_defect": "emoji_placement", "input": "title has a leading emoji before the ellipsis plus only one trailing emoji", "expected": "check_emoji_placement fails (pass=False)", "type": "binary"},
+    {"id": 29, "input": "title has zero emoji before the ellipsis and exactly two immediately after", "expected": "check_emoji_placement passes", "type": "binary"},
+    {"id": 30, "planted_defect": "ellipsis_form", "input": "title uses literal three-period '...' instead of the '…' character", "expected": "check_ellipsis_form fails (pass=False)", "type": "binary"},
+    {"id": 31, "input": "title uses the single '…' character", "expected": "check_ellipsis_form passes", "type": "binary"},
+    {"id": 32, "planted_defect": "title_case_drift", "input": "title is sentence-case ('The bank lost this bet...')", "expected": "check_title_case fails (pass=False)", "type": "binary"},
+    {"id": 33, "input": "title is consistently Title Case", "expected": "check_title_case passes", "type": "binary"},
+    {"id": 34, "planted_defect": "archetype_phase_mismatch", "input": "archetype='countdown_presale' assigned to a row with phase='postsale'", "expected": "check_archetype_data_match fails (pass=False)", "type": "binary"},
+    {"id": 35, "input": "archetype='countdown_presale' on a row with phase='presale'", "expected": "check_archetype_data_match passes", "type": "binary"}
   ]
 }

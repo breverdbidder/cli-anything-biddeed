@@ -14,7 +14,10 @@ import hook_writer as hw  # noqa: E402
 import router_client  # noqa: E402
 import eval_common  # noqa: E402
 
-GOOD_TITLE = "Bank lost this house to a stranger… \U0001F440\U0001F6A8"
+# issue #19792 PART 1 -- Title Case, single '…' char, zero emoji before it,
+# exactly two immediately after with nothing trailing (must keep passing
+# validate_title()'s new named checks, since this is the shared fixture).
+GOOD_TITLE = "The Bank Lost This House To A Stranger…\U0001F440\U0001F6A8"
 DNA_A = {"archetype": "shock_number", "emotion_pair": ["a", "b"], "voice_register": "hype",
          "caption_style": "karaoke_bold", "music_mood": "tension_build", "edit_style": "kinetic_bolt32"}
 DNA_B = {"archetype": "underdog_bidder", "emotion_pair": ["c", "d"], "voice_register": "calm_narrator",
@@ -33,22 +36,22 @@ def a2():
 
 
 def a3():
-    ok, reasons = hw.validate_title("Bank lost this house today for real…")
-    return (not ok and any("emoji_count" in r for r in reasons)), {"reasons": reasons}
+    ok, reasons = hw.validate_title("The Bank Lost This House Today For Real…")
+    return (not ok and any("emoji found after the ellipsis" in r for r in reasons)), {"reasons": reasons}
 
 
 def a4():
-    ok, reasons = hw.validate_title("Bank lost house to stranger… \U0001F440\U0001F6A8\U0001F4B0")
-    return (not ok and any("emoji_count" in r for r in reasons)), {"reasons": reasons}
+    ok, reasons = hw.validate_title("The Bank Lost The House To A Stranger…\U0001F440\U0001F6A8\U0001F4B0")
+    return (not ok and any("emoji found after the ellipsis" in r for r in reasons)), {"reasons": reasons}
 
 
 def a5():
-    ok, reasons = hw.validate_title("Bank lost this house to a stranger \U0001F440\U0001F6A8")
+    ok, reasons = hw.validate_title("The Bank Lost This House To A Stranger \U0001F440\U0001F6A8")
     return (not ok and any("ellipsis" in r for r in reasons)), {"reasons": reasons}
 
 
 def a6():
-    ok, reasons = hw.validate_title("You lost your house to a stranger… \U0001F440\U0001F6A8")
+    ok, reasons = hw.validate_title("You Lost Your House To A Stranger…\U0001F440\U0001F6A8")
     return (not ok and any("pronoun" in r for r in reasons)), {"reasons": reasons}
 
 

@@ -64,7 +64,68 @@ def _text_blob(variant: dict) -> str:
 
 def check_title_compliance(variant: dict) -> dict:
     ok, reasons = hook_writer.validate_title(variant.get("title", ""))
-    return {"pass": ok, "reasons": reasons}
+    return {"pass": ok, "reasons": reasons, "observed_title": variant.get("title", "")}
+
+
+# ---------------------------------------------------------------------------
+# issue #19792 PART 1 -- the 5 named checks the previous validator missed.
+# Each records an "observed" value (not just pass/fail) per the issue's
+# "qa_scores record the per-check result" requirement. The three text-only
+# checks (ellipsis_form/emoji_placement/title_case) are also folded into
+# validate_title() above so future generation self-enforces them; recorded
+# again here as their own named entries so a single mismatch is traceable
+# without re-deriving it from title_compliance.reasons.
+# ---------------------------------------------------------------------------
+
+def check_ellipsis_form(variant: dict) -> dict:
+    title = variant.get("title", "")
+    ok, reasons = hook_writer.check_ellipsis_form(title)
+    return {"pass": ok, "reasons": reasons, "observed": title}
+
+
+def check_emoji_placement(variant: dict) -> dict:
+    title = variant.get("title", "")
+    ok, reasons = hook_writer.check_emoji_placement(title)
+    return {"pass": ok, "reasons": reasons, "observed": title}
+
+
+def check_title_case(variant: dict) -> dict:
+    title = variant.get("title", "")
+    ok, reasons = hook_writer.check_title_case(title)
+    return {"pass": ok, "reasons": reasons, "observed": title}
+
+
+def check_payoff_leak(variant: dict, reel_facts: dict | None) -> dict:
+    title = variant.get("title", "")
+    if reel_facts is None:
+        return {"pass": None, "reason": "not_applicable_no_reel_facts_provided", "observed": title}
+    ok, reasons = hook_writer.check_payoff_leak(title, reel_facts)
+    observed = {
+        "title": title,
+        "sold_amount": reel_facts.get("sold_amount"),
+        "delta_pct": reel_facts.get("delta_pct"),
+        "opening_bid": reel_facts.get("opening_bid"),
+        "judgment_amount": reel_facts.get("judgment_amount"),
+    }
+    return {"pass": ok, "reasons": reasons, "observed": observed}
+
+
+def check_archetype_data_match(variant: dict, reel_facts: dict | None) -> dict:
+    archetype = (variant.get("variant_dna") or {}).get("archetype") or variant.get("archetype")
+    if reel_facts is None:
+        return {"pass": None, "reason": "not_applicable_no_reel_facts_provided", "observed": archetype}
+    ok, reasons = hook_writer.check_archetype_data_match(
+        archetype, reel_facts,
+        third_party_bidder=reel_facts.get("third_party_bidder"),
+        plaintiff_confirmed_bank=reel_facts.get("plaintiff_confirmed_bank"),
+    )
+    observed = {
+        "archetype": archetype,
+        "phase": reel_facts.get("phase"),
+        "third_party_bidder": reel_facts.get("third_party_bidder"),
+        "plaintiff_confirmed_bank": reel_facts.get("plaintiff_confirmed_bank"),
+    }
+    return {"pass": ok, "reasons": reasons, "observed": observed}
 
 
 def check_diversity(variant: dict, siblings: list[dict]) -> dict:
@@ -129,7 +190,7 @@ def check_short_code(variant: dict) -> dict:
     return {"pass": bool(variant.get("short_code"))}
 
 
-def review_variant(variant: dict, siblings: list[dict]) -> dict:
+def review_variant(variant: dict, siblings: list[dict], reel_facts: dict | None = None) -> dict:
     scores = {
         "title_compliance": check_title_compliance(variant),
         "diversity": check_diversity(variant, siblings),
@@ -139,12 +200,69 @@ def review_variant(variant: dict, siblings: list[dict]) -> dict:
         "beat_timing_drift": check_beat_timing_drift(variant),
         "eleven_v3_proof": check_eleven_v3_proof(variant),
         "short_code_present": check_short_code(variant),
+        # issue #19792 PART 1 -- the 5 named checks the rubber-stamping
+        # validator missed. payoff_leak/archetype_data_match need reel_facts
+        # (parent biddeed_reels + sale-record data); pass=None/excluded from
+        # qa_pass only when that context genuinely wasn't provided (unit
+        # tests), never on a live review_reel() call, which always supplies it.
+        "ellipsis_form": check_ellipsis_form(variant),
+        "emoji_placement": check_emoji_placement(variant),
+        "title_case": check_title_case(variant),
+        "payoff_leak": check_payoff_leak(variant, reel_facts),
+        "archetype_data_match": check_archetype_data_match(variant, reel_facts),
         "duration_32s": {"pass": None, "reason": "not_applicable_phase_a (no rendered video yet)"},
         "loop_seam_continuity": {"pass": None, "reason": "not_applicable_phase_a (no rendered video yet)"},
     }
     applicable = {k: v for k, v in scores.items() if v.get("pass") is not None}
     qa_pass = all(v["pass"] for v in applicable.values())
     return {"qa_scores": scores, "qa_pass": qa_pass}
+
+
+def fetch_reel_facts(reel_id: str) -> dict:
+    """Parent winnerdata.biddeed_reels facts + a best-effort sale-record
+    lookup (public.multi_county_auctions) for the two data-dependent named
+    checks (payoff_leak needs sold_amount/delta_pct/opening_bid/judgment;
+    archetype_data_match needs third_party_bidder/plaintiff_confirmed_bank).
+    A genuine miss on the auctions lookup leaves those two fields None
+    (treated as "not confirmed" by check_archetype_data_match), never
+    fabricated -- matches banned_names_for_case()'s existing miss handling
+    in scripts/biddeed_reels_pipeline_bolt32.py."""
+    rows = lib.run_sql(f"""
+        select case_number, county, phase, sale_type, sold_amount, assessed_value,
+               delta_pct, opening_bid, judgment_amount
+        from winnerdata.biddeed_reels where id = {lib.sql_str(reel_id)};
+    """)
+    if not rows:
+        return {}
+    reel = rows[0]
+    for k in ("sold_amount", "assessed_value", "delta_pct", "opening_bid", "judgment_amount"):
+        if reel.get(k) is not None:
+            reel[k] = float(reel[k])
+
+    third_party_bidder = None
+    plaintiff_confirmed_bank = None
+    try:
+        import urllib.parse as up
+        qcase = up.quote(reel["case_number"])
+        qcounty = up.quote(reel["county"])
+        arows = lib.pg_rest(
+            "multi_county_auctions",
+            f"select=sale_result,winning_bidder,plaintiff"
+            f"&case_number=eq.{qcase}&county=ilike.{qcounty}&limit=1",
+        )
+        if arows:
+            a = arows[0]
+            third_party_bidder = (a.get("sale_result") == "SOLD_THIRD_PARTY") and bool(a.get("winning_bidder"))
+            plaintiff = (a.get("plaintiff") or "").strip()
+            plaintiff_confirmed_bank = bool(plaintiff) and any(
+                kw in plaintiff.lower() for kw in ("bank", "mortgage", "n.a.", "n a ", "financial", "lending")
+            )
+    except Exception:
+        pass  # genuine miss -- leave None, never fabricate
+
+    reel["third_party_bidder"] = third_party_bidder
+    reel["plaintiff_confirmed_bank"] = plaintiff_confirmed_bank
+    return reel
 
 
 def review_reel(reel_id: str) -> list[dict]:
@@ -158,10 +276,12 @@ def review_reel(reel_id: str) -> list[dict]:
             if isinstance(v.get(col), str):
                 v[col] = json.loads(v[col])
 
+    reel_facts = fetch_reel_facts(reel_id)
+
     results = []
     for v in variants:
         siblings = [s for s in variants]
-        report = review_variant(v, siblings)
+        report = review_variant(v, siblings, reel_facts)
         lib.run_sql(f"""
             update winnerdata.reel_variants
             set qa_scores = {lib.sql_jsonb(report['qa_scores'])},

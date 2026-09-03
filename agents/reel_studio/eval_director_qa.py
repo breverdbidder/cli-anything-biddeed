@@ -11,7 +11,10 @@ import director_qa as dqa  # noqa: E402
 import hook_writer as hw  # noqa: E402
 import eval_common  # noqa: E402
 
-GOOD_TITLE = "Bank lost this house to a stranger… \U0001F440\U0001F6A8"
+# Title Case, single '…' char, zero emoji before it, exactly two immediately
+# after with nothing trailing -- must keep passing every check added by
+# issue #19792 PART 1, since it is the shared "clean control" fixture.
+GOOD_TITLE = "The Bank Lost This House To A Stranger…\U0001F440\U0001F6A8"
 
 DNA_SET = [
     {"archetype": "shock_number", "emotion_pair": ["a", "b"], "voice_register": "hype", "caption_style": "karaoke_bold", "music_mood": "tension_build", "edit_style": "kinetic_bolt32"},
@@ -165,6 +168,77 @@ def a25_gap_within_tolerance():
     return dqa.check_beat_timing_drift(v)["pass"] is True, {}
 
 
+# ---------------------------------------------------------------------------
+# issue #19792 PART 1 -- fixtures for the 5 named checks the previous
+# validator rubber-stamped past. Each gets a fail fixture (a real observed
+# violation from the shipped 20-variant batch) and a pass fixture.
+# ---------------------------------------------------------------------------
+
+POSTSALE_FACTS = {"phase": "postsale", "sold_amount": 279200.0, "assessed_value": 464650.0,
+                   "delta_pct": -39.9, "opening_bid": None, "judgment_amount": None,
+                   "third_party_bidder": True, "plaintiff_confirmed_bank": None}
+PRESALE_FACTS = {"phase": "presale", "sold_amount": None, "assessed_value": 300000.0,
+                  "delta_pct": None, "opening_bid": 150000.0, "judgment_amount": None,
+                  "third_party_bidder": None, "plaintiff_confirmed_bank": None}
+
+
+def a26_payoff_leak_fails():
+    # observed violation: "Broward Foreclosure Sells For... $279,200 🏚️🔥"
+    r = dqa.check_payoff_leak({"title": "Broward Foreclosure Sells For…$279,200\U0001F3DA\U0001F525"}, POSTSALE_FACTS)
+    return r["pass"] is False, r
+
+
+def a27_payoff_leak_passes():
+    r = dqa.check_payoff_leak({"title": "The Bank Let It Go For Less Than Half…\U0001F633\U0001F3E6"}, POSTSALE_FACTS)
+    return r["pass"] is True, r
+
+
+def a28_emoji_placement_fails():
+    # observed violation: "⚠️ Foreclosure Red Flag... Sold 39.9% Under 👀" -- leading emoji + trailing single emoji
+    r = dqa.check_emoji_placement({"title": "⚠️ Foreclosure Red Flag Sold Under Assessed…\U0001F440"})
+    return r["pass"] is False, r
+
+
+def a29_emoji_placement_passes():
+    r = dqa.check_emoji_placement({"title": GOOD_TITLE})
+    return r["pass"] is True, r
+
+
+def a30_ellipsis_form_fails():
+    # observed violation: "Tax deed stuns Lee County... 💰🔑" (literal three dots)
+    r = dqa.check_ellipsis_form({"title": "Tax Deed Stuns Lee County... \U0001F4B0\U0001F511"})
+    return r["pass"] is False, r
+
+
+def a31_ellipsis_form_passes():
+    r = dqa.check_ellipsis_form({"title": GOOD_TITLE})
+    return r["pass"] is True, r
+
+
+def a32_title_case_fails():
+    # observed violation: "The bank lost this bet… 🏦🏠"
+    r = dqa.check_title_case({"title": "The bank lost this bet…\U0001F3E6\U0001F3E0"})
+    return r["pass"] is False, r
+
+
+def a33_title_case_passes():
+    r = dqa.check_title_case({"title": GOOD_TITLE})
+    return r["pass"] is True, r
+
+
+def a34_archetype_phase_mismatch_fails():
+    # observed violation: countdown_presale assigned to a postsale reel (Lee/Martin/Broward)
+    v = {"variant_dna": {"archetype": "countdown_presale"}}
+    r = dqa.check_archetype_data_match(v, POSTSALE_FACTS)
+    return r["pass"] is False, r
+
+
+def a35_archetype_phase_mismatch_passes():
+    v = {"variant_dna": {"archetype": "countdown_presale"}}
+    r = dqa.check_archetype_data_match(v, PRESALE_FACTS)
+    return r["pass"] is True, r
+
+
 def run_eval():
     assertions = [
         ("planted_person_name_caught", a1_person_name),
@@ -192,6 +266,16 @@ def run_eval():
         ("never_writes_status_or_approval", a23_no_status_write),
         ("beat_gap_over_tolerance_fails", a24_gap_too_large),
         ("beat_gap_within_tolerance_passes", a25_gap_within_tolerance),
+        ("payoff_leak_fails_on_observed_violation", a26_payoff_leak_fails),
+        ("payoff_leak_passes_on_stakes_without_resolution", a27_payoff_leak_passes),
+        ("emoji_placement_fails_on_leading_or_stray_emoji", a28_emoji_placement_fails),
+        ("emoji_placement_passes_on_clean_title", a29_emoji_placement_passes),
+        ("ellipsis_form_fails_on_literal_three_dots", a30_ellipsis_form_fails),
+        ("ellipsis_form_passes_on_single_char", a31_ellipsis_form_passes),
+        ("title_case_fails_on_sentence_case_drift", a32_title_case_fails),
+        ("title_case_passes_on_title_case", a33_title_case_passes),
+        ("archetype_phase_mismatch_fails_countdown_on_postsale", a34_archetype_phase_mismatch_fails),
+        ("archetype_phase_mismatch_passes_countdown_on_presale", a35_archetype_phase_mismatch_passes),
     ]
     return eval_common.run_assertions("reel-director-qa", assertions)
 

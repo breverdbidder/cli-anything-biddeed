@@ -105,17 +105,160 @@ def count_emoji(text: str) -> int:
     return len(_EMOJI_RE.findall(text))
 
 
+ELLIPSIS = "…"
+
+# issue #19792 PART 1 -- title-case check exempts short connective words
+# (matches the style Bolt's own titles use: "The Bank Let It Go For Less
+# Than Half...", where "for"/"a"/"the" stay lowercase but every content
+# word is capitalized) -- but the FIRST word is always required capitalized
+# regardless of this list.
+_TITLE_CASE_STOPWORDS = {
+    "a", "an", "the", "of", "in", "on", "for", "to", "is", "at", "by",
+    "and", "or", "its", "it's", "this", "that", "than", "off",
+}
+
+
+def check_ellipsis_form(title: str) -> tuple[bool, list[str]]:
+    """Named check (issue #19792 PART 1): the T1 spec requires the single
+    ellipsis CHARACTER '…', not the three-period '...' sequence several
+    shipped titles used ('Tax deed stuns Lee County... 💰🔑')."""
+    reasons = []
+    title = title or ""
+    if ELLIPSIS not in title:
+        reasons.append("missing the single-character ellipsis '…' (literal three dots '...' does not count)")
+    elif "..." in title:
+        reasons.append("contains a literal '...' in addition to/instead of the single '…' character")
+    return (len(reasons) == 0, reasons)
+
+
+def check_emoji_placement(title: str) -> tuple[bool, list[str]]:
+    """Named check (issue #19792 PART 1): zero emoji before the ellipsis,
+    exactly two immediately after it, nothing following them. Catches both
+    observed violations: a leading emoji ('⚠️ Foreclosure Red Flag...') and
+    a title that merely CONTAINS two emoji somewhere rather than having them
+    positioned as the terminal marker."""
+    reasons = []
+    title = title or ""
+    if ELLIPSIS not in title:
+        return (False, ["no ellipsis present to anchor emoji placement"])
+    idx = title.index(ELLIPSIS)
+    before, after = title[:idx], title[idx + 1:]
+    n_before = count_emoji(before)
+    if n_before > 0:
+        reasons.append(f"{n_before} emoji found before the ellipsis (must be zero)")
+    n_after = count_emoji(after)
+    trailing_non_emoji = _EMOJI_RE.sub("", after).strip()
+    if trailing_non_emoji:
+        reasons.append(f"non-emoji text follows the emoji at the end of the title: {trailing_non_emoji!r}")
+    if n_after != 2:
+        reasons.append(f"{n_after} emoji found after the ellipsis (must be exactly 2)")
+    return (len(reasons) == 0, reasons)
+
+
+def check_title_case(title: str) -> tuple[bool, list[str]]:
+    """Named check (issue #19792 PART 1): catches sentence-case drift
+    ('Tax deed stuns Lee County...', 'The bank lost this bet...') against
+    Bolt's consistently Title Case titles."""
+    reasons = []
+    title = title or ""
+    stem = title.split(ELLIPSIS)[0] if ELLIPSIS in title else title
+    words = [w for w in re.split(r"\s+", stem.strip()) if w]
+    bad = []
+    for i, w in enumerate(words):
+        core = re.sub(r"^[^A-Za-z0-9]+", "", w)
+        if not core or not core[0].isalpha():
+            continue
+        is_stopword = re.sub(r"[^a-z']", "", w.lower()) in _TITLE_CASE_STOPWORDS
+        if core[0].isupper():
+            continue
+        if i == 0 or not is_stopword:
+            bad.append(w)
+    if bad:
+        reasons.append(f"not Title Case -- lowercase word(s) that should be capitalized: {bad}")
+    return (len(reasons) == 0, reasons)
+
+
+def check_payoff_leak(title: str, reel: dict) -> tuple[bool, list[str]]:
+    """Named check (issue #19792 PART 1) -- the anti-hook, flagged as the
+    single biggest miss: a title that hands the viewer the exact number the
+    20-28s Payoff beat delivers (sold price / discount pct / opening bid)
+    leaves nothing to watch for. A title MAY still cite the assessed value
+    (a Setup-beat fact, disclosed 2-8s) or a vague/rounded stakes phrase
+    ('less than half') -- only the specific payoff-beat figures fail this
+    check. `reel` = {phase, sold_amount, delta_pct, assessed_value,
+    opening_bid, judgment_amount}."""
+    reasons = []
+    reel = reel or {}
+    title = title or ""
+    digits_found = {d.replace(",", "") for d in re.findall(r"[\d,]+(?:\.\d+)?", title)}
+
+    def _leaks(value, label):
+        if value is None:
+            return
+        for fmt in (f"{value:,.0f}", f"{value:.0f}", f"{abs(value):,.0f}", f"{abs(value):.0f}"):
+            if fmt.replace(",", "") in digits_found:
+                reasons.append(f"title leaks the {label} figure ({fmt}) that the 20-28s payoff beat delivers")
+                return
+
+    if reel.get("phase") == "presale":
+        _leaks(reel.get("opening_bid"), "opening bid")
+        _leaks(reel.get("judgment_amount"), "judgment amount")
+    else:
+        _leaks(reel.get("sold_amount"), "sold price")
+        _leaks(reel.get("delta_pct"), "discount percentage")
+    return (len(reasons) == 0, reasons)
+
+
+# issue #19792 PART 1 -- archetype validity rules, checked against the
+# row's ACTUAL facts (never asserted from the archetype's own story).
+# Every archetype not named here has no data-dependent precondition today.
+_PHASE_ONLY_ARCHETYPES = {"countdown_presale": "presale"}
+
+
+def check_archetype_data_match(archetype: str, reel: dict, third_party_bidder: bool | None,
+                                plaintiff_confirmed_bank: bool | None) -> tuple[bool, list[str]]:
+    """Named check (issue #19792 PART 1) -- a semantic bug, not cosmetic.
+    countdown_presale requires phase='presale' (a property that already
+    sold cannot have a countdown); mystery_nobody_bid requires the sale
+    record show NO confirmed third-party bidder; bank_vs_house requires a
+    confirmed bank/lender plaintiff in the case record. `third_party_bidder`
+    / `plaintiff_confirmed_bank` are True/False/None (None = data absent,
+    treated as "not confirmed" -- diversity must be achieved within the
+    archetypes the data supports, never by asserting an unverified story)."""
+    reasons = []
+    reel = reel or {}
+    phase = reel.get("phase")
+
+    required_phase = _PHASE_ONLY_ARCHETYPES.get(archetype)
+    if required_phase and phase != required_phase:
+        reasons.append(f"archetype {archetype!r} requires phase={required_phase!r}, row has phase={phase!r}")
+
+    if archetype == "mystery_nobody_bid" and third_party_bidder:
+        reasons.append("archetype 'mystery_nobody_bid' requires no confirmed third-party bidder, "
+                        "but the sale record shows one (sale_result=SOLD_THIRD_PARTY / winning_bidder present)")
+
+    if archetype == "bank_vs_house" and not plaintiff_confirmed_bank:
+        reasons.append("archetype 'bank_vs_house' requires a confirmed bank/lender plaintiff in the case "
+                        "record; plaintiff is absent/unconfirmed for this row")
+
+    return (len(reasons) == 0, reasons)
+
+
 def validate_title(title: str) -> tuple[bool, list[str]]:
     reasons = []
     words = [w for w in re.split(r"\s+", title.strip()) if w]
     word_count = len([w for w in words if not _EMOJI_RE.fullmatch(w)])
     if not (5 <= word_count <= 9):
         reasons.append(f"word_count={word_count} not in [5,9]")
-    if "…" not in title and "..." not in title:
-        reasons.append("missing ellipsis")
-    n_emoji = count_emoji(title)
-    if n_emoji != 2:
-        reasons.append(f"emoji_count={n_emoji} != 2")
+    ok, why = check_ellipsis_form(title)
+    if not ok:
+        reasons.extend(why)
+    ok, why = check_emoji_placement(title)
+    if not ok:
+        reasons.extend(why)
+    ok, why = check_title_case(title)
+    if not ok:
+        reasons.extend(why)
     if _FIRST_SECOND_PERSON.search(title):
         reasons.append("first/second-person pronoun present (must be third person)")
     return (len(reasons) == 0, reasons)
