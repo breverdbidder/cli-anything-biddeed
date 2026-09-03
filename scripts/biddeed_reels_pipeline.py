@@ -46,54 +46,58 @@ def get_third_party_wins(auction_date: str) -> list[dict]:
 def get_reel_candidates(start_date: str, end_date: str) -> list[dict]:
     """issue #19794 -- reel-candidate query, extended over a date RANGE
     (not a single auction_date) and sale-type-aware on the buyer_type gate.
+    issue #19814 -- corrected tax_deed source: query public.multi_county_auctions
+    DIRECTLY for tax_deed instead of going through public.auction_buyer_sightings.
 
-    Two real, verified findings from #19794's investigation drove this:
+    Three real, verified findings drove this function's current shape:
 
-    1. STARVATION WAS A CADENCE GAP, NOT A COVERAGE GAP. The upstream tables
-       (public.auction_buyer_sightings / public.multi_county_auctions)
-       already carry far more tax_deed candidates than winnerdata.biddeed_reels
-       has ever rendered -- verified live 2026-09-03: 88 tax_deed/third_party
-       sightings in the trailing 14 days across 9 counties (vs. biddeed_reels'
-       3 tax_deed rows), because the v1 pipeline has only ever been invoked
-       for one or two discrete auction_date values, never a rolling window.
-       Widening the query to a date range is the actual fix.
+    1. STARVATION WAS A CADENCE GAP, NOT A COVERAGE GAP (#19794). The v1
+       pipeline only ever queried a single --auction-date, never a rolling
+       window, so the tax-deed candidates that did exist were never seen.
+       Widening the query to a date range is the first fix.
 
-    2. FORECLOSURE-SPECIFIC VALIDATION WAS LEAKING ONTO TAX_DEED ROWS. The
-       old query required buyer_type='third_party' for every sale_type. That
-       gate exists because a foreclosure sold_amount alone is AMBIGUOUS -- the
-       plaintiff/bank can bid the judgment and reclaim the property, so a real
-       third-party buyer must be independently confirmed. Florida tax deed
-       sales are ABSOLUTE AUCTIONS: no plaintiff/bank can reclaim, so
-       sold_amount > 0 is BY ITSELF sufficient proof of a genuine third-party
-       sale (see docs/gtm/REEL_SPEC_BOLT32.md "Absolute Auction Data-Quality
-       Assertion"). Requiring buyer_type='third_party' for tax_deed rows
-       silently drops real sales whose buyer_type was simply never classified
-       -- live-verified: 7 real Flagler County tax_deed sales (sold_amount
-       populated, e.g. $208,900.00 on 2025-08-12) sitting in
-       auction_buyer_sightings with buyer_type IS NULL, invisible to the old
-       query. This function keeps the third_party gate for foreclosure and
-       drops it for tax_deed (still excluding any row explicitly classified
-       buyer_type='plaintiff', which would mean a reclaim, not a sale).
+    2. FORECLOSURE-SPECIFIC VALIDATION WAS LEAKING ONTO TAX_DEED ROWS
+       (#19794). Florida tax deed sales are ABSOLUTE AUCTIONS: no
+       plaintiff/bank can reclaim, so sold_amount > 0 is BY ITSELF sufficient
+       proof of a genuine third-party sale (see docs/gtm/REEL_SPEC_BOLT32.md
+       "Absolute Auction Data-Quality Assertion"). Foreclosure keeps the
+       buyer_type='third_party' gate; tax_deed does not need it.
+
+    3. AUCTION_BUYER_SIGHTINGS ITSELF WAS TOO NARROW A SLICE OF
+       multi_county_auctions FOR TAX_DEED (#19814, corrects #19794's
+       premise). auction_buyer_sightings is a derived/classification table,
+       not the raw auction-results table -- live-verified 2026-09-03: of the
+       125 multi_county_auctions rows with sale_type='tax_deed' and
+       sold_amount > 0 in the trailing 14 days, only 88 (70.4%) have any
+       matching auction_buyer_sightings row at all (matched via
+       auction_buyer_sightings.mca_id = multi_county_auctions.id); the other
+       37 (all in one county, putnam, on a single auction_date) were simply
+       never promoted into that table. multi_county_auctions has no
+       buyer_type column and needs none for tax_deed under the absolute-
+       auction rule, so this function now reads tax_deed candidates straight
+       from multi_county_auctions -- recovering those 37 rows -- and keeps
+       auction_buyer_sightings only for foreclosure, where the buyer_type
+       classification it carries is actually required.
 
     public.clerk_ssot_sale_rows (the clerk-scraped tax-deed calendar table
-    this issue was framed around) is wired in as a SECOND, ADDITIVE source
-    for tax_deed only, de-duplicated against auction_buyer_sightings on
-    (county, normalized case_number) so a sale is never double-counted
-    (negative test (b)). It is deliberately NOT the primary source: verified
-    live 2026-09-03, clerk_ssot_sale_rows has no sold_amount column at all
-    (it is a scheduling/docket table, not a results table); of its 11,396
-    tax_deed rows, only ~3,655 carry a "sold"-shaped status token in
-    raw_comment (free text, format varies per county), and of those, price
-    and a joinable parcel identifier co-occur in the SAME county for
-    essentially none of the 17 counties (nassau/hardee: price yes, parcel no;
-    highlands: parcel yes [100% zw_parcels match], price no). See
-    docs/spec/19794.md for the full per-county breakdown. This UNION branch
-    exists so a future county whose clerk raw_comment DOES carry both (or a
-    future re-scrape that adds a price field) is picked up automatically --
-    it contributes 0 rows against live data as of this writing, verified.
+    #19794 was originally framed around) is wired in as a THIRD, ADDITIVE
+    source for tax_deed only, de-duplicated against mca_source on (county,
+    normalized case_number) so a sale is never double-counted (negative test
+    (b)). It is deliberately NOT the primary source: verified live
+    2026-09-03, clerk_ssot_sale_rows has no sold_amount column at all (it is
+    a scheduling/docket table, not a results table); of its 11,396 tax_deed
+    rows, only ~3,655 carry a "sold"-shaped status token in raw_comment (free
+    text, format varies per county), and of those, price and a joinable
+    parcel identifier co-occur in the SAME county for essentially none of the
+    17 counties (nassau/hardee: price yes, parcel no; highlands: parcel yes
+    [100% zw_parcels match], price no). See docs/spec/19794.md for the full
+    per-county breakdown. This UNION branch exists so a future county whose
+    clerk raw_comment DOES carry both (or a future re-scrape that adds a
+    price field) is picked up automatically -- it contributes 0 rows against
+    live data as of this writing, verified.
     """
     sql = f"""
-        with mca_source as (
+        with foreclosure_source as (
             select
                 s.case_number, s.county, s.sale_type, s.auction_date,
                 s.property_address, s.sold_amount, s.buyer_type,
@@ -102,14 +106,27 @@ def get_reel_candidates(start_date: str, end_date: str) -> list[dict]:
             where s.auction_date >= date {lib.sql_str(start_date)}
               and s.auction_date <= date {lib.sql_str(end_date)}
               and s.sold_amount is not null and s.sold_amount > 0
-              and (
-                    (s.sale_type = 'foreclosure' and s.buyer_type = 'third_party')
-                    or
-                    -- absolute-auction rule (docs/gtm/REEL_SPEC_BOLT32.md):
-                    -- tax_deed needs no winning_bidder-type ambiguity check,
-                    -- only that it wasn't explicitly reclaimed by a plaintiff.
-                    (s.sale_type = 'tax_deed' and (s.buyer_type is null or s.buyer_type = 'third_party'))
-              )
+              and s.sale_type = 'foreclosure' and s.buyer_type = 'third_party'
+        ),
+        taxdeed_source as (
+            -- issue #19814 root-cause fix -- see docstring point 3. Direct
+            -- from multi_county_auctions, not auction_buyer_sightings.
+            -- absolute-auction rule (docs/gtm/REEL_SPEC_BOLT32.md): sold_amount
+            -- > 0 needs no buyer_type/winning_bidder ambiguity check for tax_deed.
+            select
+                m.case_number, m.county, m.sale_type, m.auction_date,
+                m.property_address, m.sold_amount, 'third_party'::text as buyer_type,
+                'multi_county_auctions' as source
+            from public.multi_county_auctions m
+            where m.auction_date >= date {lib.sql_str(start_date)}
+              and m.auction_date <= date {lib.sql_str(end_date)}
+              and m.sale_type = 'tax_deed'
+              and m.sold_amount is not null and m.sold_amount > 0
+        ),
+        mca_source as (
+            select * from foreclosure_source
+            union all
+            select * from taxdeed_source
         ),
         clerk_priced as (
             select
