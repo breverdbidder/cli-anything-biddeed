@@ -130,3 +130,21 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GH_TOKEN: ${{ secrets.GH_PAT_FULL || secrets.GITHUB_TOKEN }}
         run: python3 factory/gtm/doctor.py
+
+      - name: License tripwire — remotion_license_risk (issue #19787)
+        # Protects the Remotion Free-License ruling (docs/gtm/VIDEO_STACK.md
+        # §Remotion License V2 ruling): (a) >3 distinct human authors across
+        # zonewise-superpowers/zonewise-video in 90d is ADVISORY-FAIL (logged,
+        # does not block this job); (b) @remotion/player or <Player> in a
+        # customer-facing surface and (c) a render call accepting
+        # user-supplied composition/project data are both HARD FAIL. Results
+        # land in agent_ops_log(dispatch_id='remotion_license_risk') for
+        # public.gtm_watchdog()'s D8 detector to read on its next */15 tick.
+        if: steps.halt.outputs.halted == '0' && steps.quota.outputs.mode != 'skip'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL || secrets.GITHUB_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          pip install --quiet httpx
+          python3 scripts/remotion_license_tripwire.py

@@ -2042,3 +2042,52 @@ def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg bolt32 assembly failed: {result.stderr[-3000:]}")
     return _ffprobe_duration(out_path)
+
+
+def burn_word_captions_bolt32(video_path: str, caption_groups: list[dict], out_path: str) -> float:
+    """Issue #19787: replaces bolt32's hand-timed beat title-cards with real
+    whisperX/faster-whisper word-level caption groups (3-5 words,
+    scripts/bolt32_captions_whisperx.py::group_words). Burns a second,
+    bottom-of-frame drawtext layer onto an ALREADY-assembled bolt32 video
+    (assemble_video_bolt32's output) -- the existing per-beat title cards
+    (hook/setup/condition/payoff/loop) are visual highlight cards timed to
+    the beat_map, not literal captions, and are left in place; this adds the
+    actual spoken-word caption track under them, one drawtext `enable`
+    window per group so only one group is visible at a time.
+
+    Re-encodes (not a stream copy) because drawtext requires decoding, same
+    as assemble_video_bolt32's own approach -- accepted cost, same as every
+    other bolt32/v2/presale render.
+    """
+    font = _ensure_font()
+    filters = []
+    cur = "0:v"
+    for i, g in enumerate(caption_groups):
+        nxt = f"cap{i}"
+        enable_expr = f"'between(t,{g['start']:.2f},{g['end']:.2f})'"
+        # Same apostrophe/ffmpeg-filtergraph bug _escape_drawtext's caller
+        # worked around in assemble_video_bolt32 (docstring there) --
+        # backslash-escaping a single quote inside an already single-quoted
+        # drawtext value is a syntax error to ffmpeg's filter parser. There
+        # the fix was rewording hand-written strings to avoid contractions;
+        # ASR-transcribed caption text can't be reworded at the source, so
+        # the apostrophe is dropped here instead ("Here's" -> "Heres").
+        caption_text = g["text"].replace("'", "").replace("’", "")
+        dt = _dt(font, caption_text, fontcolor="white", fontsize=48, box=1,
+                 boxcolor="black@0.55", boxborderw=14, x="(w-text_w)/2", y="h-320",
+                 enable=enable_expr)
+        filters.append(f"[{cur}]{dt}[{nxt}]")
+        cur = nxt
+    filter_complex = ";".join(filters) + f";[{cur}]copy[vout]"
+
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-filter_complex", filter_complex,
+        "-map", "[vout]", "-map", "0:a",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "copy",
+        out_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg word-caption burn-in failed: {result.stderr[-3000:]}")
+    return _ffprobe_duration(out_path)

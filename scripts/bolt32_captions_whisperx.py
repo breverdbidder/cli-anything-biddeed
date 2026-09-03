@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""whisperX word-timestamp -> Bolt caption-group formatter (issue #19781).
+"""whisperX word-timestamp -> Bolt caption-group formatter (issue #19781, wired
+into the live pipeline in #19787).
 
 Bolt's cadence is centered, high-contrast captions in 3-5 word groups, one
 visual change every 2-4s. whisperX (docs/gtm/VIDEO_STACK.md, ADOPTED) gives
 word-level timestamps; this module turns that word stream into caption
-groups a bolt32 render step can burn in via ffmpeg drawtext.
+groups a bolt32 render step can burn in via ffmpeg drawtext
+(biddeed_reels_lib.py::burn_word_captions_bolt32).
 
-whisperX itself is not invoked here -- #19779 has no bolt32 render to run it
-against yet (docs/gtm/VIDEO_STACK.md #3). This module is the pure grouping
-logic, unit-tested against synthetic word-timestamp fixtures shaped like
-whisperX's own output (`result["segments"][i]["words"]`, each
-{"word": str, "start": float, "end": float}).
+transcribe_words_faster_whisper() is the real production entry point
+(faster-whisper, the ADOPTED CPU backend, docs/gtm/VIDEO_STACK.md). It is a
+thin wrapper -- import is lazy so unit-testing group_words()/
+assert_valid_groups() never requires the (heavy) faster-whisper install.
 """
 from __future__ import annotations
 
@@ -69,6 +70,43 @@ def assert_valid_groups(groups: list[dict], min_words: int = MIN_GROUP_WORDS,
             raise Bolt32CaptionError(
                 f"group {idx} has {wc} words (min {min_words}, not last group): {g['text']!r}"
             )
+
+
+class Bolt32TranscriptionUnavailableError(Exception):
+    """Raised when the ADOPTED faster-whisper backend cannot produce a
+    transcript (e.g. its Hugging Face Hub model weights are unreachable).
+    Callers decide whether to retry, skip, or use a documented session-local
+    substitute -- this module never silently swaps backends itself."""
+
+
+def transcribe_words_faster_whisper(audio_path: str, model_size: str = "small",
+                                     device: str = "cpu", compute_type: str = "int8") -> list[dict]:
+    """Real production entry point. faster-whisper (MIT, SYSTRAN/faster-whisper)
+    is the ADOPTED CPU backend for whisperX-shaped word timestamps
+    (docs/gtm/VIDEO_STACK.md #2). Returns [{"word","start","end"}, ...] in
+    the same shape group_words() expects.
+
+    Raises Bolt32TranscriptionUnavailableError if the model weights can't be
+    fetched (e.g. Hugging Face Hub rate-limiting) -- this is a real,
+    observable failure mode (confirmed live 2026-09-03: HF Hub CloudFront
+    429 on both the metadata API and the CDN resolve endpoint from this
+    session's network egress), not something to paper over.
+    """
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as e:
+        raise Bolt32TranscriptionUnavailableError(f"faster-whisper not installed: {e}") from e
+
+    try:
+        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        segments, _info = model.transcribe(audio_path, word_timestamps=True)
+        words = []
+        for seg in segments:
+            for w in seg.words:
+                words.append({"word": w.word.strip(), "start": round(w.start, 2), "end": round(w.end, 2)})
+        return words
+    except Exception as e:
+        raise Bolt32TranscriptionUnavailableError(f"faster-whisper transcription failed: {e}") from e
 
 
 def _synthetic_words(sentence: str, start: float = 0.0, per_word_sec: float = 0.3) -> list[dict]:
