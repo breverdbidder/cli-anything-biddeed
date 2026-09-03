@@ -1,0 +1,125 @@
+name: CMO Factory — distribution scheduler (CP3g)
+
+# issue #19789. Polls public.social_content_queue once per tick and, for
+# each platform, hands its approved rows to agents/distribution/<platform>.py.
+# No pushes -- the queue is the only interface, and Ariel's LMS approve
+# click (approved_at) is the only thing that lets a row be picked up (M1/M8).
+# Every platform is NOT_CONFIGURED today (no vault credentials exist yet),
+# so every run currently no-ops cleanly -- see docs/gtm/DISTRIBUTION_LANE.md.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '23 */2 * * *' # every 2h, offset from the :00/:15/:30/:45 pg_cron watchdog tick
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Halt check (fails closed) — control issue label, spi_gates
+        id: halt
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_FULL || secrets.GITHUB_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set +e
+          HALTED=0
+          REASONS=""
+
+          if [ -f ".factory/gtm/STOP" ]; then
+            HALTED=1; REASONS="${REASONS} STOP-file-present"
+          fi
+
+          LABELS=$(gh issue view 19780 --repo ${{ github.repository }} --json labels -q '.labels[].name' 2>/dev/null)
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            HALTED=1; REASONS="${REASONS} control-issue-label-unreadable(fails-closed)"
+          elif echo "$LABELS" | grep -qx "factory:halt"; then
+            HALTED=1; REASONS="${REASONS} factory:halt-label-set"
+          fi
+
+          GATE=$(curl -s --max-time 15 "${SUPABASE_URL}/rest/v1/spi_gates?gate_key=eq.gtm_factory_halt&select=verified_at" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+          if [ -z "$GATE" ]; then
+            HALTED=1; REASONS="${REASONS} spi_gates-unreadable(fails-closed)"
+          else
+            OPEN=$(echo "$GATE" | python3 -c "import json,sys; d=json.load(sys.stdin); print('1' if d and d[0].get('verified_at') is None else '0')" 2>/dev/null || echo "1")
+            if [ "$OPEN" = "1" ]; then
+              HALTED=1; REASONS="${REASONS} spi_gates.gtm_factory_halt-open"
+            fi
+          fi
+
+          echo "halted=$HALTED" >> "$GITHUB_OUTPUT"
+          echo "reasons=$REASONS" >> "$GITHUB_OUTPUT"
+          echo "halt check: halted=$HALTED reasons=[$REASONS]"
+
+      - name: Stop here if halted
+        if: steps.halt.outputs.halted == '1'
+        run: |
+          echo "::error::CMO Factory distribution scheduler is HALTED (${{ steps.halt.outputs.reasons }}) — refusing to dispatch."
+          exit 1
+
+      - name: Quota gate check (public.quota_gate_check('engineering'))
+        id: quota
+        if: steps.halt.outputs.halted == '0'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          RESP=$(curl -s --max-time 30 -X POST "${SUPABASE_URL}/rest/v1/rpc/quota_gate_check" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" -d '{"p_category":"engineering"}')
+          echo "quota_gate_check response: $RESP"
+          ALLOW=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d.get("allow")).lower())' 2>/dev/null || echo "error")
+          REASON=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("reason",""))' 2>/dev/null || echo "unreachable")
+          if [ "$ALLOW" = "true" ]; then
+            MODE="full"
+          elif [ "$REASON" = "NO_READING" ]; then
+            MODE="cap"   # run, but capped -- NEVER silently skip on NO_READING
+          else
+            MODE="skip"  # explicit denial for a real reason — logged, not silent
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "quota gate mode: $MODE (allow=$ALLOW reason=$REASON)"
+
+      - name: Quota-denied — logged, not silent
+        if: steps.halt.outputs.halted == '0' && steps.quota.outputs.mode == 'skip'
+        run: |
+          echo "::warning::quota_gate_check denied engineering-category work this run (mode=skip). Distribution dispatch was NOT performed this run. This is a logged skip, not a silent one."
+          exit 1
+
+      - name: Dispatch each platform adapter (poll social_content_queue, no pushes)
+        if: steps.halt.outputs.halted == '0' && steps.quota.outputs.mode != 'skip'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set +e
+          OVERALL_RC=0
+          for platform in instagram facebook tiktok x linkedin; do
+            echo "=== $platform ==="
+            python3 -m agents.distribution.$platform
+            RC=$?
+            echo "$platform exit=$RC"
+            if [ $RC -ne 0 ]; then OVERALL_RC=1; fi
+          done
+          exit $OVERALL_RC
+
+      - name: Daily token-health probe (writes public.social_token_health)
+        if: steps.halt.outputs.halted == '0' && steps.quota.outputs.mode != 'skip'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python3 scripts/social_token_health_probe.py

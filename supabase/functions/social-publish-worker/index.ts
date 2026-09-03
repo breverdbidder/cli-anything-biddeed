@@ -1,14 +1,24 @@
 // supabase/functions/social-publish-worker/index.ts
 //
-// Reads pending rows from social_content_queue and posts them to LinkedIn.
+// Reads approved rows from social_content_queue and posts them to LinkedIn.
 // Dormant (returns 503, does nothing) until linkedin_access_token exists in
 // vault -- i.e. until Ariel completes the one-time OAuth authorization via
 // linkedin-oauth-callback.
 //
-// No content review gate here by design (see conversation). The safety
-// property instead comes from social-content-generator never emitting
-// free-form numbers -- this worker just posts exactly what's in the queue,
-// unmodified, and never calls an LLM.
+// APPROVAL GATE (added issue #19789, M1/M8 fix): this worker used to publish
+// any status='pending' row unconditionally the moment a token existed ("No
+// content review gate here by design"). That was a live M1/M8 violation --
+// once OAuth landed it would have posted to Ariel's PERSONAL LinkedIn
+// profile (author is a urn:li:person:, not an organization) with zero
+// human review. It now also requires approved_at IS NOT NULL, set only by
+// Ariel's approve click in the LMS, same contract as winnerdata.ff_batches.
+// Separately, target_platform='linkedin_personal' predates CP3g's
+// requirement that LinkedIn posting go through a company page
+// (w_organization_social) -- see docs/gtm/DISTRIBUTION_LANE.md for that
+// still-open reclassification; this worker is left targeting the personal
+// profile for now because migrating it needs a new OAuth grant this
+// session has no way to obtain, not because personal-profile posting is
+// endorsed going forward.
 //
 // Run on a schedule (GHA cron). Every attempt updates the row's status so
 // nothing is retried silently forever; failures alert via Telegram.
@@ -111,6 +121,7 @@ Deno.serve(async (req: Request) => {
     .select("*")
     .eq("status", "pending")
     .eq("target_platform", "linkedin_personal")
+    .not("approved_at", "is", null)
     .lt("retry_count", MAX_RETRIES)
     .lte("scheduled_for", today)
     .order("created_at", { ascending: true })
