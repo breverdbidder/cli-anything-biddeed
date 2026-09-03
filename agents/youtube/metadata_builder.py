@@ -81,9 +81,23 @@ def build_utm_link(landing_url: str, county: str, variant_key: str, video_type: 
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
 
 
-def build_description(utm_link: str, county: str, video_type: str) -> str:
+# issue #19804 -- sale-type-slotted cadence means a row can be either
+# sale_type now; the description must say which, and must never claim a
+# sale happened "today" if it didn't (see the starvation ladder's real-
+# sale-date labelling requirement in agents/youtube/uploader.py).
+_SALE_TYPE_LABEL = {
+    "tax_deed": "public tax deed sale",
+    "foreclosure": "public foreclosure auction",
+}
+
+
+def build_description(utm_link: str, county: str, video_type: str,
+                       sale_type: str | None = None, auction_date: str | None = None) -> str:
     county_label = (county or "this county").replace("_", " ").title()
-    context_line_1 = f"A {county_label} County property just changed hands at a public foreclosure auction."
+    sale_label = _SALE_TYPE_LABEL.get(sale_type, "public auction")
+    context_line_1 = f"A {county_label} County property just changed hands at a {sale_label}."
+    if auction_date:
+        context_line_1 += f" Sale date: {auction_date}."
     context_line_2 = "Full public record, photos, and sale details are at the link above."
     return "\n".join([utm_link, context_line_1, context_line_2, DISCLOSURE_LINE])
 
@@ -128,7 +142,8 @@ def build_metadata(row: dict) -> dict:
     variant_key = row.get("variant_key") or ""
     utm_link = build_utm_link(row.get("landing_url"), county, variant_key, video_type)
 
-    description = build_description(utm_link, county, video_type)
+    description = build_description(utm_link, county, video_type,
+                                     sale_type=row.get("sale_type"), auction_date=row.get("auction_date"))
     _assert_no_banned_terms("description", description)
 
     pinned_comment_text = build_pinned_comment(utm_link)

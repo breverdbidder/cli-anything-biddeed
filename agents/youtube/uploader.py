@@ -20,6 +20,7 @@ function in this file, and no CLI flag, can change it -- see negative test
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -60,55 +61,152 @@ def uploaded_reel_ids_today(day_pacific: str) -> set[str]:
 
 
 def get_cadence_config() -> dict:
-    """public.youtube_publish_cadence singleton row (issue #19793 PART 4).
-    Falls back to the conservative issue default (2/day, weekdays only, 1
-    winner + 1 exploration slot, same-property-per-day enforced) if the row
-    is somehow missing -- never falls back to the old 6/day quota-ceiling
+    """public.youtube_publish_cadence singleton row (issue #19804 -- sale-
+    type-slotted cadence, superseding #19793 PART 4's global-ranking 1-
+    winner+1-exploration reading). Falls back to the conservative issue
+    default (2/day floor = 1 foreclosure slot + 1 tax_deed slot, weekdays
+    only, 14-day starvation lookback, same-property-per-day enforced) if the
+    row is somehow missing -- never falls back to the old 6/day quota-ceiling
     figure, which is a ceiling, not a cadence."""
     rows = lib.rest_get("youtube_publish_cadence", "select=*&limit=1")
     if rows:
         return rows[0]
     return {
         "max_uploads_per_day": 2, "weekdays_only": True,
-        "winner_slots": 1, "exploration_slots": 1, "same_property_per_day": True,
+        "foreclosure_slots": 1, "tax_deed_slots": 1,
+        "starvation_lookback_days": 14, "same_property_per_day": True,
     }
 
 
-def select_cadence_batch(queue: list[dict], cadence: dict, used_reel_ids_today: set[str]) -> list[dict]:
-    """issue #19793 PART 4 -- pure function (unit-testable without DB/network):
-    from the already-ranked youtube_publish_queue (ctr/watch-through/plays
-    desc -- the Analyst's ranking), pick `winner_slots` top-ranked rows plus
-    `exploration_slots` rows favoring the LEAST-observed variant (ascending
-    plays, nulls/never-tried first -- the Thompson-sampling floor: explore
-    what we have the least signal on, not just the 2nd-best-ranked row),
-    never two rows from the same reel_id (same_property_per_day), and never
-    a reel_id already uploaded/queued today."""
-    seen_reel_ids = set(used_reel_ids_today)
-    winners, exploration = [], []
+def _within_lookback(auction_date: str | None, today_date: str, lookback_days: int) -> bool:
+    """auction_date/today_date are ISO 'YYYY-MM-DD' strings (as returned by
+    PostgREST/Management API for a `date` column) -- pure string/date-math,
+    no network."""
+    if not auction_date:
+        return False
+    cutoff = (datetime.date.fromisoformat(today_date) - datetime.timedelta(days=lookback_days)).isoformat()
+    return cutoff <= auction_date <= today_date
 
-    for row in queue:  # already ranked ctr/watch/plays desc
-        if len(winners) >= cadence.get("winner_slots", 1):
-            break
-        rid = row.get("reel_id")
-        if rid in seen_reel_ids:
-            continue
-        winners.append(row)
-        seen_reel_ids.add(rid)
 
-    explore_pool = sorted(
-        (r for r in queue if r.get("reel_id") not in seen_reel_ids),
-        key=lambda r: (r.get("plays") is not None, r.get("plays") if r.get("plays") is not None else 0),
+def select_foreclosure_slot(pool: list[dict], used_reel_ids: set[str]) -> dict | None:
+    """SLOT 1 (issue #19804) -- best foreclosure of the day, Analyst-ranked
+    (pool is already ordered by sale_type_rank from the view). No starvation
+    ladder here -- the issue only specifies one for slot 2; foreclosure is
+    not the scarce side (20 rows vs 5 tax_deed, live-verified 2026-09-03)."""
+    for row in pool:
+        if row.get("reel_id") not in used_reel_ids:
+            return row
+    return None
+
+
+def select_tax_deed_slot(pool: list[dict], used_reel_ids: set[str], today_date: str,
+                          lookback_days: int = 14) -> tuple[dict | None, str]:
+    """SLOT 2 (issue #19804) -- best tax_deed of the day, with the
+    starvation ladder: (a) most recent unpublished tax_deed reel within
+    `lookback_days` (labelled by its own real auction_date -- never
+    relabelled as 'today', see metadata_builder.build_description); (b) a
+    presale tax_deed reel for an upcoming county sale; (c) SLOT_STARVED.
+    `pool` is pre-filtered to sale_type='tax_deed' by the caller -- this
+    function never reaches into a foreclosure pool, so a foreclosure row can
+    never be promoted into slot 2."""
+    postsale_candidates = [
+        r for r in pool
+        if r.get("reel_id") not in used_reel_ids
+        and r.get("phase") != "presale"
+        and _within_lookback(r.get("auction_date"), today_date, lookback_days)
+    ]
+    if postsale_candidates:
+        return postsale_candidates[0], "a_recent_within_lookback"
+
+    presale_candidates = [
+        r for r in pool
+        if r.get("reel_id") not in used_reel_ids
+        and r.get("phase") == "presale"
+    ]
+    if presale_candidates:
+        return presale_candidates[0], "b_presale_upcoming"
+
+    return None, "c_slot_starved"
+
+
+def _least_observed(rows: list[dict]) -> dict | None:
+    """Thompson-sampling floor: explore what we have the least signal on --
+    ascending plays, nulls/never-tried first."""
+    if not rows:
+        return None
+    return sorted(rows, key=lambda r: (r.get("plays") is not None, r.get("plays") or 0))[0]
+
+
+def apply_exploration_overlay(foreclosure_pick: dict | None, foreclosure_pool: list[dict],
+                               tax_deed_pick: dict | None, tax_deed_bucket: list[dict],
+                               used_reel_ids: set[str]) -> tuple[dict | None, dict | None, str | None]:
+    """issue #19804 -- the exploration/Thompson-sampling floor variant rides
+    inside whichever slot's current pick has the weaker confidence interval
+    (fewer `plays` = wider CI = less confident), replacing that slot's
+    Analyst-ranked winner with the least-observed candidate from the SAME
+    eligible pool (same sale_type; for tax_deed, the same ladder rung the
+    winner came from -- never silently upgrading a starved/presale pick to
+    a different rung). It never consumes a third slot. No-op if either slot
+    has no pick at all (nothing to compare a confidence interval against)."""
+    if foreclosure_pick is None or tax_deed_pick is None:
+        return foreclosure_pick, tax_deed_pick, None
+
+    fc_plays = foreclosure_pick.get("plays") or 0
+    td_plays = tax_deed_pick.get("plays") or 0
+
+    if fc_plays <= td_plays:
+        pool = [r for r in foreclosure_pool if r.get("reel_id") not in used_reel_ids]
+        explore_pick = _least_observed(pool)
+        if explore_pick and explore_pick.get("reel_id") != foreclosure_pick.get("reel_id"):
+            return explore_pick, tax_deed_pick, "foreclosure"
+        return foreclosure_pick, tax_deed_pick, None
+
+    pool = [r for r in tax_deed_bucket if r.get("reel_id") not in used_reel_ids]
+    explore_pick = _least_observed(pool)
+    if explore_pick and explore_pick.get("reel_id") != tax_deed_pick.get("reel_id"):
+        return foreclosure_pick, explore_pick, "tax_deed"
+    return foreclosure_pick, tax_deed_pick, None
+
+
+def select_daily_slots(queue: list[dict], cadence: dict, used_reel_ids_today: set[str],
+                        today_date: str) -> dict:
+    """issue #19804 -- top-level per-day slot selection replacing #19793's
+    global-ranking select_cadence_batch(). `queue` is the already-ranked
+    (sale_type_rank asc within sale_type) youtube_publish_queue rows.
+    Returns {'foreclosure': row|None, 'tax_deed': row|None,
+    'tax_deed_ladder_rung': 'a_recent_within_lookback'|'b_presale_upcoming'|
+    'c_slot_starved', 'exploration_slot': 'foreclosure'|'tax_deed'|None}."""
+    lookback_days = cadence.get("starvation_lookback_days", 14)
+    foreclosure_pool = [r for r in queue if r.get("sale_type") == "foreclosure"]
+    tax_deed_pool = [r for r in queue if r.get("sale_type") == "tax_deed"]
+
+    foreclosure_pick = select_foreclosure_slot(foreclosure_pool, used_reel_ids_today)
+    tax_deed_pick, ladder_rung = select_tax_deed_slot(
+        tax_deed_pool, used_reel_ids_today, today_date, lookback_days,
     )
-    for row in explore_pool:
-        if len(exploration) >= cadence.get("exploration_slots", 1):
-            break
-        rid = row.get("reel_id")
-        if rid in seen_reel_ids:
-            continue
-        exploration.append(row)
-        seen_reel_ids.add(rid)
 
-    return winners + exploration
+    if ladder_rung == "a_recent_within_lookback":
+        tax_deed_bucket = [
+            r for r in tax_deed_pool
+            if r.get("phase") != "presale" and _within_lookback(r.get("auction_date"), today_date, lookback_days)
+        ]
+    elif ladder_rung == "b_presale_upcoming":
+        tax_deed_bucket = [r for r in tax_deed_pool if r.get("phase") == "presale"]
+    else:
+        tax_deed_bucket = []
+
+    exploration_slot = None
+    if foreclosure_pick and tax_deed_pick:
+        foreclosure_pick, tax_deed_pick, exploration_slot = apply_exploration_overlay(
+            foreclosure_pick, foreclosure_pool, tax_deed_pick, tax_deed_bucket, used_reel_ids_today,
+        )
+
+    return {
+        "foreclosure": foreclosure_pick,
+        "tax_deed": tax_deed_pick,
+        "tax_deed_ladder_rung": ladder_rung,
+        "exploration_slot": exploration_slot,
+    }
 
 
 def _upload_init(access_token: str, meta: dict, total_bytes: int) -> str:
@@ -315,10 +413,26 @@ def run() -> int:
         print(f"REFUSED {dropped_drafts} is_draft=true row(s) reaching the upload loop (should never happen -- view regression?)")
 
     used_reel_ids = uploaded_reel_ids_today(day_pacific) if cadence.get("same_property_per_day", True) else set()
-    batch = select_cadence_batch(non_draft_queue, cadence, used_reel_ids)[:remaining]
+    slots = select_daily_slots(non_draft_queue, cadence, used_reel_ids, day_pacific)
+
+    if slots["tax_deed_ladder_rung"] == "c_slot_starved":
+        print(f"SLOT_STARVED: no tax_deed candidate (lookback={cadence.get('starvation_lookback_days', 14)}d, "
+              f"no presale fallback either) -- publishing slot 1 (foreclosure) alone, per issue #19804.")
+    elif slots["tax_deed_ladder_rung"] == "b_presale_upcoming" and slots["tax_deed"]:
+        print(f"tax_deed slot: starvation ladder rung (b) -- presale reel for an upcoming sale "
+              f"(auction_date={slots['tax_deed'].get('auction_date')})")
+    elif slots["tax_deed"]:
+        print(f"tax_deed slot: starvation ladder rung (a) -- real sale date "
+              f"auction_date={slots['tax_deed'].get('auction_date')} (never relabelled as 'today')")
+    if slots["exploration_slot"]:
+        print(f"exploration/Thompson-sampling floor rides in the {slots['exploration_slot']} slot this run "
+              f"(weaker confidence interval -- fewer plays -- than the other slot's pick)")
+
+    batch = [row for row in (slots["foreclosure"], slots["tax_deed"]) if row is not None][:remaining]
     if not batch:
-        print("youtube_publish_queue is empty (no qa_pass=true + HTTP-200 + Ariel-approved + non-draft candidates, "
-              "or every remaining candidate's property was already published today). Nothing to do.")
+        print("youtube_publish_queue is empty (no qa_pass=true + HTTP-200 + Ariel-approved + non-draft candidates "
+              "in either sale_type, or every remaining candidate's property was already published today). "
+              "Nothing to do.")
         return 0
 
     results = []
@@ -379,13 +493,13 @@ def self_test() -> int:
     # youtube_publish_queue view's WHERE clause hard-filters
     # ariel_decision = 'approved'; assert the SQL literally contains that
     # filter (defends against a future edit silently dropping it). Reads the
-    # CURRENT view definition (issue #19793's migration DROP+CREATEd the
-    # view to add is_draft/lang -- 20260903f's own view text is stale/
-    # superseded now, checking it here would silently pass even if the
-    # live view regressed).
+    # CURRENT view definition (issue #19804's migration DROP+CREATEd the
+    # view again to add sale_type/phase/auction_date/sale_type_rank --
+    # 20260903h's own view text is stale/superseded now, checking it here
+    # would silently pass even if the live view regressed).
     migration_sql = open(os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "..", "..",
-        "supabase", "migrations", "20260903h_bolt32_draft_lane_cadence.sql",
+        "supabase", "migrations", "20260903i_sale_type_slotted_cadence_19804.sql",
     )).read()
     if "vs.ariel_decision = 'approved'" in migration_sql:
         print("(c) PASS: youtube_publish_queue view hard-filters ariel_decision = 'approved'")
@@ -408,30 +522,126 @@ def self_test() -> int:
         print("(19793-a) FAIL: defensive is_draft filter logic is wrong")
         ok = False
 
-    # (issue #19793 negative test (d)) a second variant of the same property
-    # queued for YouTube on the same day is refused.
-    fake_queue = [
-        {"variant_id": "v1", "reel_id": "propA", "ctr": 0.9, "plays": 10},
-        {"variant_id": "v2", "reel_id": "propA", "ctr": 0.5, "plays": 5},  # same property as v1
-        {"variant_id": "v3", "reel_id": "propB", "ctr": 0.1, "plays": None},
+    # issue #19804 -- sale-type-slotted cadence tests.
+    fake_cadence = {"foreclosure_slots": 1, "tax_deed_slots": 1, "max_uploads_per_day": 2,
+                     "same_property_per_day": True, "starvation_lookback_days": 14}
+    today = "2026-09-03"
+
+    # (19804-same-property) same-day same-property refusal: the top-ranked
+    # foreclosure candidate's reel already published earlier today (in
+    # used_reel_ids_today) must be skipped in favor of the next-ranked one,
+    # never re-selected.
+    fc_pool = [
+        {"variant_id": "f1", "reel_id": "propA", "sale_type": "foreclosure", "phase": "postsale",
+         "auction_date": today, "ctr": 0.9, "plays": 10},
+        {"variant_id": "f2", "reel_id": "propB", "sale_type": "foreclosure", "phase": "postsale",
+         "auction_date": today, "ctr": 0.5, "plays": 5},
     ]
-    fake_cadence = {"winner_slots": 1, "exploration_slots": 1, "max_uploads_per_day": 2, "same_property_per_day": True}
-    batch = select_cadence_batch(fake_queue, fake_cadence, set())
-    reel_ids_selected = [r["reel_id"] for r in batch]
-    if reel_ids_selected == sorted(set(reel_ids_selected), key=reel_ids_selected.index) and len(reel_ids_selected) == len(set(reel_ids_selected)):
-        print(f"(19793-d) PASS: select_cadence_batch never selects 2 variants of the same property "
-              f"(selected reel_ids={reel_ids_selected}, v2/propA correctly excluded since v1/propA already won)")
+    pick = select_foreclosure_slot(fc_pool, used_reel_ids={"propA"})
+    if pick is not None and pick["reel_id"] == "propB":
+        print("(19804-same-property) PASS: reel already published today (propA, top-ranked) is refused; "
+              "the next-ranked candidate (propB) is selected instead")
     else:
-        print(f"(19793-d) FAIL: duplicate reel_id in cadence batch: {reel_ids_selected}")
+        print(f"(19804-same-property) FAIL: expected propB, got {pick}")
         ok = False
 
-    # cadence cap itself: with an already-used property excluded via
-    # used_reel_ids_today, a batch never exceeds winner+exploration slots.
-    if len(batch) <= fake_cadence["winner_slots"] + fake_cadence["exploration_slots"]:
-        print(f"(19793-cadence) PASS: batch size {len(batch)} <= winner+exploration slots "
-              f"({fake_cadence['winner_slots']}+{fake_cadence['exploration_slots']})")
+    # (19804-starved) starved-slot case: zero tax_deed candidates anywhere
+    # (no postsale within lookback, no presale) -> SLOT_STARVED, slot 1
+    # still gets its foreclosure pick, no foreclosure row is ever promoted
+    # into the tax_deed slot.
+    starved_slots = select_daily_slots(fc_pool, fake_cadence, used_reel_ids_today=set(), today_date=today)
+    if (starved_slots["foreclosure"] is not None and starved_slots["foreclosure"]["reel_id"] == "propA"
+            and starved_slots["tax_deed"] is None
+            and starved_slots["tax_deed_ladder_rung"] == "c_slot_starved"):
+        print("(19804-starved) PASS: empty tax_deed pool -> tax_deed=None, ladder_rung=c_slot_starved, "
+              "foreclosure slot still filled alone, no foreclosure row promoted into slot 2")
     else:
-        print(f"(19793-cadence) FAIL: batch size {len(batch)} exceeds cadence slots")
+        print(f"(19804-starved) FAIL: {starved_slots}")
+        ok = False
+
+    # (19804-ladder-a) a tax_deed reel 5 days old is within the 14-day
+    # lookback and wins slot 2, labelled by its OWN real auction_date.
+    td_pool_a = [
+        {"variant_id": "t1", "reel_id": "propC", "sale_type": "tax_deed", "phase": "postsale",
+         "auction_date": "2026-08-29", "ctr": 0.7, "plays": 3},
+    ]
+    queue_a = fc_pool + td_pool_a
+    slots_a = select_daily_slots(queue_a, fake_cadence, used_reel_ids_today=set(), today_date=today)
+    if (slots_a["tax_deed_ladder_rung"] == "a_recent_within_lookback"
+            and slots_a["tax_deed"] and slots_a["tax_deed"]["auction_date"] == "2026-08-29"):
+        print("(19804-ladder-a) PASS: 5-day-old unpublished tax_deed reel wins slot 2 via ladder rung (a), "
+              "labelled with its real auction_date (2026-08-29), not 'today'")
+    else:
+        print(f"(19804-ladder-a) FAIL: {slots_a}")
+        ok = False
+
+    # (19804-ladder-a-boundary) a tax_deed reel 20 days old is OUTSIDE the
+    # 14-day lookback and must not win rung (a).
+    td_pool_stale = [
+        {"variant_id": "t2", "reel_id": "propD", "sale_type": "tax_deed", "phase": "postsale",
+         "auction_date": "2026-08-14", "ctr": 0.7, "plays": 3},
+    ]
+    stale_pick, stale_rung = select_tax_deed_slot(td_pool_stale, set(), today, lookback_days=14)
+    if stale_pick is None and stale_rung == "c_slot_starved":
+        print("(19804-ladder-a-boundary) PASS: a 20-day-old tax_deed reel (outside the 14-day lookback) "
+              "does not win rung (a) -- correctly falls through to c_slot_starved with no presale fallback")
+    else:
+        print(f"(19804-ladder-a-boundary) FAIL: expected starved, got pick={stale_pick} rung={stale_rung}")
+        ok = False
+
+    # (19804-ladder-b) no postsale candidate within lookback, but a presale
+    # (upcoming county sale) tax_deed reel exists -> ladder rung (b).
+    td_pool_presale = [
+        {"variant_id": "t3", "reel_id": "propE", "sale_type": "tax_deed", "phase": "presale",
+         "auction_date": "2026-09-20", "ctr": None, "plays": None},
+    ]
+    presale_pick, presale_rung = select_tax_deed_slot(td_pool_presale, set(), today, lookback_days=14)
+    if presale_pick is not None and presale_pick["reel_id"] == "propE" and presale_rung == "b_presale_upcoming":
+        print("(19804-ladder-b) PASS: no postsale candidate within lookback -> falls back to a presale "
+              "reel for an upcoming sale (auction_date=2026-09-20), ladder rung (b)")
+    else:
+        print(f"(19804-ladder-b) FAIL: pick={presale_pick} rung={presale_rung}")
+        ok = False
+
+    # (19804-no-cross-promote) a foreclosure-only queue never fills slot 2 --
+    # select_tax_deed_slot only ever reads a caller-filtered tax_deed pool,
+    # so passing it zero tax_deed rows must never surface a foreclosure row.
+    no_td_pick, no_td_rung = select_tax_deed_slot([], set(), today, lookback_days=14)
+    if no_td_pick is None and no_td_rung == "c_slot_starved":
+        print("(19804-no-cross-promote) PASS: with zero tax_deed rows in the pool, slot 2 is never filled "
+              "by a foreclosure row -- correctly SLOT_STARVED")
+    else:
+        print(f"(19804-no-cross-promote) FAIL: {no_td_pick} {no_td_rung}")
+        ok = False
+
+    # (19804-exploration-overlay) the weaker-confidence-interval slot (fewer
+    # plays) gets its Analyst-ranked winner replaced by the least-observed
+    # candidate in the SAME pool; the other slot's winner is untouched; the
+    # batch never exceeds 2 (exploration never consumes a third slot).
+    fc_pool_overlay = [
+        {"variant_id": "f1", "reel_id": "propA", "sale_type": "foreclosure", "phase": "postsale",
+         "auction_date": today, "ctr": 0.9, "plays": 50},   # ranked winner, well-observed
+        {"variant_id": "f2", "reel_id": "propB", "sale_type": "foreclosure", "phase": "postsale",
+         "auction_date": today, "ctr": 0.2, "plays": None},  # least-observed
+    ]
+    td_pool_overlay = [
+        {"variant_id": "t1", "reel_id": "propC", "sale_type": "tax_deed", "phase": "postsale",
+         "auction_date": today, "ctr": 0.6, "plays": 2},     # ranked winner, but far weaker CI than foreclosure's
+        {"variant_id": "t2", "reel_id": "propF", "sale_type": "tax_deed", "phase": "postsale",
+         "auction_date": today, "ctr": 0.1, "plays": None},  # least-observed -- the exploration target
+    ]
+    overlay_slots = select_daily_slots(fc_pool_overlay + td_pool_overlay, fake_cadence,
+                                        used_reel_ids_today=set(), today_date=today)
+    batch_size = len([s for s in (overlay_slots["foreclosure"], overlay_slots["tax_deed"]) if s is not None])
+    if (overlay_slots["exploration_slot"] == "tax_deed"
+            and overlay_slots["tax_deed"]["reel_id"] == "propF"    # swapped to the least-observed tax_deed row
+            and overlay_slots["foreclosure"]["reel_id"] == "propA"  # untouched -- it's the stronger-CI slot
+            and batch_size == 2):
+        print("(19804-exploration-overlay) PASS: tax_deed (weaker CI) got the exploration override, swapping "
+              "its ranked winner (propC, 2 plays) for the least-observed candidate (propF, never played); "
+              "foreclosure's ranked winner (50 plays) is untouched; batch size stays 2, not 3")
+    else:
+        print(f"(19804-exploration-overlay) FAIL: {overlay_slots} batch_size={batch_size}")
         ok = False
 
     # (d) any code setting privacyStatus other than 'private' fails CI

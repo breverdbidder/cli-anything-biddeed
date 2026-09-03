@@ -76,41 +76,91 @@ real, external ground truth to sit alongside this platform's own
 click/watch measurement, budgeted against the same shared quota pool as
 everything else.
 
-## Publish cadence: 2/day, not 6/day — do not "simplify" this back
+## Publish cadence: sale-type-slotted (foreclosure + tax_deed), not global ranking — issue #19804
 
-**The 6-uploads-per-day figure above is a quota CEILING, not a publishing
-TARGET.** It is Google's hard math (10,000 units/day, 1,600 per upload,
-9,600 usable budget after the analytics/channel-read reserve) — the most
-this lane is *physically able* to upload in a day before the API itself
-refuses the call. It was never a recommendation about how many videos
-should actually go out.
+**Supersedes the earlier "1 Analyst-ranked winner + 1 exploration variant,
+globally ranked" description** (shipped by #19793 PART 4, and never actually
+approved — that amendment lived in an issue comment and #19804 makes it the
+primary spec per M6). The problem with a single global ranking: a flat
+`ORDER BY ctr/watch/plays DESC LIMIT 6` can starve an entire sale_type any
+day the other type simply scores higher, even while real tax_deed inventory
+sits unused. Two independent per-sale_type rankings fix that structurally
+instead of hoping the numbers happen to balance.
 
-The lane's real publish rate is governed by a separate, tighter config —
-`public.youtube_publish_cadence` (a singleton row, not a hardcoded
-constant, so it's queryable/auditable and changeable without a code
-deploy):
+**The 6-uploads-per-day figure above is still a quota CEILING, not a
+publishing TARGET.** It is Google's hard math (10,000 units/day, 1,600 per
+upload, 9,600 usable budget after the analytics/channel-read reserve) — the
+most this lane is *physically able* to upload in a day before the API
+itself refuses the call.
 
-| Setting | Pilot value | Why |
+### The two slots
+
+`public.youtube_publish_cadence` (singleton row) now carries
+`foreclosure_slots` / `tax_deed_slots` (1 each by default) instead of a
+single global `winner_slots`/`exploration_slots` pair (those columns are
+left in the table for M2 additive-by-default but are no longer read).
+`winnerdata.youtube_publish_queue` computes an independent `sale_type_rank`
+(`row_number() over (partition by sale_type order by ctr/watch/plays desc)`)
+so each sale_type has its own top-20 ranking, not one shared list.
+
+| Slot | Source | Ranking |
 |---|---|---|
-| `max_uploads_per_day` | 2 | A brand-new channel with zero upload/retention history has no data to justify publishing at the quota ceiling. Ship slow, watch retention, then decide. |
-| `weekdays_only` | true | Mon-Fri only for the first 14 days — no weekend publishing during the pilot. |
-| `winner_slots` / `exploration_slots` | 1 / 1 | Each day's 2 uploads are 1 Analyst-ranked top variant (exploit the best-performing signal so far) + 1 exploration variant chosen from the *least*-observed candidate property (a Thompson-sampling floor — deliberately trying under-sampled variants instead of always exploiting the current leader, so the ranking signal itself doesn't collapse onto one early winner). |
-| `same_property_per_day` | true | Never more than ONE variant of the same property publishes to YouTube on the same day. Four archetype takes on one property in the same feed on the same day is self-competition — it splits the audience the short codes exist to measure per-variant, defeating the entire point of running variants in the first place. The other 3 variants of that property still go to the other distribution lanes (site player, other platforms) — this rule is YouTube-feed-specific, not "only publish one variant of a property ever." |
+| SLOT 1 | best `sale_type='foreclosure'` reel of the day | Analyst-ranked (ctr → watch-through → plays desc) within foreclosure only |
+| SLOT 2 | best `sale_type='tax_deed'` reel of the day | Analyst-ranked within tax_deed only, **with a starvation ladder** (below) |
 
-Both gates apply independently: the cadence cap (2/day) is checked first
-and is always the binding constraint during the pilot, since it's tighter
-than the quota ceiling (6/day). The quota preflight-reserve function still
-runs on every attempt regardless — cadence controls *whether* an upload is
-attempted at all; quota controls whether an attempted upload is allowed to
-spend.
+Both slots are a **floor, not a cap** — the 6/day quota ceiling from #19788
+still bounds the top; nothing here prevents publishing more if a future
+session explicitly raises the slot counts, it just guarantees these two
+happen first.
 
-**Revisit trigger, explicit:** do not raise `max_uploads_per_day` back
-toward the 6/day ceiling, and do not file a YouTube quota-increase request,
-until there are 30 days of real retention data from actual uploads to make
-that call on. Raising the number back up "to be more efficient" without
-that data is exactly the kind of drift this section exists to prevent — if
-a future session reads only the quota-math section above and concludes
-"6/day" is the target, that is the bug this section is here to stop.
+### Starvation ladder — slot 2 (tax_deed) only
+
+Tax deed is the side that has historically run dry
+(`winnerdata.biddeed_reels`: 20 foreclosure rows vs 5 tax_deed rows,
+live-verified 2026-09-03 — see `docs/spec/19804.md` for the full count and
+the `public.clerk_ssot_sale_rows` wiring-gap context from #19794). Rather
+than silently skip the slot, `agents/youtube/uploader.py::select_tax_deed_slot()`
+runs a ladder every day:
+
+1. **(a)** the most recent unpublished tax_deed reel within
+   `starvation_lookback_days` (14 by default) — labelled by its own real
+   `auction_date` in the video description (`metadata_builder.build_description()`
+   now takes `sale_type`/`auction_date` and stamps "Sale date: `<real date>`."),
+   **never** relabelled as if the sale happened today.
+2. **(b)** if none, a **presale** tax_deed reel for an upcoming county sale
+   (`phase='presale'`).
+3. **(c)** if still none, publish slot 1 alone and print `SLOT_STARVED`.
+
+A foreclosure row is never promoted into slot 2 at any rung — the ladder
+only ever reads from a tax_deed-filtered pool.
+
+### Exploration rides inside the weaker-CI slot, not its own slot
+
+The Thompson-sampling floor variant (explore the least-observed candidate,
+not just the 2nd-ranked one) no longer consumes a third daily slot. Instead,
+`apply_exploration_overlay()` compares the two slots' picks by `plays`
+(fewer plays = weaker confidence interval) and replaces **that slot's**
+Analyst winner with the least-observed candidate from the same eligible
+pool (same sale_type; for tax_deed, the same ladder rung the winner came
+from). In practice this means the chronically-thinner tax_deed slot gets
+explored more often — which is the right prior on real data.
+
+### Same-property rule (unchanged)
+
+| Setting | Value | Why |
+|---|---|---|
+| `same_property_per_day` | true | Never more than ONE variant of the same property publishes to YouTube on the same day, across BOTH slots. Four archetype takes on one property in the same feed on the same day is self-competition — it splits the audience the short codes exist to measure per-variant. The other 3 variants of that property still go to the other distribution lanes (site player, other platforms) — this rule is YouTube-feed-specific, not "only publish one variant of a property ever." |
+
+The cadence gate (2/day floor) is checked first and is always the binding
+constraint during the pilot, since it's tighter than the 6/day quota
+ceiling. The quota preflight-reserve function still runs on every attempt
+regardless — cadence controls *whether* an upload is attempted at all;
+quota controls whether an attempted upload is allowed to spend.
+
+**Revisit trigger, explicit:** do not raise the slot counts back toward the
+6/day ceiling, and do not file a YouTube quota-increase request, until
+there are 30 days of real retention data from actual uploads to make that
+call on.
 
 ## Language distribution — ES/PT-BR do not get a second channel
 
