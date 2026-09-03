@@ -48,3 +48,73 @@ added — were prepared and are held pending a merge decision. Do not install th
 These are ordinary files we own and edit; upstream explicitly supports that. Do not run
 `npx skills update` against this directory — it does not know about the two-skill subset or the hold
 list. Pull upstream changes by diffing against the pinned SHA above.
+
+---
+
+# Vendored agent skills — coreyhaines31/marketingskills
+
+Vendored from [`coreyhaines31/marketingskills`](https://github.com/coreyhaines31/marketingskills)
+(`d4ff28a9c8d56c06809860bf2800d4f5224b52db`, 2026-09-01), MIT. License in
+`LICENSE-marketingskills`. Full ranked candidate table (repo/stars/license/verdict) and the
+existing-skill inventory used for the collision check are in `docs/spec/19766.md`.
+
+Context: issue #19766 asked for the useful half of AgentsKit's paid ($49-79) Marketing Kit
+(https://agentskit.co), reproduced at $0 from its underlying MIT/Apache-2.0 open-source pool.
+`coreyhaines31/marketingskills` turned out to cover all twelve target categories from that issue
+in one MIT repo — one skill per category, each with its own `references/` and `evals/evals.json`
+(the upstream repo's own eval philosophy, independent of ours) — so no second or third source was
+needed to hit the category list. Repos found for individual categories (SEO, GEO/AEO, cold email,
+copywriting) were consistently smaller, staler, or narrower than the matching skill already inside
+this pack; see the spec file for the specific alternates and why each lost.
+
+## Installed (14 skills, one per marketing category + 2 SEO sub-forms)
+
+| Skill | Category | Trigger highlights |
+|---|---|---|
+| `ai-seo` | (a) GEO/AEO AI-search optimization | AEO, GEO, LLMO, "optimize for ChatGPT/Perplexity/Claude", AI citations, llms.txt |
+| `offers` | (b) offers & guarantees / pricing psychology | offer design, guarantee, value stack, scarcity/urgency, grand slam offer |
+| `cold-email` | (c) cold email + email sequences | cold outreach, SDR email, follow-up sequence, "nobody's replying" |
+| `launch` | (d) launch plan / campaign brief | product launch, Product Hunt, GTM plan, beta/waitlist |
+| `copy-editing` | (e) brand voice / copy QA | copy review, tighten this up, sharpen messaging, content refresh |
+| `seo-audit` | (f) SEO audit + programmatic SEO | technical SEO, "why am I not ranking", core web vitals, crawl errors |
+| `programmatic-seo` | (f) SEO audit + programmatic SEO | template pages at scale, location/comparison pages, pSEO |
+| `cro` | (g) CRO / landing page | conversion rate optimization, landing page feedback, form abandonment |
+| `churn-prevention` | (h) churn prevention / retention | cancel flow, save offer, dunning, involuntary churn, win-back |
+| `attribution` | (i) attribution / RevOps | attribution model, first/last-touch, "dashboards disagree", incrementality |
+| `revops` | (i) attribution / RevOps | lead scoring/routing, MQL/SQL, marketing-to-sales handoff |
+| `lead-magnets` | (j) lead magnets | gated content, content upgrade, ebook/checklist, opt-in |
+| `public-relations` | (k) PR | press outreach, HARO/Qwoted, newsjacking, podcast guest prep |
+| `directory-submissions` | (l) directory submissions | Product Hunt/BetaList/G2 listings, backlinks, launch directories |
+
+Zero trigger collisions with the pre-existing pack (49 skills as of 2026-09-03): none of those
+skills touch marketing/GTM copy, SEO, email outreach, PR, or revenue-ops territory — `exa-discovery`
+is the only adjacent one (GTM *research*, i.e. finding data sources, not writing GTM *content*), and
+its trigger list (exa search, county GIS, discovery harness) doesn't overlap any skill above. Full
+comparison method in `docs/spec/19766.md`.
+
+**Zero-HITL adaptation:** each upstream skill's "gather this context (ask if not provided)" /
+"ask the user these N questions" step was rewritten to "infer from repo/session context, tag the
+assumption `INFERRED` per Honesty Protocol, don't block on a question nobody will answer" — this
+runs in headless `claude -p` dispatches with no human attached, same rationale as the wizard/
+writing-for-agents adaptation above. Every installed `SKILL.md` also got a one-line Everest-context
+pointer under its title: MANDATE M3 (no vendor/tool/internal-ID names in client-facing output —
+these skills can produce cold emails, press pitches, and launch copy that reaches real people).
+
+## Not installed from this repo
+
+The remaining ~35 skills in `coreyhaines31/marketingskills` (ads, analytics, social, paywalls,
+onboarding, signup, pricing, emails, schema, video, image, popups, events, referrals, aso,
+influencer-marketing, community-marketing, competitor-profiling, competitors, ad-creative,
+content-strategy, customer-research, marketing-ideas, marketing-loops, marketing-plan,
+marketing-psychology, marketing-council, product-marketing, prospecting, sales-enablement,
+free-tools, co-marketing, sms, ab-testing, site-architecture) were left out on purpose: the issue
+asked for the best ONE skill per named category, not the whole kit, and the engineering-kit
+equivalent of "install everything" is explicitly a non-goal. Nearest-neighbour collisions worth
+naming if any of these are added later: `marketing-plan` vs `writing-plans` (planning-doc format
+would need reconciling), `customer-research` vs `brainstorming` (both do intent-gathering
+up front).
+
+## Maintenance
+
+Same rule as above: these are ours to edit once vendored. Pull upstream changes by diffing against
+the pinned SHA. Do not run any upstream `validate-skills.sh` / update script against this directory.
