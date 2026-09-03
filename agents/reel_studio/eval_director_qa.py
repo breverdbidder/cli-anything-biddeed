@@ -279,6 +279,82 @@ def a40_remote_bidder_honesty_passes_on_approved_phrasing():
     return r["pass"] is True, r
 
 
+# ---------------------------------------------------------------------------
+# issue #19802 -- fixtures for the 3 new checks (payoff-in-early-beat,
+# loop-line-archetype-mismatch, title-structural-similarity). Fail fixtures
+# reproduce the REAL shipped Lee/red_flag_warning violation from
+# winnerdata.reel_variants (verified live 2026-09-03, docs/spec/19802.md),
+# same pattern eval_hook_writer.py uses.
+# ---------------------------------------------------------------------------
+
+LEE_SHIPPED_VARIANT = {
+    "title": "This Lee Home Waved Every Red Flag…\U0001F630\U0001F440",
+    "variant_dna": {"archetype": "red_flag_warning"},
+    "script": {"beats": [
+        {"start_s": 0, "end_s": 2, "line": "This Lee Home Waved Every Red Flag"},
+        {"start_s": 2, "end_s": 9, "line": "Sold 34.8 percent below assessed value."},
+        {"start_s": 9, "end_s": 17, "line": "Assessed at $155,040... condition rated fair."},
+        {"start_s": 17, "end_s": 24, "line": "One tax deed sale... one massive discount."},
+        {"start_s": 24, "end_s": 32, "line": "Next Lee County countdown starts now."},
+    ]},
+}
+LEE_FACTS = {"phase": "postsale", "county": "lee", "sold_amount": 101100.0, "assessed_value": 155040.0,
+             "delta_pct": -34.8, "opening_bid": None, "judgment_amount": None}
+PRESALE_COUNTDOWN_FACTS = dict(POSTSALE_FACTS, phase="presale", opening_bid=150000.0)
+
+
+def a41_payoff_leak_beat2_fails():
+    r = dqa.check_script_payoff_confinement(LEE_SHIPPED_VARIANT, LEE_FACTS)
+    return r["pass"] is False, r
+
+
+def a42_assessed_value_only_before_20s_passes():
+    v = {"script": {"beats": [
+        {"start_s": 0, "end_s": 2, "line": "This Lee Home Waved Every Red Flag"},
+        {"start_s": 2, "end_s": 9, "line": "This fair-condition Lee County home was assessed at $155,040."},
+        {"start_s": 20, "end_s": 28, "line": "It sold for $101,100... 34.8 percent below assessed value."},
+    ]}}
+    r = dqa.check_script_payoff_confinement(v, LEE_FACTS)
+    return r["pass"] is True, r
+
+
+def a43_hardcoded_countdown_loop_line_fails():
+    r = dqa.check_loop_line_archetype_mismatch(LEE_SHIPPED_VARIANT, LEE_FACTS)
+    return r["pass"] is False, r
+
+
+def a44_countdown_loop_line_passes_on_presale():
+    v = {"script": {"beats": [{"start_s": 28, "end_s": 32, "line": "The next Polk County countdown starts in 5 days."}]}}
+    r = dqa.check_loop_line_archetype_mismatch(v, dict(LEE_FACTS, phase="presale"))
+    return r["pass"] is True, r
+
+
+def a45_mad_lib_titles_fail_live(monkeypatch=None):
+    import unittest.mock as mock
+    fake_siblings = [
+        {"id": "s1", "title": "An Underdog Bidder Beat The Field In Escambia…\U0001F3C6\U0001F440", "county": "escambia"},
+        {"id": "s2", "title": "An Underdog Bidder Beat The Field In Martin…\U0001F3C6\U0001F440", "county": "martin"},
+    ]
+    with mock.patch.object(dqa, "fetch_same_archetype_variants", return_value=fake_siblings):
+        v = {"id": "self", "title": "An Underdog Bidder Beat The Field In Broward…\U0001F3C6\U0001F440",
+             "variant_dna": {"archetype": "underdog_bidder"}}
+        r = dqa.check_title_structural_similarity(v, {"county": "broward"})
+    return r["pass"] is False, r
+
+
+def a46_bespoke_titles_pass_live():
+    import unittest.mock as mock
+    fake_siblings = [
+        {"id": "s1", "title": "Escambia's Auction Had An Unlikely Winner…\U0001F3C6\U0001F440", "county": "escambia"},
+        {"id": "s2", "title": "The Favorite Lost This Martin Auction…\U0001F3C6\U0001F440", "county": "martin"},
+    ]
+    with mock.patch.object(dqa, "fetch_same_archetype_variants", return_value=fake_siblings):
+        v = {"id": "self", "title": "One Bidder Outlasted Everyone Else In Broward…\U0001F3C6\U0001F440",
+             "variant_dna": {"archetype": "underdog_bidder"}}
+        r = dqa.check_title_structural_similarity(v, {"county": "broward"})
+    return r["pass"] is True, r
+
+
 def run_eval():
     assertions = [
         ("planted_person_name_caught", a1_person_name),
@@ -321,6 +397,12 @@ def run_eval():
         ("remote_bidder_fails_on_unknown_venue", a38_remote_bidder_fails_on_unknown_venue),
         ("remote_bidder_honesty_fails_on_banned_phrase", a39_remote_bidder_honesty_fails_on_banned_phrase),
         ("remote_bidder_honesty_passes_on_approved_phrasing", a40_remote_bidder_honesty_passes_on_approved_phrasing),
+        ("payoff_leak_beat2_fails_on_shipped_lee_variant", a41_payoff_leak_beat2_fails),
+        ("assessed_value_only_before_20s_passes", a42_assessed_value_only_before_20s_passes),
+        ("hardcoded_countdown_loop_line_fails_on_postsale", a43_hardcoded_countdown_loop_line_fails),
+        ("countdown_loop_line_passes_on_presale", a44_countdown_loop_line_passes_on_presale),
+        ("mad_lib_titles_fail_live_structural_similarity", a45_mad_lib_titles_fail_live),
+        ("bespoke_titles_pass_live_structural_similarity", a46_bespoke_titles_pass_live),
     ]
     return eval_common.run_assertions("reel-director-qa", assertions)
 

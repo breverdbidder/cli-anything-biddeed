@@ -237,6 +237,122 @@ def a32_remote_bidder_honesty_guardrail_not_applicable_other_archetypes():
     return (ok is True and reasons == []), {"reasons": reasons}
 
 
+# ---------------------------------------------------------------------------
+# issue #19802 -- payoff-leaks-in-early-beat, hardcoded-generic-loop-line,
+# mad-lib-title defects. Fail fixtures use the REAL shipped Lee/
+# red_flag_warning row (winnerdata.reel_variants, verified live 2026-09-03,
+# see docs/spec/19802.md) so this eval is anchored to an observed violation,
+# not a synthetic one.
+# ---------------------------------------------------------------------------
+
+LEE_POSTSALE_FACTS = {"phase": "postsale", "county": "lee", "sale_type": "tax deed",
+                      "sold_amount": 101100.0, "assessed_value": 155040.0, "delta_pct": -34.8,
+                      "opening_bid": None, "judgment_amount": None, "days_to_auction": None,
+                      "condition_json": {"general_condition_tier": "fair"}}
+POLK_PRESALE_FACTS = {"phase": "presale", "county": "polk", "sale_type": "foreclosure",
+                       "sold_amount": None, "assessed_value": 300000.0, "delta_pct": None,
+                       "opening_bid": 150000.0, "judgment_amount": 220000.0, "days_to_auction": 5,
+                       "condition_json": None}
+
+LEE_SHIPPED_BEATS = [  # the real, live-observed shipped script (issue #19802's own CONTEXT block)
+    {"start_s": 0, "end_s": 2, "line": "This Lee Home Waved Every Red Flag"},
+    {"start_s": 2, "end_s": 9, "line": "Sold 34.8 percent below assessed value."},
+    {"start_s": 9, "end_s": 17, "line": "Assessed at $155,040... condition rated fair."},
+    {"start_s": 17, "end_s": 24, "line": "One tax deed sale... one massive discount."},
+    {"start_s": 24, "end_s": 32, "line": "Next Lee County countdown starts now."},
+]
+
+
+def a33_payoff_leak_in_shipped_beat2():
+    ok, reasons = hw.check_script_payoff_confinement(LEE_SHIPPED_BEATS, LEE_POSTSALE_FACTS)
+    return (ok is False and any("2.0s" in r and "discount" in r for r in reasons)), {"reasons": reasons}
+
+
+def a34_bespoke_script_confines_payoff():
+    title = hw.generate_bespoke_title("red_flag_warning", LEE_POSTSALE_FACTS, template_index=0)
+    stem = title.split(hw.ELLIPSIS)[0]
+    script = hw.build_bespoke_script("red_flag_warning", LEE_POSTSALE_FACTS, stem)
+    ok, reasons = hw.check_script_payoff_confinement(script["beats"], LEE_POSTSALE_FACTS)
+    return ok is True, {"reasons": reasons, "beats": script["beats"]}
+
+
+def a35_hardcoded_countdown_loop_line_fails_on_postsale():
+    ok, reasons = hw.check_loop_line_archetype_mismatch("Next Lee County countdown starts now.", LEE_POSTSALE_FACTS)
+    return (ok is False and any("countdown" in r for r in reasons)), {"reasons": reasons}
+
+
+def a36_countdown_loop_line_passes_on_presale():
+    line = hw.loop_line_for("countdown_presale", POLK_PRESALE_FACTS)
+    ok, reasons = hw.check_loop_line_archetype_mismatch(line, POLK_PRESALE_FACTS)
+    return ok is True, {"line": line, "reasons": reasons}
+
+
+def a37_countdown_presale_raises_on_postsale():
+    try:
+        hw.loop_line_for("countdown_presale", LEE_POSTSALE_FACTS)
+        return False, {"note": "expected ValueError, none raised"}
+    except ValueError as e:
+        return True, {"error": str(e)}
+
+
+def a38_loop_line_bank_has_distinct_lines_per_archetype():
+    lines = {a: hw.loop_line_for(a, dict(LEE_POSTSALE_FACTS, phase="presale") if a == "countdown_presale" else LEE_POSTSALE_FACTS)
+              for a in hw.ARCHETYPE_EMOJI}
+    return len(set(lines.values())) == len(lines), {"lines": lines}
+
+
+def a39_mad_lib_titles_fail_structural_similarity():
+    # the real 5 shipped underdog_bidder titles, one per county, verified live
+    entries = [
+        {"title": "An Underdog Bidder Beat The Field In Broward…\U0001F3C6\U0001F440", "county": "Broward", "archetype": "underdog_bidder", "id": "broward"},
+        {"title": "An Underdog Bidder Beat The Field In Escambia…\U0001F3C6\U0001F440", "county": "Escambia", "archetype": "underdog_bidder", "id": "escambia"},
+        {"title": "An Underdog Bidder Beat The Field In Lee…\U0001F3C6\U0001F440", "county": "Lee", "archetype": "underdog_bidder", "id": "lee"},
+        {"title": "An Underdog Bidder Beat The Field In Martin…\U0001F3C6\U0001F440", "county": "Martin", "archetype": "underdog_bidder", "id": "martin"},
+        {"title": "An Underdog Bidder Beat The Field In Polk…\U0001F3C6\U0001F440", "county": "Polk", "archetype": "underdog_bidder", "id": "polk"},
+    ]
+    ok, reasons = hw.check_title_structural_similarity(entries)
+    return (ok is False and len(reasons) == 10), {"reasons": reasons}
+
+
+def a40_bespoke_titles_pass_structural_similarity():
+    counties = ["broward", "escambia", "lee", "martin", "polk"]
+    entries = []
+    for i, c in enumerate(counties):
+        facts = dict(LEE_POSTSALE_FACTS, county=c)
+        t = hw.generate_bespoke_title("shock_number", facts, template_index=i)
+        entries.append({"title": t, "county": c.title(), "archetype": "shock_number", "id": c})
+    ok, reasons = hw.check_title_structural_similarity(entries)
+    return ok is True, {"entries": entries, "reasons": reasons}
+
+
+def a41_all_bespoke_titles_pass_validate_and_payoff_leak():
+    failures = []
+    for archetype, pool_len in [("shock_number", 5), ("underdog_bidder", 5), ("hidden_value_reveal", 5),
+                                  ("red_flag_warning", 5), ("bank_vs_house", 3), ("mystery_nobody_bid", 3),
+                                  ("remote_bidder", 3)]:
+        for ti in range(pool_len):
+            t = hw.generate_bespoke_title(archetype, LEE_POSTSALE_FACTS, template_index=ti)
+            ok, reasons = hw.validate_title(t)
+            leak_ok, leak_reasons = hw.check_payoff_leak(t, LEE_POSTSALE_FACTS)
+            if not (ok and leak_ok):
+                failures.append({"archetype": archetype, "template_index": ti, "title": t, "reasons": reasons + leak_reasons})
+    for ti in range(3):
+        t = hw.generate_bespoke_title("countdown_presale", POLK_PRESALE_FACTS, template_index=ti)
+        ok, reasons = hw.validate_title(t)
+        leak_ok, leak_reasons = hw.check_payoff_leak(t, POLK_PRESALE_FACTS)
+        if not (ok and leak_ok):
+            failures.append({"archetype": "countdown_presale", "template_index": ti, "title": t, "reasons": reasons + leak_reasons})
+    return len(failures) == 0, {"failures": failures}
+
+
+def a42_bespoke_title_does_not_bypass_archetype_data_match():
+    t = hw.generate_bespoke_title("countdown_presale", LEE_POSTSALE_FACTS, template_index=0)
+    ok, reasons = hw.check_archetype_data_match(
+        "countdown_presale", LEE_POSTSALE_FACTS, LEE_POSTSALE_FACTS.get("third_party_bidder"),
+        LEE_POSTSALE_FACTS.get("plaintiff_confirmed_bank"))
+    return (ok is False), {"title": t, "reasons": reasons}
+
+
 def run_eval():
     assertions = [
         ("title_valid_5_9_words_third_person_ellipsis_2emoji", a1),
@@ -271,6 +387,16 @@ def run_eval():
         ("remote_bidder_honesty_guardrail_fails_on_banned_phrase", a30_remote_bidder_honesty_guardrail_fails_on_banned_phrase),
         ("remote_bidder_honesty_guardrail_passes_on_approved_phrasing", a31_remote_bidder_honesty_guardrail_passes_on_approved_phrasing),
         ("remote_bidder_honesty_guardrail_not_applicable_other_archetypes", a32_remote_bidder_honesty_guardrail_not_applicable_other_archetypes),
+        ("payoff_leak_in_shipped_lee_beat2_caught", a33_payoff_leak_in_shipped_beat2),
+        ("bespoke_script_confines_payoff_to_20_28s", a34_bespoke_script_confines_payoff),
+        ("hardcoded_countdown_loop_line_fails_on_postsale", a35_hardcoded_countdown_loop_line_fails_on_postsale),
+        ("countdown_loop_line_passes_on_presale", a36_countdown_loop_line_passes_on_presale),
+        ("countdown_presale_loop_line_raises_on_postsale", a37_countdown_presale_raises_on_postsale),
+        ("loop_line_bank_has_distinct_line_per_archetype", a38_loop_line_bank_has_distinct_lines_per_archetype),
+        ("mad_lib_titles_fail_structural_similarity", a39_mad_lib_titles_fail_structural_similarity),
+        ("bespoke_titles_pass_structural_similarity", a40_bespoke_titles_pass_structural_similarity),
+        ("all_bespoke_titles_pass_validate_and_payoff_leak", a41_all_bespoke_titles_pass_validate_and_payoff_leak),
+        ("bespoke_title_does_not_bypass_archetype_data_match", a42_bespoke_title_does_not_bypass_archetype_data_match),
     ]
     return eval_common.run_assertions("reel-hook-writer", assertions)
 

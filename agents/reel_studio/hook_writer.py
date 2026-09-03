@@ -351,6 +351,508 @@ def assert_diversity(dna_list: list[dict]) -> tuple[bool, list[str]]:
 
 
 # ---------------------------------------------------------------------------
+# issue #19802 -- Bolt technique defects: payoff leaks in beat 2, hardcoded
+# generic loop line, mad-lib titles. Deterministic (not live-LLM) generation
+# is used here for the same reason issue #19792 PART 2's _cp3c_b_regen.py
+# chose it (docs/spec/19792.md): free, reproducible, and directly testable
+# against every check below before a single row is written -- the LLM path
+# (call_llm_for_one_variant / router_client) is unchanged and stays the path
+# of record for brand-new reels; this section only fixes what a REGENERATION
+# pass produces so the 21/22 already-shipped variants can be repaired without
+# an unattended live LLM call in a headless session.
+# ---------------------------------------------------------------------------
+
+# Title emoji pair per archetype -- unchanged from issue #19792 PART 2's
+# _cp3c_b_regen.py (K3 surgical: these already validate, don't touch them).
+# remote_bidder is new here (that archetype existed in ARCHETYPES but had no
+# emoji pair assigned since it was never included in a #19792 regen batch).
+ARCHETYPE_EMOJI = {
+    "shock_number": "\U0001F633\U0001F92F",       # 😳🤯
+    "underdog_bidder": "\U0001F3C6\U0001F440",     # 🏆👀
+    "red_flag_warning": "\U0001F630\U0001F440",    # 😰👀
+    "hidden_value_reveal": "\U0001F92F\U0001F440",  # 🤯👀
+    "bank_vs_house": "\U0001F494\U0001F3C6",       # 💔🏆
+    "mystery_nobody_bid": "\U0001F631\U0001F440",  # 😱👀
+    "countdown_presale": "\U0001F630\U0001F976",   # 😰🥶
+    "remote_bidder": "\U0001F979\U0001F440",       # 🥹👀
+}
+
+
+def _condition_tier(reel_facts: dict) -> str:
+    cj = reel_facts.get("condition_json")
+    if isinstance(cj, str):
+        try:
+            cj = json.loads(cj) if cj else {}
+        except Exception:
+            cj = {}
+    return (cj or {}).get("general_condition_tier") or "unknown"
+
+
+def _red_flag_signals(reel_facts: dict) -> str | None:
+    """Pulls a real, VERIFIED/LIKELY-confidence red flag out of the row's own
+    vision-scored condition_json -- never invents one. None means the row's
+    own record has nothing to point at (a valid outcome, not skipped)."""
+    cj = reel_facts.get("condition_json")
+    if isinstance(cj, str):
+        try:
+            cj = json.loads(cj) if cj else {}
+        except Exception:
+            cj = {}
+    cj = cj or {}
+    flags = []
+    veg = cj.get("vegetation_overgrowth") or {}
+    if veg.get("confidence") in ("VERIFIED", "LIKELY") and veg.get("observation"):
+        flags.append("overgrown vegetation")
+    vac = cj.get("vacancy_signals") or {}
+    if vac.get("confidence") in ("VERIFIED", "LIKELY") and vac.get("observation"):
+        flags.append("possible vacancy signs")
+    return " and ".join(flags) if flags else None
+
+
+def _sale_mechanism_phrase(reel_facts: dict, lang: str = "en") -> str:
+    st = (reel_facts.get("sale_type") or "").lower()
+    if lang == "es":
+        if "tax deed" in st:
+            return "en una venta de escritura fiscal"
+        if "foreclosure" in st:
+            return "en una subasta de ejecución hipotecaria"
+        return "en subasta"
+    if "tax deed" in st:
+        return "at a tax deed sale"
+    if "foreclosure" in st:
+        return "at a foreclosure auction"
+    return "at auction"
+
+
+# ---------------------------------------------------------------------------
+# DEFECT 3 -- bespoke, facts-driven titles. Each archetype gets a POOL of
+# structurally distinct templates (not one fixed sentence with only the
+# county swapped) so same-archetype titles differ in sentence structure,
+# not just the proper noun (checked by check_title_structural_similarity
+# below). template_index picks the pool slot; callers round-robin it across
+# a batch so siblings of one archetype don't collide on the same structure.
+# ---------------------------------------------------------------------------
+
+def _title_stem(archetype: str, county: str, reel_facts: dict, template_index: int, lang: str = "en") -> str:
+    assessed = reel_facts.get("assessed_value")
+    days = reel_facts.get("days_to_auction")
+
+    if lang == "es":
+        pools = {
+            "shock_number": [
+                (lambda: f"El Condado Tasó Esta Casa De {county} En ${assessed:,.0f}") if assessed is not None
+                else (lambda: f"Esta Casa De {county} Sorprendió A Toda La Subasta"),
+                (lambda: f"Los Tasadores De {county} La Valoraron En ${assessed:,.0f}") if assessed is not None
+                else (lambda: f"Nadie Esperaba Este Número En {county}"),
+                (lambda: f"El Número Real De Esta Casa En {county} Fue ${assessed:,.0f}") if assessed is not None
+                else (lambda: f"Esta Casa De {county} Guardaba Un Número Sorpresa"),
+            ],
+            "underdog_bidder": [
+                lambda: f"Un Postor Sorpresa Le Ganó A Todos En {county}",
+                lambda: f"Un Postor Inesperado Ganó La Subasta En {county}",
+                lambda: f"En {county} Ganó El Postor Menos Esperado",
+                lambda: f"El Favorito Perdió Esta Subasta En {county}",
+                lambda: f"Un Desconocido Se Llevó Esta Propiedad En {county}",
+            ],
+            "hidden_value_reveal": [
+                lambda: f"Esta Casa De {county} Escondió Su Valor Real",
+                lambda: f"Nadie En {county} Vio Venir Este Valor",
+                lambda: f"El Verdadero Valor Se Escondió En {county}",
+                lambda: f"Esta Propiedad En {county} Valía Más De Lo Que Se Vendió",
+                lambda: f"El Anuncio De {county} No Mostró Su Verdadero Valor",
+            ],
+            "red_flag_warning": [
+                lambda: f"Esta Casa De {county} Levantó Toda Señal De Alerta",
+                lambda: f"Los Registros De {county} Marcaron Esta Propiedad",
+                lambda: f"Señales De Alerta Rodearon Esta Casa De {county}",
+                lambda: f"Cada Señal De Alerta Estaba En El Expediente De {county}",
+                lambda: f"Esta Propiedad De {county} Se Vendió Pese A Las Alertas",
+            ],
+            "bank_vs_house": [
+                lambda: f"El Banco Luchó Fuerte Por Esta Casa En {county}",
+                lambda: f"El Prestamista De {county} Fue A La Guerra Por Esta Casa",
+                lambda: f"Esta Casa Se Volvió Batalla Para El Banco De {county}",
+            ],
+            "mystery_nobody_bid": [
+                lambda: f"Nadie Se Atrevió A Ofertar En {county}",
+                lambda: f"La Subasta De {county} Se Quedó En Silencio",
+                lambda: f"Esta Casa De {county} No Tuvo Ni Un Postor",
+            ],
+            "countdown_presale": [
+                (lambda: f"Esta Casa De {county} Sale A Subasta En {days} Días") if days is not None
+                else (lambda: f"Esta Casa De {county} Se Acerca A Su Subasta"),
+                lambda: f"El Reloj De La Subasta De {county} Sigue Corriendo",
+                lambda: f"El Tiempo Se Acaba Para Esta Casa De {county}",
+            ],
+            "remote_bidder": [
+                lambda: f"Esta Venta En {county} No Necesitó Un Postor Local",
+                lambda: f"Alguien Ganó Esta Subasta De {county} Desde Lejos",
+                lambda: f"La Oferta Ganadora De {county} Llegó Desde Otro Lugar",
+            ],
+        }
+    else:
+        pools = {
+            "shock_number": [
+                (lambda: f"The County Valued This {county} Home At ${assessed:,.0f}") if assessed is not None
+                else (lambda: f"This {county} Home Shocked The Whole Auction"),
+                (lambda: f"{county} Assessors Priced This Home At ${assessed:,.0f}") if assessed is not None
+                else (lambda: f"Nobody Guessed This {county} Home's Real Number"),
+                (lambda: f"This {county} Home's Real Number Was ${assessed:,.0f}") if assessed is not None
+                else (lambda: f"This {county} Home Kept Its Number Hidden"),
+                (lambda: f"{county}'s Records Put This Home At ${assessed:,.0f}") if assessed is not None
+                else (lambda: f"This {county} Home Kept Everyone Guessing"),
+                (lambda: f"This {county} Home Carried A ${assessed:,.0f} Price Tag") if assessed is not None
+                else (lambda: f"This {county} Home's True Number Stayed Hidden"),
+            ],
+            "underdog_bidder": [
+                lambda: f"An Underdog Bidder Beat The Field In {county}",
+                lambda: f"{county}'s Auction Had An Unlikely Winner",
+                lambda: f"One Bidder Outlasted Everyone Else In {county}",
+                lambda: f"The Favorite Lost This {county} Auction",
+                lambda: f"A Long Shot Took This {county} Property Home",
+            ],
+            "hidden_value_reveal": [
+                lambda: f"This {county} Home Hid Its Real Value",
+                lambda: f"{county} Buyers Never Saw This Value Coming",
+                lambda: f"The Real Worth Stayed Hidden In {county}",
+                lambda: f"This {county} Property Was Worth More Than It Sold",
+                lambda: f"{county}'s Listing Undersold Its Own Value",
+            ],
+            "red_flag_warning": [
+                lambda: f"This {county} Home Waved Every Red Flag",
+                lambda: f"{county} Records Flagged This Property For A Reason",
+                lambda: f"Warning Signs Piled Up On This {county} Home",
+                lambda: f"Every Red Flag Was On File In {county}",
+                lambda: f"This {county} Property Sold Despite The Warnings",
+            ],
+            "bank_vs_house": [
+                lambda: f"The Bank Fought Hard For This {county} House",
+                lambda: f"{county}'s Lender Went To War Over This House",
+                lambda: f"This House Became A Battle For {county}'s Bank",
+            ],
+            "mystery_nobody_bid": [
+                lambda: f"Nobody Dared To Bid On This {county} Home",
+                lambda: f"{county}'s Auction Floor Went Silent On This One",
+                lambda: f"This {county} Home Found Zero Bidders At Auction",
+            ],
+            "countdown_presale": [
+                (lambda: f"This {county} Home Hits Auction In {days} Days") if days is not None
+                else (lambda: f"This {county} Home Nears Its Auction Date"),
+                lambda: f"{county}'s Auction Clock Is Ticking On This Home",
+                lambda: f"Days Are Running Out On This {county} Listing",
+            ],
+            "remote_bidder": [
+                lambda: f"This {county} Sale Never Needed A Local Bidder",
+                lambda: f"Someone Won This {county} Auction From Anywhere",
+                lambda: f"{county}'s Winning Bid Came From Off-Site",
+            ],
+        }
+
+    templates = pools.get(archetype)
+    if not templates:
+        raise ValueError(f"no title template pool for archetype {archetype!r} lang={lang!r}")
+    fn = templates[template_index % len(templates)]
+    return fn()
+
+
+def generate_bespoke_title(archetype: str, reel_facts: dict, template_index: int = 0, lang: str = "en") -> str:
+    """DEFECT 3 fix: draws from a per-archetype POOL of structurally distinct
+    templates built from the row's own facts (assessed value / days to
+    auction / condition-derived red flags), instead of one fixed sentence
+    with only the county token substituted."""
+    county = (reel_facts.get("county") or "").title()
+    emoji = ARCHETYPE_EMOJI.get(archetype)
+    if emoji is None:
+        raise ValueError(f"no emoji mapping for archetype {archetype!r}")
+    stem = _title_stem(archetype, county, reel_facts, template_index, lang=lang)
+    return f"{stem}{ELLIPSIS}{emoji}"
+
+
+# ---------------------------------------------------------------------------
+# DEFECT 1 -- payoff confined to the 20-28s beat. Setup (2-9s) and tension
+# (9-20s) describe the property/situation only; assessed_value is the one
+# number allowed early (a Setup-beat fact per check_payoff_leak's own
+# allowance), sold_amount/delta_pct (postsale) and opening_bid/judgment_amount
+# (presale) are withheld until the payoff beat.
+# ---------------------------------------------------------------------------
+
+def _payoff_phrase(phase: str | None, reel_facts: dict, lang: str = "en") -> str:
+    if phase == "presale":
+        ob = reel_facts.get("opening_bid")
+        ja = reel_facts.get("judgment_amount")
+        if lang == "es":
+            if ob is not None and ja is not None:
+                return f"La oferta inicial es de ${ob:,.0f} contra un juicio de ${ja:,.0f}."
+            if ob is not None:
+                return f"La oferta inicial es de ${ob:,.0f}."
+            return "La oferta inicial aún no se ha publicado."
+        if ob is not None and ja is not None:
+            return f"The opening bid sits at ${ob:,.0f} against a ${ja:,.0f} judgment."
+        if ob is not None:
+            return f"The opening bid sits at ${ob:,.0f}."
+        return "The opening bid has not posted yet."
+
+    sold = reel_facts.get("sold_amount")
+    delta = reel_facts.get("delta_pct")
+    if lang == "es":
+        if sold is not None and delta is not None:
+            return f"Se vendió por ${sold:,.0f}... un {abs(delta):.1f} por ciento bajo el valor tasado."
+        if sold is not None:
+            return f"Se vendió por ${sold:,.0f}."
+        return "El precio de venta aún no está disponible."
+    if sold is not None and delta is not None:
+        return f"It sold for ${sold:,.0f}... {abs(delta):.1f} percent below assessed value."
+    if sold is not None:
+        return f"It sold for ${sold:,.0f}."
+    return "The sale figure is not on file yet."
+
+
+def _tension_phrase(archetype: str, reel_facts: dict, lang: str = "en") -> str:
+    condition = _condition_tier(reel_facts)
+    red_flags = _red_flag_signals(reel_facts)
+    if lang == "es":
+        if archetype == "red_flag_warning" and red_flags:
+            return f"Se observó {red_flags} antes de que se cerrara la venta."
+        defaults = {
+            "shock_number": "Los postores solo tenían un número para reaccionar antes del martillazo.",
+            "underdog_bidder": "Compradores más grandes rondaban, pero el grupo se redujo rápido en la subasta.",
+            "hidden_value_reveal": "Nada en el anuncio insinuaba lo que esta propiedad realmente valía.",
+            "red_flag_warning": f"Una propiedad en condición {condition} con señales de alerta reales igual se vendió.",
+            "bank_vs_house": "El banco tenía toda la razón para resistir, y casi lo logra.",
+            "mystery_nobody_bid": "La subasta se mantuvo en silencio mientras corría el reloj.",
+            "remote_bidder": "La oferta ganadora llegó en línea... las reglas de depósito aplicaron igual que siempre.",
+            "countdown_presale": f"El reloj sigue corriendo sobre esta propiedad en condición {condition}.",
+        }
+        return defaults.get(archetype, f"Una propiedad en condición {condition} con una historia que vale la pena seguir.")
+
+    if archetype == "red_flag_warning" and red_flags:
+        return f"{red_flags[0].upper()}{red_flags[1:]} showed up in the record before the sale ever closed."
+    defaults = {
+        "shock_number": "Bidders had exactly one number to react to before the gavel fell.",
+        "underdog_bidder": "Bigger buyers circled, but the field narrowed fast on the courthouse steps.",
+        "hidden_value_reveal": "Nothing about the listing hinted at what this property was actually worth.",
+        "red_flag_warning": f"A {condition}-condition property with real red flags still went to closing.",
+        "bank_vs_house": "The lender had every reason to hold out, and almost did.",
+        "mystery_nobody_bid": "The auction floor stayed quiet as the clock ran down.",
+        "remote_bidder": "The winning bid came in online -- deposit rules still applied like any other sale.",
+        "countdown_presale": f"The clock is running on this {condition}-condition property.",
+    }
+    return defaults.get(archetype, f"A {condition}-condition property with a story worth watching.")
+
+
+def build_bespoke_script(archetype: str, reel_facts: dict, title_stem: str, lang: str = "en") -> dict:
+    """Returns {"beats": [...]} on the same 5-beat/32s shape every live
+    reel_variants row already uses: hook 0-2s, setup 2-9s, tension 9-20s,
+    payoff 20-28s, loop_line 28-32s -- aligned to REEL_SPEC_BOLT32.md's
+    beat table. Only the payoff beat (start_s>=20) may contain sold_amount/
+    delta_pct (postsale) or opening_bid/judgment_amount (presale) --
+    verified by check_script_payoff_confinement below, not just asserted
+    here by construction."""
+    county = (reel_facts.get("county") or "").title()
+    condition = _condition_tier(reel_facts)
+    sale_phrase = _sale_mechanism_phrase(reel_facts, lang=lang)
+    phase = reel_facts.get("phase")
+    assessed = reel_facts.get("assessed_value")
+
+    if lang == "es":
+        if assessed is not None:
+            setup_line = f"Esta propiedad de condición {condition} en el condado de {county} fue tasada en ${assessed:,.0f}."
+        else:
+            setup_line = f"Esta propiedad de condición {condition} en el condado de {county} salió {sale_phrase}."
+    else:
+        if assessed is not None:
+            setup_line = f"This {condition}-condition {county} County home was assessed at ${assessed:,.0f}."
+        else:
+            setup_line = f"This {condition}-condition {county} County home came up {sale_phrase}."
+
+    tension_line = _tension_phrase(archetype, reel_facts, lang=lang)
+    payoff_line = _payoff_phrase(phase, reel_facts, lang=lang)
+    loop_line = loop_line_for(archetype, reel_facts, lang=lang)
+
+    beats = [
+        {"start_s": 0, "end_s": 2, "line": title_stem},
+        {"start_s": 2, "end_s": 9, "line": setup_line},
+        {"start_s": 9, "end_s": 20, "line": tension_line},
+        {"start_s": 20, "end_s": 28, "line": payoff_line},
+        {"start_s": 28, "end_s": 32, "line": loop_line},
+    ]
+    return {"beats": beats}
+
+
+def build_caption_groups_from_beats(beats: list[dict], max_words: int = 5) -> list[dict]:
+    groups = []
+    for b in beats:
+        start_s = float(b["start_s"])
+        end_s = float(b["end_s"])
+        words = str(b.get("line", "")).split()
+        chunks = [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)] or [""]
+        step = (end_s - start_s) / len(chunks)
+        for i, chunk in enumerate(chunks):
+            groups.append({
+                "start_s": round(start_s + i * step, 2),
+                "end_s": round(start_s + (i + 1) * step, 2),
+                "words": chunk,
+            })
+    return groups
+
+
+# ---------------------------------------------------------------------------
+# DEFECT 2 -- per-archetype loop-line bank (replaces the single hardcoded
+# "Next <County> countdown starts now" line that fired on every variant
+# regardless of archetype/phase). "countdown" language is reachable ONLY
+# through the countdown_presale branch, which itself refuses to run on a
+# non-presale row (defense in depth with check_loop_line_archetype_mismatch,
+# which catches it even if a loop line came from a different code path).
+# ---------------------------------------------------------------------------
+
+def loop_line_for(archetype: str, reel_facts: dict, lang: str = "en") -> str:
+    phase = reel_facts.get("phase")
+    county = (reel_facts.get("county") or "").title()
+    days = reel_facts.get("days_to_auction")
+
+    if archetype == "countdown_presale" and phase != "presale":
+        raise ValueError(f"loop_line_for: archetype 'countdown_presale' requires phase='presale', got {phase!r}")
+
+    if lang == "es":
+        lines = {
+            "shock_number": f"Ese número en {county}... ¿lo habrías adivinado?",
+            "underdog_bidder": f"Un solo postor se mantuvo firme en {county}... así se gana una subasta.",
+            "hidden_value_reveal": f"El valor real estuvo ahí todo el tiempo en {county}... y nadie lo vio venir.",
+            "red_flag_warning": f"Cada señal de alerta estaba en el expediente de {county}... y aun así se vendió.",
+            "bank_vs_house": f"El banco consiguió su número en {county}... esta vez.",
+            "mystery_nobody_bid": f"Silencio en la subasta de {county}... eso también dice algo.",
+            "remote_bidder": f"El ganador de {county} nunca puso un pie en Florida... se puede ofertar en línea desde cualquier lugar, las reglas de depósito aplican igual.",
+            "countdown_presale": (f"La próxima cuenta regresiva de {county} empieza en {days} días." if days is not None
+                                   else f"La próxima cuenta regresiva de {county} ya está en marcha."),
+        }
+    else:
+        lines = {
+            "shock_number": f"That number in {county} County... would you have guessed it?",
+            "underdog_bidder": f"One bidder stayed in it in {county} County... that's how you win one.",
+            "hidden_value_reveal": f"The real value was there in {county} County the whole time... and nobody saw it coming.",
+            "red_flag_warning": f"Every warning sign was on file in {county} County... and it sold anyway.",
+            "bank_vs_house": f"The bank got its number in {county} County... this time.",
+            "mystery_nobody_bid": f"Silence at the {county} County auction... that's its own kind of answer.",
+            "remote_bidder": f"This {county} County winner never had to set foot in Florida... bid online from anywhere, deposit rules still apply.",
+            "countdown_presale": (f"The next {county} County countdown starts in {days} days." if days is not None
+                                   else f"The next {county} County countdown is already running."),
+        }
+
+    if archetype not in lines:
+        raise ValueError(f"no loop line template for archetype {archetype!r}")
+    return lines[archetype]
+
+
+def check_script_payoff_confinement(beats: list[dict], reel_facts: dict) -> tuple[bool, list[str]]:
+    """DEFECT 1 negative test (a): a beat starting before 20s that contains
+    the payoff figure (sold_amount/delta_pct postsale, opening_bid/
+    judgment_amount presale) fails. Assessed value and any other non-payoff
+    number are unaffected -- this checks the PAYOFF figures specifically,
+    not "any beat with any number in it"."""
+    reasons = []
+    reel_facts = reel_facts or {}
+    phase = reel_facts.get("phase")
+    if phase == "presale":
+        payoff_fields = [("opening bid", reel_facts.get("opening_bid")), ("judgment amount", reel_facts.get("judgment_amount"))]
+    else:
+        payoff_fields = [("sold price", reel_facts.get("sold_amount")), ("discount percentage", reel_facts.get("delta_pct"))]
+
+    for beat in beats or []:
+        try:
+            start_s = float(beat.get("start_s", 0))
+        except (TypeError, ValueError):
+            start_s = 0.0
+        if start_s >= 20:
+            continue
+        line = str(beat.get("line", ""))
+        digits_found = {d.replace(",", "") for d in re.findall(r"[\d,]+(?:\.\d+)?", line)}
+        for label, value in payoff_fields:
+            if value is None:
+                continue
+            candidates = {f"{value:,.0f}", f"{value:.0f}", f"{abs(value):,.0f}", f"{abs(value):.0f}", f"{abs(value):.1f}"}
+            for c in candidates:
+                if c.replace(",", "") in digits_found:
+                    reasons.append(f"beat starting at {start_s}s leaks the {label} figure ({c}) before the 20-28s payoff beat")
+                    break
+    return (len(reasons) == 0, reasons)
+
+
+def check_loop_line_archetype_mismatch(loop_line: str, reel_facts: dict) -> tuple[bool, list[str]]:
+    """DEFECT 2 negative test (b): a loop line containing 'countdown' is
+    rejected unless the row's own phase is 'presale' -- catches the
+    hardcoded-generic-line class of bug regardless of which code path
+    produced the loop line."""
+    reasons = []
+    phase = (reel_facts or {}).get("phase")
+    if "countdown" in (loop_line or "").lower() and phase != "presale":
+        reasons.append(f"loop line contains 'countdown' but phase={phase!r} (must be 'presale')")
+    return (len(reasons) == 0, reasons)
+
+
+# ---------------------------------------------------------------------------
+# DEFECT 3 negative test (c) -- structural-similarity assertion. Same-
+# archetype titles must differ in sentence structure across at least half
+# their word count once county/number tokens are removed, not just swap the
+# proper noun. Uses token-level Levenshtein distance, not character edit
+# distance, so word reordering/substitution is what's measured, not typos.
+# ---------------------------------------------------------------------------
+
+def _levenshtein(a: list, b: list) -> int:
+    n, m = len(a), len(b)
+    if n == 0:
+        return m
+    if m == 0:
+        return n
+    prev = list(range(m + 1))
+    for i in range(1, n + 1):
+        curr = [i] + [0] * m
+        for j in range(1, m + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            curr[j] = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+        prev = curr
+    return prev[m]
+
+
+def _structural_tokens(title: str, county: str = "") -> list[str]:
+    stem = title.split(ELLIPSIS)[0] if ELLIPSIS in (title or "") else (title or "")
+    tokens = [t.lower() for t in re.findall(r"[^\W\d_]+", stem, flags=re.UNICODE)]
+    county_tokens = {w.lower() for w in re.findall(r"[^\W\d_]+", county or "")}
+    return [t for t in tokens if t not in county_tokens]
+
+
+def title_structural_similarity(title_a: str, county_a: str, title_b: str, county_b: str) -> float:
+    ta = _structural_tokens(title_a, county_a)
+    tb = _structural_tokens(title_b, county_b)
+    if not ta and not tb:
+        return 1.0
+    dist = _levenshtein(ta, tb)
+    return 1 - (dist / max(len(ta), len(tb)))
+
+
+def check_title_structural_similarity(entries: list[dict], threshold: float = 0.5) -> tuple[bool, list[str]]:
+    """entries: [{"title":..., "county":..., "archetype":..., "id":...}, ...].
+    Groups by archetype; any same-archetype pair whose structural similarity
+    exceeds `threshold` (i.e. does NOT differ across at least half their
+    word count once county/number tokens are removed) fails."""
+    reasons = []
+    by_archetype: dict[str, list[dict]] = {}
+    for e in entries:
+        by_archetype.setdefault(e["archetype"], []).append(e)
+    for archetype, group in by_archetype.items():
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                sim = title_structural_similarity(
+                    group[i]["title"], group[i].get("county", ""), group[j]["title"], group[j].get("county", ""))
+                if sim > threshold:
+                    reasons.append(
+                        f"archetype {archetype!r}: titles {group[i].get('id', group[i]['title'])!r} and "
+                        f"{group[j].get('id', group[j]['title'])!r} are {sim:.2f} structurally similar "
+                        f"(> {threshold}) after removing county/number tokens"
+                    )
+    return (len(reasons) == 0, reasons)
+
+
+# ---------------------------------------------------------------------------
 # Prompt + LLM call
 # ---------------------------------------------------------------------------
 

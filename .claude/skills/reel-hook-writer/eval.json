@@ -1,8 +1,8 @@
 {
   "skill_id": "reel-hook-writer",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "pattern": "cmo-factory/reel-variant-studio",
-  "task": "Generate K=4 diverse, compliant variant packages for one shortlisted biddeed_reels property and insert them as pending_approval rows with distinct short codes. issue #19793 PART 2: remote_bidder archetype added to ARCHETYPES with its own data-validity rule (auction_venue='online' only) and honesty guardrail against frictionless/bids-on-your-behalf language (assertions 26-32).",
+  "task": "Generate K=4 diverse, compliant variant packages for one shortlisted biddeed_reels property and insert them as pending_approval rows with distinct short codes. issue #19793 PART 2: remote_bidder archetype added to ARCHETYPES with its own data-validity rule (auction_venue='online' only) and honesty guardrail against frictionless/bids-on-your-behalf language (assertions 26-32). issue #19802: payoff-leaks-in-early-beat, hardcoded-generic-loop-line, and mad-lib-title defects in the shipped 21/22-variant batch -- deterministic bespoke title generation (generate_bespoke_title, a per-archetype template POOL not one fixed sentence), a real per-archetype loop-line bank (loop_line_for) with a countdown-only-on-presale guard, and 3 new named checks: check_script_payoff_confinement, check_loop_line_archetype_mismatch, check_title_structural_similarity (assertions 33-42).",
   "pass_threshold": 0.8,
   "autoloop_compatible": true,
   "assertions": [
@@ -37,6 +37,16 @@
     {"id": 29, "planted_defect": "remote_bidder_unknown_venue", "input": "archetype='remote_bidder', auction_venue_online=null", "expected": "check_archetype_data_match fails -- never defaults to online", "type": "binary"},
     {"id": 30, "planted_defect": "remote_bidder_frictionless_claim", "input": "remote_bidder script says 'we bid on your behalf, guaranteed'", "expected": "check_remote_bidder_honesty_guardrail fails", "type": "binary"},
     {"id": 31, "input": "remote_bidder script uses 'bid online from anywhere - deposit rules still apply'", "expected": "check_remote_bidder_honesty_guardrail passes", "type": "binary"},
-    {"id": 32, "input": "check_remote_bidder_honesty_guardrail called with archetype='shock_number' and banned phrase text", "expected": "passes (non-blocking) -- guardrail only applies to remote_bidder", "type": "binary"}
+    {"id": 32, "input": "check_remote_bidder_honesty_guardrail called with archetype='shock_number' and banned phrase text", "expected": "passes (non-blocking) -- guardrail only applies to remote_bidder", "type": "binary"},
+    {"id": 33, "planted_defect": "payoff_leak_in_beat2", "input": "the real shipped Lee/red_flag_warning script: beat starting at 2.0s contains 'Sold 34.8 percent below assessed value'", "expected": "check_script_payoff_confinement fails, naming the discount-percentage figure and the 2.0s beat", "type": "binary"},
+    {"id": 34, "input": "build_bespoke_script() output for the same Lee row", "expected": "check_script_payoff_confinement passes -- payoff figures only appear in the 20-28s beat", "type": "binary"},
+    {"id": 35, "planted_defect": "hardcoded_countdown_loop_line", "input": "the real shipped loop line 'Next Lee County countdown starts now.' on a phase='postsale' row", "expected": "check_loop_line_archetype_mismatch fails (countdown language requires phase='presale')", "type": "binary"},
+    {"id": 36, "input": "loop_line_for('countdown_presale', ...) on a phase='presale' row", "expected": "returns a countdown line and check_loop_line_archetype_mismatch passes", "type": "binary"},
+    {"id": 37, "input": "loop_line_for('countdown_presale', ...) on a phase='postsale' row", "expected": "raises ValueError instead of producing a mismatched line", "type": "binary"},
+    {"id": 38, "input": "loop_line_for() called once per archetype (8 archetypes)", "expected": "returns 8 distinct, archetype-specific lines -- not one shared template", "type": "binary"},
+    {"id": 39, "planted_defect": "mad_lib_titles", "input": "the 5 real shipped underdog_bidder titles (one per county, all 'An Underdog Bidder Beat The Field In <County>...')", "expected": "check_title_structural_similarity fails on every pair (1.00 similarity after removing county tokens)", "type": "binary"},
+    {"id": 40, "input": "5 generate_bespoke_title() outputs for archetype='shock_number' across 5 counties with round-robin template_index 0-4", "expected": "check_title_structural_similarity passes with zero same-archetype pairs over the 0.5 threshold", "type": "binary"},
+    {"id": 41, "input": "generate_bespoke_title() for every archetype/template_index combination in the live template pools", "expected": "every candidate passes validate_title() and check_payoff_leak()", "type": "binary"},
+    {"id": 42, "input": "generate_bespoke_title(archetype='countdown_presale', ...) on a phase='postsale' reel", "expected": "check_archetype_data_match still fails for the row (archetype/phase precondition unchanged by DEFECT 3's fix)", "type": "binary"}
   ]
 }

@@ -1,8 +1,8 @@
 {
   "skill_id": "reel-director-qa",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "pattern": "cmo-factory/reel-variant-studio",
-  "task": "Catch 5/5 planted defects (name in caption, vendor name in script, 30.0s cut, missing beat0/Street View equivalent, broken loop seam) and pass 5/5 clean controls with zero false positives. issue #19792 PART 1: also catch the 5 title-rule violations the pre-fix validator rubber-stamped -- payoff leak, emoji placement, ellipsis form, title-case drift, archetype/data mismatch -- each with its own fail+pass fixture (assertions 26-35). issue #19793 PART 2: remote_bidder archetype -- valid only on a confirmed online-venue sale record, plus its own frictionlessness/bids-on-your-behalf honesty guardrail (assertions 36-40).",
+  "task": "Catch 5/5 planted defects (name in caption, vendor name in script, 30.0s cut, missing beat0/Street View equivalent, broken loop seam) and pass 5/5 clean controls with zero false positives. issue #19792 PART 1: also catch the 5 title-rule violations the pre-fix validator rubber-stamped -- payoff leak, emoji placement, ellipsis form, title-case drift, archetype/data mismatch -- each with its own fail+pass fixture (assertions 26-35). issue #19793 PART 2: remote_bidder archetype -- valid only on a confirmed online-venue sale record, plus its own frictionlessness/bids-on-your-behalf honesty guardrail (assertions 36-40). issue #19802: 3 new checks against the same class of bug the archetype_data_match check was built to catch but wasn't applied broadly enough -- payoff confined to the 20-28s beat (script_payoff_confinement), loop line archetype/phase match (loop_line_archetype_mismatch), and cross-reel title structural diversity per archetype (title_structural_similarity) -- each with a fail fixture built from the REAL shipped Lee/red_flag_warning violation and a pass fixture from the fixed generator (assertions 41-46).",
   "pass_threshold": 1.0,
   "autoloop_compatible": true,
   "assertions": [
@@ -45,6 +45,12 @@
     {"id": 37, "planted_defect": "remote_bidder_in_person_venue", "input": "archetype='remote_bidder' on a row with auction_venue_online=false", "expected": "check_archetype_data_match fails (pass=False)", "type": "binary"},
     {"id": 38, "planted_defect": "remote_bidder_unknown_venue", "input": "archetype='remote_bidder' on a row with auction_venue_online=null (unknown)", "expected": "check_archetype_data_match fails (pass=False) -- never defaults to online", "type": "binary"},
     {"id": 39, "planted_defect": "remote_bidder_frictionless_claim", "input": "remote_bidder script contains 'we bid on your behalf, guaranteed'", "expected": "check_remote_bidder_honesty fails (pass=False)", "type": "binary"},
-    {"id": 40, "input": "remote_bidder script uses approved phrasing 'bid online from anywhere - deposit rules still apply'", "expected": "check_remote_bidder_honesty passes", "type": "binary"}
+    {"id": 40, "input": "remote_bidder script uses approved phrasing 'bid online from anywhere - deposit rules still apply'", "expected": "check_remote_bidder_honesty passes", "type": "binary"},
+    {"id": 41, "planted_defect": "payoff_leak_beat2", "input": "the real shipped Lee/red_flag_warning variant: beat starting at 2.0s says 'Sold 34.8 percent below assessed value'", "expected": "check_script_payoff_confinement fails (pass=False)", "type": "binary"},
+    {"id": 42, "input": "a variant whose only numeric figure before 20s is the assessed value (a Setup-beat fact)", "expected": "check_script_payoff_confinement passes", "type": "binary"},
+    {"id": 43, "planted_defect": "hardcoded_countdown_loop_line", "input": "the real shipped loop line 'Next Lee County countdown starts now.' on a phase='postsale' row", "expected": "check_loop_line_archetype_mismatch fails (pass=False)", "type": "binary"},
+    {"id": 44, "input": "a countdown loop line on a phase='presale' row", "expected": "check_loop_line_archetype_mismatch passes", "type": "binary"},
+    {"id": 45, "planted_defect": "mad_lib_titles", "input": "the 5 real shipped underdog_bidder titles (one per county) live in winnerdata.reel_variants at the time of #19802", "expected": "check_title_structural_similarity fails on every pair (1.00 similarity after stripping county tokens)", "type": "binary"},
+    {"id": 46, "input": "5 bespoke titles for one archetype across 5 counties with round-robin template_index 0-4", "expected": "check_title_structural_similarity passes with zero pairs over the 0.5 threshold", "type": "binary"}
   ]
 }

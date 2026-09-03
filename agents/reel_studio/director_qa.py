@@ -130,6 +130,64 @@ def check_archetype_data_match(variant: dict, reel_facts: dict | None) -> dict:
     return {"pass": ok, "reasons": reasons, "observed": observed}
 
 
+def fetch_same_archetype_variants(archetype: str, exclude_variant_id: str) -> list[dict]:
+    """issue #19802 -- live cross-reel siblings sharing this archetype, for
+    check_title_structural_similarity. `archetype` is a generated column on
+    reel_variants (derived from variant_dna->>'archetype', see translator.py's
+    own note on this), queried directly rather than via the jsonb operator."""
+    rows = lib.run_sql(f"""
+        select rv.id, rv.title, br.county
+        from winnerdata.reel_variants rv
+        join winnerdata.biddeed_reels br on br.id = rv.reel_id
+        where rv.archetype = {lib.sql_str(archetype)}
+          and rv.id != {lib.sql_str(exclude_variant_id)};
+    """)
+    return rows
+
+
+def check_script_payoff_confinement(variant: dict, reel_facts: dict | None) -> dict:
+    """issue #19802 DEFECT 1 -- no beat before the 20-28s payoff window may
+    contain the payoff figure (sold_amount/delta_pct postsale, opening_bid/
+    judgment_amount presale)."""
+    beats = (variant.get("script") or {}).get("beats", [])
+    if reel_facts is None:
+        return {"pass": None, "reason": "not_applicable_no_reel_facts_provided"}
+    ok, reasons = hook_writer.check_script_payoff_confinement(beats, reel_facts)
+    return {"pass": ok, "reasons": reasons}
+
+
+def check_loop_line_archetype_mismatch(variant: dict, reel_facts: dict | None) -> dict:
+    """issue #19802 DEFECT 2 -- a loop line containing 'countdown' is
+    rejected unless the row's own phase is 'presale'. The loop line is the
+    last beat in the 5-beat/32s shape every live variant uses."""
+    beats = (variant.get("script") or {}).get("beats", [])
+    loop_line = beats[-1].get("line", "") if beats else ""
+    if reel_facts is None:
+        return {"pass": None, "reason": "not_applicable_no_reel_facts_provided"}
+    ok, reasons = hook_writer.check_loop_line_archetype_mismatch(loop_line, reel_facts)
+    return {"pass": ok, "reasons": reasons, "observed": loop_line}
+
+
+def check_title_structural_similarity(variant: dict, reel_facts: dict | None) -> dict:
+    """issue #19802 DEFECT 3 -- same-archetype titles (across ALL reels, not
+    just this reel's own 4 siblings) must differ in sentence structure, not
+    just swap the county token. Queries the live table for cross-reel
+    archetype siblings since two variants sharing an archetype never live in
+    the same reel (the reel_variants_reel_id_archetype_key constraint
+    forbids it)."""
+    archetype = (variant.get("variant_dna") or {}).get("archetype") or variant.get("archetype")
+    variant_id = variant.get("id")
+    title = variant.get("title", "")
+    county = (reel_facts or {}).get("county") or ""
+    if not archetype or not variant_id:
+        return {"pass": None, "reason": "not_applicable_missing_archetype_or_id"}
+    siblings = fetch_same_archetype_variants(archetype, variant_id)
+    entries = [{"title": title, "county": county, "archetype": archetype, "id": variant_id}]
+    entries += [{"title": s["title"], "county": s.get("county") or "", "archetype": archetype, "id": s["id"]} for s in siblings]
+    ok, reasons = hook_writer.check_title_structural_similarity(entries)
+    return {"pass": ok, "reasons": reasons, "observed": {"sibling_count": len(siblings)}}
+
+
 def check_remote_bidder_honesty(variant: dict) -> dict:
     """Issue #19793 PART 2 -- non-blocking (pass=True) for every archetype
     except remote_bidder, where it scans the title + full script text for
@@ -224,6 +282,11 @@ def review_variant(variant: dict, siblings: list[dict], reel_facts: dict | None 
         "payoff_leak": check_payoff_leak(variant, reel_facts),
         "archetype_data_match": check_archetype_data_match(variant, reel_facts),
         "remote_bidder_honesty": check_remote_bidder_honesty(variant),
+        # issue #19802 -- payoff-in-early-beat, loop-line-archetype-mismatch,
+        # title-structural-similarity (DEFECT 1/2/3 regression guards).
+        "script_payoff_confinement": check_script_payoff_confinement(variant, reel_facts),
+        "loop_line_archetype_mismatch": check_loop_line_archetype_mismatch(variant, reel_facts),
+        "title_structural_similarity": check_title_structural_similarity(variant, reel_facts),
         "duration_32s": {"pass": None, "reason": "not_applicable_phase_a (no rendered video yet)"},
         "loop_seam_continuity": {"pass": None, "reason": "not_applicable_phase_a (no rendered video yet)"},
     }
