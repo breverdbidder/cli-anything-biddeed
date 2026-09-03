@@ -37,7 +37,7 @@ sx0,sy0,sx1,sy1=507,508,2053,931
 M=400                     # mark box
 fw=ImageFont.truetype(F+"Inter-Black.ttf",168)
 ft=ImageFont.truetype(F+"Inter-Bold.ttf",44)
-fu=ImageFont.truetype(F+"Inter-SemiBold.ttf",36)
+fu=ImageFont.truetype(F+"Inter-Black.ttf",78)
 name,ai="BidDeed"," AI"
 wn=d.textlength(name,font=fw); wa=d.textlength(ai,font=fw)
 tag="REAL AUCTIONS.  REAL NUMBERS.  EVERY DAY."; tw=d.textlength(tag,font=ft)
@@ -50,11 +50,11 @@ my=(sy0+sy1)/2-M/2
 draw_mark(d, gx, my, M)
 tx=gx+M+gap
 # text block heights: wordmark ~ 168*1.2, rule, tag, url  -> total ~ 330; centre it
-ty=(sy0+sy1)/2-165
+ty=(sy0+sy1)/2-190
 d.text((tx,ty),name,font=fw,fill=CREAM); d.text((tx+wn,ty),ai,font=fw,fill=AMBER)
 d.rectangle([tx,ty+205,tx+textw,ty+210],fill=AMBER)
 d.text((tx,ty+228),tag,font=ft,fill=CREAM)
-d.text((tx,ty+292),u,font=fu,fill=AMBER)
+d.text((tx,ty+286),u,font=fu,fill=AMBER)
 # assert inside safe area
 assert gx>=sx0 and gx+groupw<=sx1, (gx, gx+groupw)
 img.save("biddeed_youtube_banner_2560x1440.png",optimize=True)
