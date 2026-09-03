@@ -27,7 +27,11 @@ on:
         default: 'false'
   schedule:
     - cron: "0 11 * * *"    # 7:00 AM EDT / 6:00 AM EST (11:00 UTC)
-concurrency: {group: biddeed-reels-daily, cancel-in-progress: false}
+# Concurrency keyed per auction_date so backfill batches for different dates run
+# in PARALLEL instead of serializing (and instead of a newer pending dispatch
+# silently cancelling an older pending one -- which is how the 2026-08-25 batch
+# died on 2026-09-03). Scheduled runs share one 'scheduled' group as before.
+concurrency: {group: "biddeed-reels-daily-${{ github.event.inputs.auction_date || 'scheduled' }}", cancel-in-progress: false}
 permissions:
   contents: read
 jobs:
