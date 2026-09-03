@@ -1,0 +1,141 @@
+-- Gold Standard: wakulla, Letters E / I / J (parcel_linkage / property_card_complete /
+-- shapira_deal_thesis) -- session 2026-09-03. RESEARCH/RE-PROBE ONLY -- NO DATA WRITES.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('wakulla') at session start):
+--   auctions_total=52
+--   E: {"pass": false, "detail": "parcel_linked=48",   "metric": 92.3}  (need >=50)
+--   I: {"pass": false, "detail": "card_complete=48 of 52", "metric": 92.3}  (need >=50)
+--   J: {"pass": false, "detail": "deal_complete=48 (...)", "metric": 92.3}  (need >=50)
+--   C: {"pass": false, "detail": "matched_clean=41", "metric": 78.8}  (out of scope, see below)
+--
+-- GAP ROWS (VERIFIED via PostgREST, all fields still NULL): 2026-TXD-124, 2026-TXD-125,
+-- 2026-TXD-126, 2026-TXD-127 -- the SAME 4 rows drive E, I, and J simultaneously.
+-- All auction_status='CANCELLED', sale_type='tax_deed', parity_status=
+-- 'CLERK_SSOT_CANCELLED', parity_source='wakulla_clerk_tax_deed'. parcel_id,
+-- property_address, latitude/longitude, po_latitude/po_longitude, assessed_value,
+-- market_value all NULL on all 4 rows.
+--
+-- ============================================================================
+-- PRIOR SESSIONS (read before starting, per task instructions):
+-- ============================================================================
+-- scripts/wakulla_shard4_0bf31675_e_txd124_127_parcel_probe.py (2026-08-30):
+--   5 avenues probed, 0/4 parcel_ids found. wakullaclerk.org guessed-PDF pattern:
+--   soft-404 (HTTP 200, Content-Length 0) on all 4. wakullaclerk.com/LandmarkWeb:
+--   connection refused/timeout (live outage that session). myfloridacounty.com /
+--   Civitek OCRS: JS-driven, need browser automation. mywakullapa.com: ECONNRESET.
+-- scripts/wakulla_shard4_0bf31675_i_card_completeness_backfill.py (2026-08-30):
+--   Fixed 8 OTHER rows (26-CA-19/26-CA-31/25-CA-9/25-CA-145 assessed_value via FL
+--   GIO JV field + zone_code via Zoning_Master_Pro; 25-CA-105/2026-TXD-122/
+--   2026-TXD-097 zone_code via same layer), I: 78.8%->90.4% (41->47/52). Left
+--   TXD-124/125/126/127 (no identifying data) and 25-CA-9's zoning seam-gap
+--   unresolved. NOTE: this session's baseline (I=48/52) shows 25-CA-9's zoning
+--   gap has since been separately closed (48 = 52 - 4, not 52 - 5), so only the
+--   4 TXD rows remain open for I as of this session.
+-- scripts/wakulla_shard4_0bf31675_j_generator_real.py (2026-08-30, diagnostic
+--   only) + scripts/shard7_wakulla_j_generator_real.py (5cd42fe0, real XGBoost
+--   inference generator, forked from the suwannee pattern): CONFIRMED this
+--   session as ACTUALLY EXECUTED, not dead code -- all 48 wakulla bid_decisions
+--   rows carry pipeline_version='wakulla_j_generator_5cd42fe0_shapira_v14_real'
+--   with real per-row arv/max_bid/ml_score and all 5 required factor keys
+--   (distress_location, distress_property, distress_owner, cma_distressed,
+--   cma_resale). No cross-county case_number collision remains (a
+--   bid_decisions query for the 4 TXD cases returns zero rows -- correctly
+--   skipped, not incorrectly collided). The WIRING MANDATE concern in the task
+--   brief does NOT apply here: the generator was run for real and its 48/48
+--   output exactly matches the live evaluator's J=48. J's remaining gap is
+--   the same 4 TXD rows, which have no assessed_value/market_value to compute
+--   an ARV from -- genuinely unscoreable, not a wiring failure.
+--
+-- ============================================================================
+-- THIS SESSION -- re-probed the E/I data-source avenues, with LandmarkWeb now
+-- reachable (was a live outage in the 08-30 session):
+-- ============================================================================
+--  1. wakullaclerk.org/official_records/tax_deed_sales.php (HTTP 200, fresh
+--     fetch): TXD-124/125/126/127 still appear as plain-text "Redeemed" rows
+--     with NO <a href> PDF link anywhere nearby (grep-verified against raw
+--     HTML, lines 706-729). Unchanged from the 08-30 finding.
+--  2. wakullaclerk.com/LandmarkWeb (Pioneer Technology Group v1.5.103.0):
+--     NOW REACHABLE (HTTP 200 on GET /, confirms the 08-30 outage has cleared).
+--     Reverse-engineered the site's own CaseNumberSection search (JS source:
+--     Scripts/search/index.js, function SubmitSearch case "CaseNumberSearch")
+--     and drove it live end-to-end:
+--       Search/CaseNumberSearch {searchLikeType, caseNumber, doctype, beginDate,
+--       endDate, exclude, ReturnIndexGroups, recordCount, townName,
+--       mobileHomesOnly} -> Search/GetSearchResults (DataTables JSON).
+--     Sanity-check: searching caseNumber="124" (Contains) against the SAME
+--     endpoint returns 26 real hits (e.g. docid 829506, "2013 MM 124",
+--     Misdemeanor Judgment) -- confirming the search mechanism itself works
+--     and is not silently no-opping.
+--     Searched all 4 target case numbers in 3 formats each (Equals "2026-TXD-
+--     124"; Contains "2026 TXD 124"; Contains "TXD 124"/"TXD-124"; Contains
+--     "2026TXD124") across the full date range (01/01/2020-09/03/2026, all
+--     doctypes): recordsTotal=0 for all 4 case numbers in every format tried.
+--     Also ran LegalSearch (Scripts/search/index.js "LegalSearch" case) for
+--     "TXD 124"/"TXD124"/"TAX DEED 124" in the legal-description field:
+--     recordsTotal=0 for all.
+--     Separately confirmed the recording system has NO "Tax Deed Application"
+--     or "Tax Deed Cancellation/Redemption" document-type code at all (full
+--     doctype list scraped from the site's own document-type modal) -- only
+--     completed transfer instruments (DEED, AGD, FTL, etc.) are recorded here.
+--     This is consistent with, and now DIRECTLY confirms (not just infers),
+--     the 08-30 session's working theory: a tax deed certificate that is
+--     redeemed/cancelled before the sale stage generates no recordable
+--     instrument in this county's official-records system by design -- there
+--     is no missing search technique, there is no document to find.
+--  3. mywakullapa.com (Wakulla Property Appraiser search): re-tried 3x this
+--     session, still TLS "Connection reset by peer" on every attempt --
+--     confirms the 08-30 ECONNRESET finding is a persistent site condition,
+--     not a transient blip.
+--  4. Wakulla County GIS Hub (services9.arcgis.com/vAltLjtfYIJc7pDt, the same
+--     org that hosts the Zoning_Master_Pro layer the I-task used successfully
+--     for OTHER rows): enumerated all ~55 published FeatureServers looking for
+--     a tax-deed-certificate or parcel-by-cert-number layer. Found
+--     Wakulla_County_Parcels / Wakulla_Parcels (cadastral parcel geometry) but
+--     no field or layer keyed by tax deed certificate/case number -- these
+--     layers require a parcel_id, owner name, or address as the query key,
+--     none of which exist for these 4 rows. Confirmed genuinely unusable for
+--     this specific gap (not attempted further -- would just reproduce the
+--     circular "need a parcel to look up a parcel" problem already documented
+--     for mywakullapa.com in the 08-30 session).
+--
+-- CONCLUSION: 0/4 rows resolved. This session upgrades the confidence level
+-- from the 08-30 session's "infrastructure-blocked, avenue 2 unreachable" to
+-- a CONFIRMED structural ceiling: with LandmarkWeb now live and driven
+-- end-to-end via its own case-number AND legal-description search (not just a
+-- reachability ping), zero documents exist anywhere in Wakulla's official
+-- records system referencing these 4 certificate numbers, and the recording
+-- system has no document-type code for tax deed applications/cancellations at
+-- all. Per HONESTY rules (blank > wrong), ZERO writes were made to
+-- multi_county_auctions, parcel_zones, or bid_decisions this session -- there
+-- is no real, citable parcel_id/address/geo/value/zone_code/ARV to write for
+-- these 4 cases, and inventing one to flip a metric is exactly the ghost-
+-- success failure mode this campaign polices against.
+--
+-- E/I/J all remain FAIL at 92.3% (48/52), byte-identical to session-start
+-- baseline (VERIFIED via a final pencil_dod_evaluate_county('wakulla') call
+-- after all probing, confirmed unchanged since no writes were made).
+--
+-- ============================================================================
+-- LETTER C -- explicitly OUT OF SCOPE this session, reconfirmed not touched:
+-- ============================================================================
+-- C's 11 gap rows (all parity_status='CLERK_SSOT_CANCELLED', VERIFIED via
+-- live PostgREST query this session: {PARITY_OK: 16, CLERK_SSOT_CANCELLED: 11}
+-- among the 27 non-'matched_clean'-status rows) are structurally excluded from
+-- ever counting toward matched_clean by the evaluator's own C predicate
+-- (parity_status='matched_clean' AND parity_source LIKE 'tier1%') OR
+-- parity_status IN ('PARITY_OK','CLERK_VERIFIED') -- CLERK_SSOT_CANCELLED is
+-- deliberately absent from this list, per the SAME-DAY, SAME-REPO migration
+-- supabase/migrations/20260903h_pencil_dod_matched_any_redeemed_cancelled_gap.sql
+-- ("C (matched_clean) is intentionally left untouched -- a redeemed/cancelled
+-- sale still can never be a genuine litmus match"). Ceiling: (52-11)/52=78.8%,
+-- exactly matching this session's live baseline. No evaluator change proposed
+-- (would require fleet-wide blast-radius analysis, out of this session's scope
+-- and contrary to a same-day ratified architectural decision by the same
+-- author). C left untouched, as instructed.
+--
+-- No SQL was executed against multi_county_auctions, parcel_zones,
+-- bid_decisions, or any other table this session -- this file is pure
+-- documentation of a bounded, honest, exhaustive re-probe of the E/I/J gap,
+-- upgrading it from "infrastructure-blocked" to "structurally confirmed: no
+-- recordable document exists for a cert redeemed/cancelled pre-sale."
+SELECT 1;
