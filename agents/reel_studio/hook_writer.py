@@ -297,6 +297,21 @@ def check_archetype_data_match(archetype: str, reel: dict, third_party_bidder: b
         reasons.append("archetype 'bank_vs_house' requires a confirmed bank/lender plaintiff in the case "
                         "record; plaintiff is absent/unconfirmed for this row")
 
+    # issue #19814 defect 1 -- 'hidden_value_reveal' asserts a discount story
+    # ("worth more than it sold" / "listing undersold its own value") in two
+    # of its five title templates. That claim is FALSE for a property that
+    # sold ABOVE assessed value (real, live-observed on the tax_deed backfill:
+    # Pasco land parcels sold 400-1266% over assessed). Gate on the row's own
+    # numbers, same pattern as recommend_framing_archetype's own direction
+    # check -- only fires when both figures are present and unambiguous.
+    sold_amount = reel.get("sold_amount")
+    assessed_value = reel.get("assessed_value")
+    if archetype == "hidden_value_reveal" and sold_amount is not None and assessed_value:
+        if sold_amount > assessed_value:
+            reasons.append("archetype 'hidden_value_reveal' asserts the property sold for less than its "
+                            "real/assessed value, but this row sold ABOVE assessed_value "
+                            f"(sold_amount={sold_amount}, assessed_value={assessed_value})")
+
     if archetype == "remote_bidder" and auction_venue_online is not True:
         reasons.append("archetype 'remote_bidder' requires the sale record's auction_venue='online' "
                         "(multi_county_auctions.auction_venue); got "
@@ -648,14 +663,22 @@ def _payoff_phrase(phase: str | None, reel_facts: dict, lang: str = "en") -> str
 
     sold = reel_facts.get("sold_amount")
     delta = reel_facts.get("delta_pct")
+    # issue #19814 defect 1 -- delta_pct is negative for a below-assessed sale
+    # and positive for a premium (above-assessed) one; the payoff line must
+    # say which direction actually happened, not assert "below" unconditionally
+    # (real, live-observed on the tax_deed backfill: Pasco land parcels sold
+    # 400-1266% OVER assessed value -- the old hardcoded "below" text would
+    # have spoken a false claim on those rows).
     if lang == "es":
         if sold is not None and delta is not None:
-            return f"Se vendió por ${sold:,.0f}... un {abs(delta):.1f} por ciento bajo el valor tasado."
+            direction = "bajo" if delta < 0 else "sobre"
+            return f"Se vendió por ${sold:,.0f}... un {abs(delta):.1f} por ciento {direction} el valor tasado."
         if sold is not None:
             return f"Se vendió por ${sold:,.0f}."
         return "El precio de venta aún no está disponible."
     if sold is not None and delta is not None:
-        return f"It sold for ${sold:,.0f}... {abs(delta):.1f} percent below assessed value."
+        direction = "below" if delta < 0 else "above"
+        return f"It sold for ${sold:,.0f}... {abs(delta):.1f} percent {direction} assessed value."
     if sold is not None:
         return f"It sold for ${sold:,.0f}."
     return "The sale figure is not on file yet."
@@ -1176,10 +1199,17 @@ def generate_variants_for_reel(reel: dict, k: int = K_VARIANTS, max_retries: int
     diversity, same as before."""
     used_pairs: list = []
     preferred = recommend_framing_archetype(reel.get("sold_amount"), reel.get("assessed_value"))
+    # issue #19814 defect 1 -- don't even offer 'hidden_value_reveal' into the
+    # random pool for a property that sold ABOVE assessed value: it fails
+    # check_archetype_data_match by construction (see that function), so
+    # drawing it here only burns an LLM call the QA gate will reject anyway.
+    sold_amount, assessed_value = reel.get("sold_amount"), reel.get("assessed_value")
+    is_premium_sale = sold_amount is not None and assessed_value and sold_amount > assessed_value
+    pool = [a for a in ARCHETYPES if not (is_premium_sale and a == "hidden_value_reveal")]
     if preferred:
-        archetypes = [preferred] + random.sample([a for a in ARCHETYPES if a != preferred], k - 1)
+        archetypes = [preferred] + random.sample([a for a in pool if a != preferred], k - 1)
     else:
-        archetypes = random.sample(ARCHETYPES, k)
+        archetypes = random.sample(pool, k)
 
     def _gen(archetype):
         return generate_one_variant_with_retry(reel, [], used_pairs, max_retries, forced_archetype=archetype)

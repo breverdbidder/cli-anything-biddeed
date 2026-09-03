@@ -362,6 +362,37 @@ def county_slug_to_query(county_slug: str) -> str:
     return (county_slug or "").replace("_", " ")
 
 
+# issue #19814 defect 2 -- upstream sources store sentinel placeholder strings
+# in multi_county_auctions.property_address instead of NULL when the real
+# address is unknown. "PROPERTY ADDRESS UNKNOWN" (the one flagged on spot-
+# check) turned out to be one of several such sentinels live in production --
+# checked this session (2026-09-03): "00 UNASSIGNED LOCATION RE" (312 rows),
+# "0 UNKNOWN" (58), "00 Unassigned Location RE" (15), "PROPERTY ADDRESS
+# UNKNOWN" (11), "UNKNOWN"/"N/A"/"TBD" alone (4 each), plus "NO ADDRESS ON TAX
+# ROLL, <city>..." and "TBD, <county>..." variants -- ~430 rows total, not an
+# isolated case. None of these are real, geocodable addresses -- treated the
+# same as an empty string by every caller (match_parcel returns no match,
+# geocode_address never spends a Maps API call on it, since a permissive
+# geocoder could otherwise return a false-positive lat/lon for garbage input
+# and silently attach a real location/parcel outline to the wrong property).
+_ADDRESS_PLACEHOLDER_SUBSTRINGS = ("NO ADDRESS", "ADDRESS UNKNOWN", "UNASSIGNED")
+# Bare tokens matched only as a leading word (post leading-house-number strip,
+# e.g. "0 UNKNOWN" -> "UNKNOWN", "TBD HIGHLANDS FL" -> "TBD"), never as a
+# substring anywhere in the string -- that would risk a false positive on a
+# real address that happens to contain "N/A" or "TBD" mid-string.
+_ADDRESS_PLACEHOLDER_LEADING_RE = re.compile(r"^(UNKNOWN|N/?A|TBD)\b")
+
+
+def is_placeholder_address(property_address: str) -> bool:
+    street = (property_address or "").strip().upper()
+    if not street:
+        return True
+    if any(marker in street for marker in _ADDRESS_PLACEHOLDER_SUBSTRINGS):
+        return True
+    bare = re.sub(r"^\d+\s+", "", street)  # "0 UNKNOWN" -> "UNKNOWN"
+    return bool(_ADDRESS_PLACEHOLDER_LEADING_RE.match(bare))
+
+
 def match_parcel(property_address: str, county_slug: str) -> dict | None:
     """Best-effort address match against public.zw_parcels (the parcel SSOT).
 
@@ -371,7 +402,7 @@ def match_parcel(property_address: str, county_slug: str) -> dict | None:
     status='error'), never as a reason to fabricate a match.
     """
     street = street_part(property_address)
-    if not street or "NO ADDRESS" in street.upper():
+    if not street or is_placeholder_address(street):
         return None
     target = normalize_addr(street)
     county_q = county_slug_to_query(county_slug)
@@ -394,7 +425,14 @@ def geocode_address(property_address: str, api_key: str) -> tuple[float, float] 
     """2026-09-02 directive (issue #19736 comment): when an address can't be
     matched to a zw_parcels row, fall back to the Geocoding API so imagery
     still runs. Returns None on any miss/error -- caller treats that as the
-    real error case (both parcel match AND geocode failed)."""
+    real error case (both parcel match AND geocode failed).
+
+    issue #19814 defect 2 -- a placeholder sentinel (e.g. "PROPERTY ADDRESS
+    UNKNOWN") is never sent to the Geocoding API: it isn't a real address,
+    and Google's fuzzy matching could return a false-positive location for
+    it, silently pinning the wrong property to real imagery/coordinates."""
+    if is_placeholder_address(property_address):
+        return None
     url = (
         "https://maps.googleapis.com/maps/api/geocode/json"
         f"?address={urllib.parse.quote(property_address or '')}&region=us&key={api_key}"
