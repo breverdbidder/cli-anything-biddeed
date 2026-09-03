@@ -4,8 +4,32 @@ on:
   schedule:
     - cron: '*/30 * * * *'  # Every 30 min
   workflow_dispatch:
+  # 2026-09-03 (#19767): narrowed from workflows: ["*"] — that wildcard meant
+  # a Task Lifecycle run per completed run of ANY of the ~660 workflow files
+  # in this repo (measured: 23 runs in a single 5-minute window,
+  # 2026-09-03 00:34:50-00:39:50 UTC, nearly all `skipped`/`cancelled`), and
+  # starved workflow_dispatch queue capacity for unrelated runs (issue
+  # #19764's dispatch returned HTTP 204 with no run created during the storm).
+  # Mode 1 in the job body below (immediate task-complete/ghost-success/
+  # Playwright-trigger reaction) only ever matches an open nexus_tasks row by
+  # WF_RUN_URL == task.gha_run_url — i.e. it only ever does anything on a
+  # completion of whichever workflow actually executed a dispatched SUMMIT
+  # session. Per supabase/migrations/20260702_dispatch_hygiene_dod_sql_at_source.sql
+  # (launch_claude_code_session, p_workflow) and docs/FLEET-LANE-ROUTING.md,
+  # that is always one of the three workflows below — never one of the
+  # hundreds of per-issue one-off workflows (close-stale-N.yml,
+  # gold-standard-shard-N.yml, etc.), which are artifacts a session commits
+  # as a side effect, not the session's own dispatch target. The Mode 2
+  # scheduled patrol (every 30 min, below) independently covers stale-task
+  # escalation and auto-create-from-failure across all 4 tracked repos
+  # regardless of which workflow failed, so narrowing this list costs at most
+  # 30 minutes of latency on Mode 1's instant-completion path for a task
+  # dispatched through a workflow not listed here — not loss of function.
   workflow_run:
-    workflows: ["*"]
+    workflows:
+      - "CC Runner — GHA-only (no Hetzner)"
+      - "Gemini Runner — T2/T3 grunt lane (no Hetzner, no Claude Code)"
+      - "SUMMIT: Task from Issue"
     types: [completed]
 
 concurrency:

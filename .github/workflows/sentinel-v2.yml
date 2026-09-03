@@ -1,10 +1,29 @@
 name: "Everest Sentinel V2"
 on:
+  # 2026-09-03 (#19767): the reactive `workflow_run: workflows: ["*"]` trigger
+  # was removed. scripts/sentinel-v2-patrol.sh — the script every trigger type
+  # here runs — does NOT use the triggering event's run data (that's only
+  # wired up for the workflow_dispatch `run_id` manual-triage path below).
+  # On every other invocation it independently re-scans
+  # `GET /actions/runs?status=completed&created=>$(now - 10min)` and filters
+  # to summit/designwise/envelope/nexus/viral by name. A 5-min cron with a
+  # 10-minute lookback window has full overlap — every completed run is
+  # already caught by the next (often two) cron ticks. The workflow_run
+  # trigger added zero unique detection and was the entire source of the
+  # fan-out: with ~660 workflow files in this repo and growing (every SUMMIT
+  # session can mint new ones), "*" meant a Sentinel run per completed run of
+  # any of them, at any concurrency. Measured before removal: 22 Sentinel V2
+  # runs in a single 5-minute window (2026-09-03 00:34:50-00:39:50 UTC),
+  # nearly all `skipped`.
   schedule:
-    - cron: '*/5 * * * *'   # Patrol every 5 min (original design intent, was missing — added 2026-05-27 to support cron-driven cooldown enforcement)
-  workflow_run:
-    workflows: ["*"]
-    types: [completed]
+    # Deliberately kept at 5 min — added 2026-05-27 (204491f3) as the
+    # cron-driven backstop for cooldown-marker enforcement after a stale
+    # SUPABASE_SERVICE_KEY secret silently broke sb_insert() and caused a
+    # 10x dispatch flood. That failure mode is orthogonal to the workflow_run
+    # fan-out fixed here — the cron is now Sentinel's ONLY failure-detection
+    # path (see above), so shortening it would add real latency, not just
+    # remove noise. Kept as-is.
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       run_id:
@@ -22,8 +41,9 @@ jobs:
     name: "Patrol + Auto-Fix + Redispatch"
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Only fire on: (a) schedule, (b) manual, or (c) FAILURE of a summit/envelope/nexus workflow.
-    # Skip Sentinel itself + Task Lifecycle + Close Stale to break the cascade loop.
+    # workflow_run removed (see above) — every remaining trigger (schedule,
+    # workflow_dispatch) should run the patrol. Guard kept as defence in
+    # depth in case workflow_run is ever reintroduced.
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
