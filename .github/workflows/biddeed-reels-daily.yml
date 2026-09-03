@@ -25,13 +25,21 @@ on:
         description: 'Re-render rows that already have a video_url'
         required: false
         default: 'false'
+      days_back:
+        description: 'Backfill mode: process ALL candidates (foreclosure 3rd-party + tax_deed direct from multi_county_auctions) in [today-N, yesterday]. Overrides auction_date.'
+        required: false
+        default: ''
+      min_sold:
+        description: 'Skip candidates with sold_amount below this (filters sub-$5k raw-land tax certificates). Blank = no floor.'
+        required: false
+        default: ''
   schedule:
     - cron: "0 11 * * *"    # 7:00 AM EDT / 6:00 AM EST (11:00 UTC)
 # Concurrency keyed per auction_date so backfill batches for different dates run
 # in PARALLEL instead of serializing (and instead of a newer pending dispatch
 # silently cancelling an older pending one -- which is how the 2026-08-25 batch
 # died on 2026-09-03). Scheduled runs share one 'scheduled' group as before.
-concurrency: {group: "biddeed-reels-daily-${{ github.event.inputs.auction_date || 'scheduled' }}", cancel-in-progress: false}
+concurrency: {group: "biddeed-reels-daily-${{ github.event.inputs.days_back && format('backfill-{0}', github.event.inputs.days_back) || github.event.inputs.auction_date || 'scheduled' }}", cancel-in-progress: false}
 permissions:
   contents: read
 jobs:
@@ -72,5 +80,11 @@ jobs:
           fi
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
             ARGS="$ARGS --force"
+          fi
+          if [ -n "${{ github.event.inputs.days_back }}" ]; then
+            ARGS="$ARGS --days-back ${{ github.event.inputs.days_back }}"
+          fi
+          if [ -n "${{ github.event.inputs.min_sold }}" ]; then
+            ARGS="$ARGS --min-sold ${{ github.event.inputs.min_sold }}"
           fi
           python scripts/biddeed_reels_pipeline.py $ARGS
