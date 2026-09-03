@@ -1,0 +1,27 @@
+-- Gold Standard shard-4 (dispatch 8568fcac-2225-437d-8e99-18ddbbe35a20, issue #19771),
+-- 2026-09-03 08:00Z wave. lake: letter J refresh, FAIL -> PASS.
+--
+-- BEFORE (VERIFIED live): J FAIL 93.2 [deal_complete=137 of 147]
+--
+-- No new code: the pre-existing public.refresh_lake_bid_decisions() function (shipped
+-- 2026-08-23, migration 20260823_gold_standard_shard5_lake_j_generator.sql) is a
+-- straight backfill -- it only inserts bid_decisions rows for cases that don't already
+-- have a complete one (NOT EXISTS guard on arv/max_bid/ml_score/factors keys), so it is
+-- safe to re-run whenever the auctions_total denominator grows and leaves a gap. This
+-- session simply called it again; it inserted 10 rows for lake cases that had accrued
+-- since the 2026-08-23 run and never had one.
+--
+-- AFTER (VERIFIED live via pencil_dod_evaluate_county('lake') immediately after):
+--   J: FAIL 93.2 (137/147) -> PASS 100.0 (147/147)
+--   C unchanged: FAIL 87.8 (129/147) -- confirmed unchanged, genuine structural ceiling
+--     re-verified only 24h earlier by dispatch 7bcb4434 (loop run 11262, see
+--     lake_c_2row_docket_reschedule_and_stale_sold_fix_11262.sql): 18 of the 20
+--     non-clean rows are individually chronological-docket-confirmed genuinely and
+--     terminally CLERK_SSOT_CANCELLED. Not re-attempted this session per that file's own
+--     "still a genuine ceiling, not fixable via more scraping" conclusion -- would need a
+--     canon-level denominator policy decision (see GOLD_STANDARD_C_STRUCTURAL_BLOCK_
+--     CROSS_COUNTY_FINDING_20260827.md), not more agent diagnosis.
+--   A/B/D/E/F/G/H unchanged (all PASS, no regression).
+--   lake now reads 9/10 live.
+
+SELECT public.refresh_lake_bid_decisions();
