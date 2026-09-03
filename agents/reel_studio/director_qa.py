@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
@@ -261,6 +262,30 @@ def check_short_code(variant: dict) -> dict:
     return {"pass": bool(variant.get("short_code"))}
 
 
+# issue #19803 -- 20/21 shipped scripts spoke the literal "unknown-condition"
+# placeholder because a missing-data fallback substituted an internal
+# sentinel token instead of dropping the clause. This is a permanent
+# regression guard: any raw placeholder/default-value token in spoken title
+# or script.beats[].line text fails qa_pass, regardless of which generator
+# produced it. Word-boundary match so it also catches hyphenated/punctuated
+# forms ("unknown-condition", "N/A.", "(null)") without false-positiving on
+# unrelated words that merely contain these letters.
+_PLACEHOLDER_TOKEN_RE = re.compile(r"\b(unknown|n/a|null|undefined)\b", re.IGNORECASE)
+
+
+def check_no_placeholder_tokens(variant: dict) -> dict:
+    title = variant.get("title", "")
+    beats = (variant.get("script") or {}).get("beats", [])
+    hits = []
+    if _PLACEHOLDER_TOKEN_RE.search(title):
+        hits.append({"field": "title", "text": title})
+    for i, b in enumerate(beats):
+        line = str(b.get("line", ""))
+        if _PLACEHOLDER_TOKEN_RE.search(line):
+            hits.append({"field": f"beats[{i}].line", "text": line})
+    return {"pass": len(hits) == 0, "hits": hits}
+
+
 def review_variant(variant: dict, siblings: list[dict], reel_facts: dict | None = None) -> dict:
     scores = {
         "title_compliance": check_title_compliance(variant),
@@ -287,6 +312,8 @@ def review_variant(variant: dict, siblings: list[dict], reel_facts: dict | None 
         "script_payoff_confinement": check_script_payoff_confinement(variant, reel_facts),
         "loop_line_archetype_mismatch": check_loop_line_archetype_mismatch(variant, reel_facts),
         "title_structural_similarity": check_title_structural_similarity(variant, reel_facts),
+        # issue #19803 -- raw placeholder/default-value token in spoken text.
+        "no_placeholder_tokens": check_no_placeholder_tokens(variant),
         "duration_32s": {"pass": None, "reason": "not_applicable_phase_a (no rendered video yet)"},
         "loop_seam_continuity": {"pass": None, "reason": "not_applicable_phase_a (no rendered video yet)"},
     }
@@ -303,10 +330,18 @@ def fetch_reel_facts(reel_id: str) -> dict:
     A genuine miss on the auctions lookup leaves those two fields None
     (treated as "not confirmed" by check_archetype_data_match), never
     fabricated -- matches banned_names_for_case()'s existing miss handling
-    in scripts/biddeed_reels_pipeline_bolt32.py."""
+    in scripts/biddeed_reels_pipeline_bolt32.py.
+
+    issue #19803 root cause: this SELECT omitted condition_json, so every
+    reel_facts dict built here had condition_json=None regardless of the
+    parent row's real data -- hook_writer._condition_tier() then always fell
+    back to its "unknown" sentinel, which leaked into 20/21 shipped scripts
+    as the literal "unknown-condition" (VERIFIED live: winnerdata.biddeed_reels
+    rows for those reels all had a real general_condition_tier -- good/fair --
+    in condition_json; the column just never reached the script generator)."""
     rows = lib.run_sql(f"""
         select case_number, county, phase, sale_type, sold_amount, assessed_value,
-               delta_pct, opening_bid, judgment_amount
+               delta_pct, opening_bid, judgment_amount, condition_json
         from winnerdata.biddeed_reels where id = {lib.sql_str(reel_id)};
     """)
     if not rows:
@@ -315,6 +350,11 @@ def fetch_reel_facts(reel_id: str) -> dict:
     for k in ("sold_amount", "assessed_value", "delta_pct", "opening_bid", "judgment_amount"):
         if reel.get(k) is not None:
             reel[k] = float(reel[k])
+    if isinstance(reel.get("condition_json"), str):
+        try:
+            reel["condition_json"] = json.loads(reel["condition_json"]) if reel["condition_json"] else None
+        except Exception:
+            reel["condition_json"] = None
 
     third_party_bidder = None
     plaintiff_confirmed_bank = None

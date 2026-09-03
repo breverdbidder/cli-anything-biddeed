@@ -388,6 +388,19 @@ def _condition_tier(reel_facts: dict) -> str:
     return (cj or {}).get("general_condition_tier") or "unknown"
 
 
+# issue #19803 -- "unknown" is an internal sentinel _condition_tier() returns
+# when the row's own condition_json has no general_condition_tier. It must
+# never be spoken as an adjective ("unknown-condition property"): that
+# literal string is exactly what leaked into 20/21 shipped scripts. Callers
+# building spoken text check this first and drop the condition clause
+# entirely when it's False, instead of substituting a placeholder token.
+_CONDITION_TIERS_WITH_DATA = ("excellent", "good", "fair", "poor")
+
+
+def _has_condition_data(reel_facts: dict) -> bool:
+    return _condition_tier(reel_facts) in _CONDITION_TIERS_WITH_DATA
+
+
 def _red_flag_signals(reel_facts: dict) -> str | None:
     """Pulls a real, VERIFIED/LIKELY-confidence red flag out of the row's own
     vision-scored condition_json -- never invents one. None means the row's
@@ -609,6 +622,7 @@ def _payoff_phrase(phase: str | None, reel_facts: dict, lang: str = "en") -> str
 
 def _tension_phrase(archetype: str, reel_facts: dict, lang: str = "en") -> str:
     condition = _condition_tier(reel_facts)
+    has_condition = _has_condition_data(reel_facts)
     red_flags = _red_flag_signals(reel_facts)
     if lang == "es":
         if archetype == "red_flag_warning" and red_flags:
@@ -617,13 +631,20 @@ def _tension_phrase(archetype: str, reel_facts: dict, lang: str = "en") -> str:
             "shock_number": "Los postores solo tenían un número para reaccionar antes del martillazo.",
             "underdog_bidder": "Compradores más grandes rondaban, pero el grupo se redujo rápido en la subasta.",
             "hidden_value_reveal": "Nada en el anuncio insinuaba lo que esta propiedad realmente valía.",
-            "red_flag_warning": f"Una propiedad en condición {condition} con señales de alerta reales igual se vendió.",
+            "red_flag_warning": (f"Una propiedad en condición {condition} con señales de alerta reales igual se vendió."
+                                  if has_condition else
+                                  "Una propiedad con señales de alerta reales igual se vendió."),
             "bank_vs_house": "El banco tenía toda la razón para resistir, y casi lo logra.",
             "mystery_nobody_bid": "La subasta se mantuvo en silencio mientras corría el reloj.",
             "remote_bidder": "La oferta ganadora llegó en línea... las reglas de depósito aplicaron igual que siempre.",
-            "countdown_presale": f"El reloj sigue corriendo sobre esta propiedad en condición {condition}.",
+            "countdown_presale": (f"El reloj sigue corriendo sobre esta propiedad en condición {condition}."
+                                   if has_condition else
+                                   "El reloj sigue corriendo sobre esta propiedad."),
         }
-        return defaults.get(archetype, f"Una propiedad en condición {condition} con una historia que vale la pena seguir.")
+        fallback = (f"Una propiedad en condición {condition} con una historia que vale la pena seguir."
+                    if has_condition else
+                    "Una propiedad con una historia que vale la pena seguir.")
+        return defaults.get(archetype, fallback)
 
     if archetype == "red_flag_warning" and red_flags:
         return f"{red_flags[0].upper()}{red_flags[1:]} showed up in the record before the sale ever closed."
@@ -631,13 +652,20 @@ def _tension_phrase(archetype: str, reel_facts: dict, lang: str = "en") -> str:
         "shock_number": "Bidders had exactly one number to react to before the gavel fell.",
         "underdog_bidder": "Bigger buyers circled, but the field narrowed fast on the courthouse steps.",
         "hidden_value_reveal": "Nothing about the listing hinted at what this property was actually worth.",
-        "red_flag_warning": f"A {condition}-condition property with real red flags still went to closing.",
+        "red_flag_warning": (f"A {condition}-condition property with real red flags still went to closing."
+                              if has_condition else
+                              "A property with real red flags still went to closing."),
         "bank_vs_house": "The lender had every reason to hold out, and almost did.",
         "mystery_nobody_bid": "The auction floor stayed quiet as the clock ran down.",
         "remote_bidder": "The winning bid came in online -- deposit rules still applied like any other sale.",
-        "countdown_presale": f"The clock is running on this {condition}-condition property.",
+        "countdown_presale": (f"The clock is running on this {condition}-condition property."
+                               if has_condition else
+                               "The clock is running on this property."),
     }
-    return defaults.get(archetype, f"A {condition}-condition property with a story worth watching.")
+    fallback = (f"A {condition}-condition property with a story worth watching."
+                if has_condition else
+                "A property with a story worth watching.")
+    return defaults.get(archetype, fallback)
 
 
 def build_bespoke_script(archetype: str, reel_facts: dict, title_stem: str, lang: str = "en") -> dict:
@@ -650,20 +678,29 @@ def build_bespoke_script(archetype: str, reel_facts: dict, title_stem: str, lang
     here by construction."""
     county = (reel_facts.get("county") or "").title()
     condition = _condition_tier(reel_facts)
+    has_condition = _has_condition_data(reel_facts)
     sale_phrase = _sale_mechanism_phrase(reel_facts, lang=lang)
     phase = reel_facts.get("phase")
     assessed = reel_facts.get("assessed_value")
 
     if lang == "es":
         if assessed is not None:
-            setup_line = f"Esta propiedad de condición {condition} en el condado de {county} fue tasada en ${assessed:,.0f}."
+            setup_line = (f"Esta propiedad de condición {condition} en el condado de {county} fue tasada en ${assessed:,.0f}."
+                           if has_condition else
+                           f"Esta propiedad en el condado de {county} fue tasada en ${assessed:,.0f}.")
         else:
-            setup_line = f"Esta propiedad de condición {condition} en el condado de {county} salió {sale_phrase}."
+            setup_line = (f"Esta propiedad de condición {condition} en el condado de {county} salió {sale_phrase}."
+                           if has_condition else
+                           f"Esta propiedad en el condado de {county} salió {sale_phrase}.")
     else:
         if assessed is not None:
-            setup_line = f"This {condition}-condition {county} County home was assessed at ${assessed:,.0f}."
+            setup_line = (f"This {condition}-condition {county} County home was assessed at ${assessed:,.0f}."
+                           if has_condition else
+                           f"This {county} County home was assessed at ${assessed:,.0f}.")
         else:
-            setup_line = f"This {condition}-condition {county} County home came up {sale_phrase}."
+            setup_line = (f"This {condition}-condition {county} County home came up {sale_phrase}."
+                           if has_condition else
+                           f"This {county} County home came up {sale_phrase}.")
 
     tension_line = _tension_phrase(archetype, reel_facts, lang=lang)
     payoff_line = _payoff_phrase(phase, reel_facts, lang=lang)

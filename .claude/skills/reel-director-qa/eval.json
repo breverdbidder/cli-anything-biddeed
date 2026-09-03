@@ -51,6 +51,10 @@
     {"id": 43, "planted_defect": "hardcoded_countdown_loop_line", "input": "the real shipped loop line 'Next Lee County countdown starts now.' on a phase='postsale' row", "expected": "check_loop_line_archetype_mismatch fails (pass=False)", "type": "binary"},
     {"id": 44, "input": "a countdown loop line on a phase='presale' row", "expected": "check_loop_line_archetype_mismatch passes", "type": "binary"},
     {"id": 45, "planted_defect": "mad_lib_titles", "input": "the 5 real shipped underdog_bidder titles (one per county) live in winnerdata.reel_variants at the time of #19802", "expected": "check_title_structural_similarity fails on every pair (1.00 similarity after stripping county tokens)", "type": "binary"},
-    {"id": 46, "input": "5 bespoke titles for one archetype across 5 counties with round-robin template_index 0-4", "expected": "check_title_structural_similarity passes with zero pairs over the 0.5 threshold", "type": "binary"}
+    {"id": 46, "input": "5 bespoke titles for one archetype across 5 counties with round-robin template_index 0-4", "expected": "check_title_structural_similarity passes with zero pairs over the 0.5 threshold", "type": "binary"},
+    {"id": 47, "planted_defect": "unknown_condition_placeholder", "input": "the real shipped defect: script beat line 'This unknown-condition Lee County home was assessed at $155,040.'", "expected": "check_no_placeholder_tokens fails (pass=False)", "type": "binary"},
+    {"id": 48, "planted_defect": "raw_placeholder_tokens", "input": "beat lines containing 'N/A', 'null', 'undefined', or bare 'unknown'", "expected": "check_no_placeholder_tokens fails (pass=False) for every variant", "type": "binary"},
+    {"id": 49, "input": "a script whose condition clause was dropped instead of substituting a placeholder", "expected": "check_no_placeholder_tokens passes", "type": "binary"},
+    {"id": 50, "input": "build_bespoke_script() called with condition_json={} (no general_condition_tier) for a real archetype/phase", "expected": "no beat line contains the literal token 'unknown' -- generator drops the condition clause instead of substituting its internal sentinel", "type": "binary"}
   ]
 }

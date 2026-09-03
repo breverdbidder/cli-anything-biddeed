@@ -355,6 +355,49 @@ def a46_bespoke_titles_pass_live():
     return r["pass"] is True, r
 
 
+# issue #19803 -- planted-defect + clean-control fixtures for the new
+# check_no_placeholder_tokens regression guard, built from the REAL shipped
+# defect ("This unknown-condition Lee County home was assessed at $155,040.")
+# plus the other raw tokens the issue's negative tests name.
+
+def a47_unknown_condition_token_fails():
+    v = {"title": GOOD_TITLE, "script": {"beats": [
+        {"start_s": 2, "end_s": 9, "line": "This unknown-condition Lee County home was assessed at $155,040."},
+    ]}}
+    r = dqa.check_no_placeholder_tokens(v)
+    return r["pass"] is False, r
+
+
+def a48_na_null_undefined_tokens_fail():
+    for bad_line in ("Condition: N/A.", "Assessed value is null.", "value is undefined.", "This unknown property sold fast."):
+        v = {"title": GOOD_TITLE, "script": {"beats": [{"start_s": 2, "end_s": 9, "line": bad_line}]}}
+        r = dqa.check_no_placeholder_tokens(v)
+        if r["pass"] is not False:
+            return False, {"failing_line": bad_line, "result": r}
+    return True, {"all_variants_caught": True}
+
+
+def a49_fixed_condition_fallback_passes():
+    v = {"title": GOOD_TITLE, "script": {"beats": [
+        {"start_s": 2, "end_s": 9, "line": "This Lee County home was assessed at $155,040."},
+        {"start_s": 9, "end_s": 20, "line": "A property with real red flags still went to closing."},
+    ]}}
+    r = dqa.check_no_placeholder_tokens(v)
+    return r["pass"] is True, r
+
+
+def a50_hook_writer_drops_condition_clause_when_tier_missing():
+    """End-to-end: build_bespoke_script on a row whose condition_json has no
+    general_condition_tier must never emit 'unknown' into any beat line --
+    this is the actual generator that produced the shipped defect."""
+    reel_facts = {"county": "lee", "phase": "postsale", "sold_amount": 101100.0,
+                  "assessed_value": 155040.0, "delta_pct": -34.8, "condition_json": {}}
+    script = hw.build_bespoke_script("red_flag_warning", reel_facts, "stem", lang="en")
+    blob = " ".join(b["line"] for b in script["beats"])
+    r = {"pass": "unknown" not in blob.lower(), "observed_blob": blob}
+    return r["pass"], r
+
+
 def run_eval():
     assertions = [
         ("planted_person_name_caught", a1_person_name),
@@ -403,6 +446,10 @@ def run_eval():
         ("countdown_loop_line_passes_on_presale", a44_countdown_loop_line_passes_on_presale),
         ("mad_lib_titles_fail_live_structural_similarity", a45_mad_lib_titles_fail_live),
         ("bespoke_titles_pass_live_structural_similarity", a46_bespoke_titles_pass_live),
+        ("unknown_condition_placeholder_token_fails", a47_unknown_condition_token_fails),
+        ("na_null_undefined_placeholder_tokens_fail", a48_na_null_undefined_tokens_fail),
+        ("fixed_condition_fallback_passes_placeholder_check", a49_fixed_condition_fallback_passes),
+        ("hook_writer_drops_condition_clause_when_tier_missing", a50_hook_writer_drops_condition_clause_when_tier_missing),
     ]
     return eval_common.run_assertions("reel-director-qa", assertions)
 
