@@ -1,1 +1,13 @@
 .github/workflows/*.lock.yml linguist-generated=true merge=ours
+
+# CMO FACTORY (issue #19777) -- holdout path is validator-role checkout only
+# (builder role must never see the held-out acceptance answers it is graded
+# against). A builder-role workflow step MUST run
+# factory/gtm/builder_checkout.sh before checkout, which sparse-checkout-
+# excludes every path carrying this attribute. See
+# factory/gtm/test_holdout_negative.sh for the proof. This is narrower than
+# the "protected paths" set in docs/gtm/META.md SS5 (MISSION.md, harness/gtm/,
+# .factory/gtm/locks/) -- those are PR-write-rejected by gate.py but stay
+# builder-readable, since a builder must be able to read the mission/journeys
+# to comply with them. Only the holdout answer key is read-blocked outright.
+.factory/gtm/holdout/** gtm-checkout=validator-only

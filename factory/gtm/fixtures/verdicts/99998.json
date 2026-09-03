@@ -1,0 +1,9 @@
+{
+  "issue": 99998,
+  "pr": 2,
+  "verdict": "PASS",
+  "gates_green": true,
+  "markers_observed": ["GTM_COMPLIANCE_PASSED", "GTM_PAGE_200", "GTM_RENDER_OK"],
+  "validated_at": "2026-09-03T12:00:00Z",
+  "validated_from": "main"
+}

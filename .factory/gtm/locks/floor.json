@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "issue": 19777,
+  "written_at": "2026-09-03",
+  "journey_assertions": 11,
+  "compliance_checks": 6,
+  "journey_assertions_source": "harness/gtm/END-TO-END.md summary table -- 11 individually evidence-backed CONFIRMED/FINDING statements across the 5 journeys (J1: 2 confirmed + 1 finding-boundary, J2: 1 confirmed, J3: 1 confirmed-render + 2 findings, J4: 1 confirmed, J5: 1 confirmed + 1 commit-evidence)",
+  "compliance_checks_source": "docs/gtm/MISSION.md compliance-checks table -- banned_terms, person_name_detector, vendor_name_detector, homeowner_contact_scan, certified_county_count_match, insurance_exclusivity_scan",
+  "ratchet_rule": "A future CP may only raise these two numbers, never lower them, without an explicit Ariel-approved exception line in the CP's issue body naming this file. factory/gtm/doctor.py reads this file and refuses to report a higher autonomy dial than CP0 if either number in a later run is below what is committed here.",
+  "note": "This is the CP0 floor -- the minimum bar the factory must never regress under as later checkpoints (CP1-CP8, docs/gtm/META.md SS8) add capability. It is NOT a target; CP4 adds the holdout mutation-set-of-5 floor on top of this."
+}
