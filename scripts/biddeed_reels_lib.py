@@ -300,23 +300,35 @@ def pg_rest(table: str, params: str, timeout: int = 60) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def storage_upload(local_path: str, key: str, content_type: str) -> str:
-    result = subprocess.run(
-        [
-            "curl", "-s", "-w", "\n%{http_code}",
-            f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{key}",
-            "-H", f"apikey: {SERVICE_ROLE_KEY}",
-            "-H", f"Authorization: Bearer {SERVICE_ROLE_KEY}",
-            "-H", f"Content-Type: {content_type}",
-            "-H", "x-upsert: true",
-            "--data-binary", f"@{local_path}",
-        ],
-        capture_output=True, text=True, check=True,
-    )
-    lines = result.stdout.strip().split("\n")
-    http_code = lines[-1]
-    if http_code not in ("200", "201"):
-        raise RuntimeError(f"Storage upload failed (HTTP {http_code}): {result.stdout}")
-    return f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{key}"
+    """Retries on a transient 5xx (issue #19793 session: live-reproduced a
+    544 DatabaseTimeout on this exact endpoint that succeeded on immediate
+    retry -- same edge-flakiness class pg_rest()/run_sql() already retry,
+    this function just never had the same guard until the 20-variant draft
+    batch made the gap visible)."""
+    last_err = None
+    for attempt in range(1, MGMT_API_RETRIES + 1):
+        result = subprocess.run(
+            [
+                "curl", "-s", "-w", "\n%{http_code}",
+                f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{key}",
+                "-H", f"apikey: {SERVICE_ROLE_KEY}",
+                "-H", f"Authorization: Bearer {SERVICE_ROLE_KEY}",
+                "-H", f"Content-Type: {content_type}",
+                "-H", "x-upsert: true",
+                "--data-binary", f"@{local_path}",
+            ],
+            capture_output=True, text=True, check=True,
+        )
+        lines = result.stdout.strip().split("\n")
+        http_code = lines[-1]
+        if http_code in ("200", "201"):
+            return f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{key}"
+        last_err = RuntimeError(f"Storage upload failed (HTTP {http_code}): {result.stdout}")
+        if http_code.startswith("5") and attempt < MGMT_API_RETRIES:
+            time.sleep(MGMT_API_BACKOFF_SECONDS * attempt)
+            continue
+        raise last_err
+    raise last_err
 
 
 # ---------------------------------------------------------------------------
@@ -809,6 +821,78 @@ def elevenlabs_tts_v3(text: str, api_key: str, out_path: str, voice_id: str | No
 
 
 # ---------------------------------------------------------------------------
+# Kokoro draft/multilingual TTS (issue #19793 PART 1/PART 3). hexgrad/kokoro,
+# Apache-2.0, $0 -- ADOPTED as a draft-only fallback for English (see
+# scripts/bolt32_tts_fallback.py::resolve_tts_provider(), which still refuses
+# kokoro for any non-draft English row) and as the real multilingual voice
+# for es/pt-BR (kokoro has no equivalent English-canonical-voice restriction
+# on those languages -- eleven_v3 is only the canonical CHOICE for English).
+#
+# Voice IDs verified live this session via
+# huggingface_hub.list_repo_files('hexgrad/Kokoro-82M') -- these are real
+# filenames in the model repo, not guessed:
+#   en -> af_heart.pt   es -> ef_dora.pt   pt(-BR) -> pf_dora.pt
+#   fr -> ff_siwis.pt   it -> if_sara.pt   hi -> hf_alpha.pt
+#   ja -> jf_alpha.pt (needs misaki[ja], NOT installed/verified this session)
+#   zh -> zf_xiaobei.pt (needs misaki[zh], NOT installed/verified this session)
+# he/ar: kokoro has no lang_code for either -- HE/AR stay on the eleven_v3-
+# only (credit-blocked) path, per the issue's own instruction not to drop
+# them silently.
+# ---------------------------------------------------------------------------
+KOKORO_LANG_CODES = {
+    "en": "a", "es": "e", "pt-BR": "p", "pt": "p",
+    "fr": "f", "it": "i", "hi": "h", "ja": "j", "zh": "z",
+}
+KOKORO_VOICE_IDS = {
+    "en": "af_heart", "es": "ef_dora", "pt-BR": "pf_dora", "pt": "pf_dora",
+    "fr": "ff_siwis", "it": "if_sara", "hi": "hf_alpha",
+    "ja": "jf_alpha", "zh": "zf_xiaobei",
+}
+KOKORO_UNVERIFIED_LANGS = {"ja", "zh"}  # need misaki[ja]/misaki[zh] extras -- not installed this session
+
+_KOKORO_PIPELINE_CACHE: dict = {}
+
+
+class Bolt32KokoroUnsupportedLangError(ValueError):
+    pass
+
+
+def kokoro_tts(text: str, out_path: str, lang: str = "en", voice: str | None = None) -> str:
+    """Synthesizes `text` with kokoro (CPU, no network call per synthesis --
+    only the first call for a given lang_code downloads the model+voice from
+    HF Hub, cached under ~/.cache thereafter). Returns the voice id actually
+    used, so callers can record it (issue #19793 PART 3: "record the voice
+    IDs used"). Writes a .wav (ffmpeg accepts wav directly as an -i input,
+    same as it already accepts the ElevenLabs mp3 path -- no format
+    conversion needed before assemble_video_bolt32())."""
+    lang_code = KOKORO_LANG_CODES.get(lang)
+    if lang_code is None:
+        raise Bolt32KokoroUnsupportedLangError(
+            f"kokoro has no lang_code mapping for lang={lang!r} -- "
+            f"supported: {sorted(KOKORO_LANG_CODES)}"
+        )
+    voice_id = voice or KOKORO_VOICE_IDS[lang]
+
+    from kokoro import KPipeline  # local import: heavy (torch) dep, only needed on the draft/multilingual path
+    import soundfile as sf
+    import numpy as np
+
+    pipeline = _KOKORO_PIPELINE_CACHE.get(lang_code)
+    if pipeline is None:
+        pipeline = KPipeline(lang_code=lang_code)
+        _KOKORO_PIPELINE_CACHE[lang_code] = pipeline
+
+    chunks = []
+    for _, _, audio in pipeline(text, voice=voice_id):
+        chunks.append(audio.numpy() if hasattr(audio, "numpy") else audio)
+    if not chunks:
+        raise RuntimeError(f"kokoro produced zero audio chunks for lang={lang!r} voice={voice_id!r}")
+    full_audio = np.concatenate(chunks)
+    sf.write(out_path, full_audio, 24000)
+    return voice_id
+
+
+# ---------------------------------------------------------------------------
 # T7 -- ranking
 # ---------------------------------------------------------------------------
 
@@ -871,7 +955,17 @@ def _ffprobe_duration(path: str) -> float:
 
 
 def _escape_drawtext(text: str) -> str:
-    return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    """issue #19793 PART 1 fix: a backslash-escaped single quote inside an
+    already single-quoted drawtext value is a syntax error to ffmpeg's own
+    filtergraph parser ("Filter not found") -- live-reproduced this session
+    rendering a pre-existing LLM-written payoff line containing "that's"
+    (docs/spec/19786.md already documented this exact failure mode and
+    worked around it locally by rewording hand-written strings/stripping
+    apostrophes from ASR captions; this fixes the shared helper itself so
+    every caller -- including LLM-generated script beats, which can't be
+    reworded at the source -- is protected, not just the callers that knew
+    to avoid it). Apostrophes are dropped, not escaped: "that's" -> "thats"."""
+    return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "").replace("’", "")
 
 
 def assemble_video(aerial_path: str, street_path: str | None, audio_path: str,
@@ -2253,10 +2347,21 @@ def assert_bolt32_duration(duration_sec: float) -> None:
         )
 
 
-def assert_bolt32_tts_model(tts_model: str | None) -> None:
-    """DoD negative test (d): a render whose tts_model != eleven_v3 fails."""
-    if tts_model != "eleven_v3":
-        raise ValueError(f"bolt32 DoD requires tts_model='eleven_v3', got {tts_model!r}")
+def assert_bolt32_tts_model(tts_model: str | None, is_draft: bool = False) -> None:
+    """DoD negative test (d): a FINAL render whose tts_model != eleven_v3
+    fails. issue #19793 PART 1 extends this: a DRAFT render's tts_model must
+    be 'kokoro' -- eleven_v3 on a draft row would defeat the point of the
+    draft lane (spending real ElevenLabs credit on a review-only render),
+    and this mirrors the DB-level CHECK constraint
+    (reel_variants_draft_tts_model_check) added by the same issue's
+    migration -- belt and suspenders, not redundant, since this function
+    runs before the DB write is even attempted."""
+    if is_draft:
+        if tts_model != "kokoro":
+            raise ValueError(f"bolt32 draft-lane DoD requires tts_model='kokoro', got {tts_model!r}")
+    else:
+        if tts_model != "eleven_v3":
+            raise ValueError(f"bolt32 DoD requires tts_model='eleven_v3', got {tts_model!r}")
 
 
 def build_bolt32_script_and_caption(title_chosen: str, county_slug: str, sale_type: str,
@@ -2399,7 +2504,8 @@ def build_bolt32_beat_map(title_chosen: str, setup_line: str, payoff_line: str,
 
 def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
                            cta_chip_path: str, qr_plate_path: str,
-                           out_path: str, title_chosen: str) -> float:
+                           out_path: str, title_chosen: str,
+                           is_draft: bool = False) -> float:
     """bolt32 T4 edit -- 7 visual segments implementing the 6-beat spec
     (BOLT32_SEGMENTS), 1080x1920, 30fps, segment durations summing to
     exactly 32.0s pre-encode. `images` = {"aerial_wide", "aerial_tight",
@@ -2436,6 +2542,12 @@ def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
     made -- no royalty-free asset exists anywhere in this repo/org, and per
     this issue's own non-goals list, no new vendor may be introduced to
     source one).
+
+    DRAFT WATERMARK (issue #19793 PART 1): when is_draft=True, a persistent
+    "DRAFT AUDIO" banner is burned into the top-safe-area (y>=220, i.e.
+    inside SAFE_AREA_Y) for the full 0-32s duration -- so a draft render can
+    never be mistaken for, or uploaded as, a final one, even if it escapes
+    the DB-level is_draft flag (e.g. downloaded and re-uploaded by hand).
     """
     font = _ensure_font()
     fps = 30
@@ -2506,8 +2618,23 @@ def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
         f"[vconcat][{chip_idx}:v]overlay={CTA_CHIP_X0}:{CTA_CHIP_Y0}:enable='between(t,24,32)'[vcta1]"
     )
     filter_parts.append(
-        f"[vcta1][{qr_idx}:v]overlay={QR_PLATE_X0}:{QR_PLATE_Y0}:enable='between(t,24,32)'[vfinal]"
+        f"[vcta1][{qr_idx}:v]overlay={QR_PLATE_X0}:{QR_PLATE_Y0}:enable='between(t,24,32)'[vqr]"
     )
+
+    if is_draft:
+        font = _ensure_font()
+        watermark_text = "DRAFT AUDIO - NOT FOR UPLOAD"
+        cur = "vqr"
+        for j, dt_filter in enumerate(dt_wrapped_centered(
+            font, watermark_text, fontsize=40, y_start=230, label="draft_watermark",
+            fontcolor="white", box=1, boxcolor="0xB91C1C@0.85", boxborderw=16,
+        )):
+            nxt = f"vdraft{j}"
+            filter_parts.append(f"[{cur}]{dt_filter}[{nxt}]")
+            cur = nxt
+        filter_parts.append(f"[{cur}]copy[vfinal]")
+    else:
+        filter_parts.append("[vqr]copy[vfinal]")
 
     audio_idx = len(BOLT32_SEGMENTS)
     filter_parts.append(f"[{audio_idx}:a]atrim=0:{BOLT32_TOTAL_SECONDS},apad=pad_dur=0.1[aout]")

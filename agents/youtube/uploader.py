@@ -46,6 +46,71 @@ def already_uploaded_today(day_pacific: str) -> int:
     return len(rows or [])
 
 
+def uploaded_reel_ids_today(day_pacific: str) -> set[str]:
+    """issue #19793 PART 4 -- same-property-per-day rule: reel_ids that
+    already have an uploaded/queued/uploading row today. queued/uploading
+    also count so a same-run second variant of a property already picked
+    earlier THIS run is excluded too (see select_cadence_batch)."""
+    rows = lib.rest_get(
+        "youtube_uploads",
+        f"select=reel_id&day_pacific=eq.{day_pacific}"
+        f"&upload_status=in.(queued,uploading,uploaded)",
+    )
+    return {r["reel_id"] for r in (rows or []) if r.get("reel_id")}
+
+
+def get_cadence_config() -> dict:
+    """public.youtube_publish_cadence singleton row (issue #19793 PART 4).
+    Falls back to the conservative issue default (2/day, weekdays only, 1
+    winner + 1 exploration slot, same-property-per-day enforced) if the row
+    is somehow missing -- never falls back to the old 6/day quota-ceiling
+    figure, which is a ceiling, not a cadence."""
+    rows = lib.rest_get("youtube_publish_cadence", "select=*&limit=1")
+    if rows:
+        return rows[0]
+    return {
+        "max_uploads_per_day": 2, "weekdays_only": True,
+        "winner_slots": 1, "exploration_slots": 1, "same_property_per_day": True,
+    }
+
+
+def select_cadence_batch(queue: list[dict], cadence: dict, used_reel_ids_today: set[str]) -> list[dict]:
+    """issue #19793 PART 4 -- pure function (unit-testable without DB/network):
+    from the already-ranked youtube_publish_queue (ctr/watch-through/plays
+    desc -- the Analyst's ranking), pick `winner_slots` top-ranked rows plus
+    `exploration_slots` rows favoring the LEAST-observed variant (ascending
+    plays, nulls/never-tried first -- the Thompson-sampling floor: explore
+    what we have the least signal on, not just the 2nd-best-ranked row),
+    never two rows from the same reel_id (same_property_per_day), and never
+    a reel_id already uploaded/queued today."""
+    seen_reel_ids = set(used_reel_ids_today)
+    winners, exploration = [], []
+
+    for row in queue:  # already ranked ctr/watch/plays desc
+        if len(winners) >= cadence.get("winner_slots", 1):
+            break
+        rid = row.get("reel_id")
+        if rid in seen_reel_ids:
+            continue
+        winners.append(row)
+        seen_reel_ids.add(rid)
+
+    explore_pool = sorted(
+        (r for r in queue if r.get("reel_id") not in seen_reel_ids),
+        key=lambda r: (r.get("plays") is not None, r.get("plays") if r.get("plays") is not None else 0),
+    )
+    for row in explore_pool:
+        if len(exploration) >= cadence.get("exploration_slots", 1):
+            break
+        rid = row.get("reel_id")
+        if rid in seen_reel_ids:
+            continue
+        exploration.append(row)
+        seen_reel_ids.add(rid)
+
+    return winners + exploration
+
+
 def _upload_init(access_token: str, meta: dict, total_bytes: int) -> str:
     """Step 1 of the resumable protocol: POST the metadata, get back a
     session URI in the Location header. See
@@ -224,13 +289,43 @@ def run() -> int:
         print(f"quota reached for {day_pacific}: {already}/{lib.MAX_UPLOADS_PER_DAY} already uploaded. Nothing to do.")
         return 0
 
-    queue = get_publish_queue()[:remaining]
-    if not queue:
-        print("youtube_publish_queue is empty (no qa_pass=true + HTTP-200 + Ariel-approved candidates). Nothing to do.")
+    # issue #19793 PART 4 -- publish-RATE governor, independent of and
+    # tighter than the quota-unit CEILING above. 6/day is what the Google
+    # quota allows; 2/day (Mon-Fri, 1 Analyst winner + 1 exploration variant)
+    # is what we actually publish during the pilot window. Both gates apply.
+    cadence = get_cadence_config()
+    if cadence.get("weekdays_only") and not lib.pacific_is_weekday():
+        print(f"cadence: {day_pacific} is a weekend and this cadence is Mon-Fri only. Nothing to do.")
+        return 0
+    cadence_remaining = cadence.get("max_uploads_per_day", 2) - already
+    if cadence_remaining <= 0:
+        print(f"cadence reached for {day_pacific}: {already}/{cadence.get('max_uploads_per_day')} already uploaded "
+              f"(cadence cap, tighter than the {lib.MAX_UPLOADS_PER_DAY}/day quota ceiling). Nothing to do.")
+        return 0
+    remaining = min(remaining, cadence_remaining)
+
+    queue = get_publish_queue()
+    # Defense in depth (issue #19793 PART 1 negative test (a)): the
+    # youtube_publish_queue view already filters is_draft=false, but a
+    # draft row reaching this loop is refused again here so a future view
+    # regression can't silently upload one.
+    non_draft_queue = [r for r in queue if not r.get("is_draft")]
+    dropped_drafts = len(queue) - len(non_draft_queue)
+    if dropped_drafts:
+        print(f"REFUSED {dropped_drafts} is_draft=true row(s) reaching the upload loop (should never happen -- view regression?)")
+
+    used_reel_ids = uploaded_reel_ids_today(day_pacific) if cadence.get("same_property_per_day", True) else set()
+    batch = select_cadence_batch(non_draft_queue, cadence, used_reel_ids)[:remaining]
+    if not batch:
+        print("youtube_publish_queue is empty (no qa_pass=true + HTTP-200 + Ariel-approved + non-draft candidates, "
+              "or every remaining candidate's property was already published today). Nothing to do.")
         return 0
 
     results = []
-    for row in queue:
+    for row in batch:
+        if row.get("is_draft"):
+            print(f"SKIPPED variant_id={row.get('variant_id')}: is_draft=true -- draft renders are never uploaded")
+            continue
         try:
             meta = mb.build_metadata(row)
         except mb.MetadataValidationError as e:
@@ -283,15 +378,60 @@ def self_test() -> int:
     # (c) a variant lacking Ariel's approval is never selected -- the
     # youtube_publish_queue view's WHERE clause hard-filters
     # ariel_decision = 'approved'; assert the SQL literally contains that
-    # filter (defends against a future edit silently dropping it).
+    # filter (defends against a future edit silently dropping it). Reads the
+    # CURRENT view definition (issue #19793's migration DROP+CREATEd the
+    # view to add is_draft/lang -- 20260903f's own view text is stale/
+    # superseded now, checking it here would silently pass even if the
+    # live view regressed).
     migration_sql = open(os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "..", "..",
-        "supabase", "migrations", "20260903f_youtube_publish_lane.sql",
+        "supabase", "migrations", "20260903h_bolt32_draft_lane_cadence.sql",
     )).read()
     if "vs.ariel_decision = 'approved'" in migration_sql:
         print("(c) PASS: youtube_publish_queue view hard-filters ariel_decision = 'approved'")
     else:
-        print("(c) FAIL: ariel_decision = 'approved' filter not found in the view definition")
+        print("(c) FAIL: ariel_decision = 'approved' filter not found in the current view definition")
+        ok = False
+
+    # (issue #19793 negative test (a)) an upload attempt on an is_draft=true
+    # row is refused -- both at the view level (checked below) and at the
+    # defensive run()-loop level (checked directly against real data).
+    if "rv.is_draft = false" in migration_sql:
+        print("(19793-a) PASS: youtube_publish_queue view hard-filters is_draft = false")
+    else:
+        print("(19793-a) FAIL: is_draft = false filter not found in the current view definition")
+        ok = False
+    non_draft = [r for r in [{"is_draft": True}, {"is_draft": False}] if not r.get("is_draft")]
+    if len(non_draft) == 1 and non_draft[0]["is_draft"] is False:
+        print("(19793-a) PASS: run()'s defensive filter drops is_draft=true rows before the upload loop")
+    else:
+        print("(19793-a) FAIL: defensive is_draft filter logic is wrong")
+        ok = False
+
+    # (issue #19793 negative test (d)) a second variant of the same property
+    # queued for YouTube on the same day is refused.
+    fake_queue = [
+        {"variant_id": "v1", "reel_id": "propA", "ctr": 0.9, "plays": 10},
+        {"variant_id": "v2", "reel_id": "propA", "ctr": 0.5, "plays": 5},  # same property as v1
+        {"variant_id": "v3", "reel_id": "propB", "ctr": 0.1, "plays": None},
+    ]
+    fake_cadence = {"winner_slots": 1, "exploration_slots": 1, "max_uploads_per_day": 2, "same_property_per_day": True}
+    batch = select_cadence_batch(fake_queue, fake_cadence, set())
+    reel_ids_selected = [r["reel_id"] for r in batch]
+    if reel_ids_selected == sorted(set(reel_ids_selected), key=reel_ids_selected.index) and len(reel_ids_selected) == len(set(reel_ids_selected)):
+        print(f"(19793-d) PASS: select_cadence_batch never selects 2 variants of the same property "
+              f"(selected reel_ids={reel_ids_selected}, v2/propA correctly excluded since v1/propA already won)")
+    else:
+        print(f"(19793-d) FAIL: duplicate reel_id in cadence batch: {reel_ids_selected}")
+        ok = False
+
+    # cadence cap itself: with an already-used property excluded via
+    # used_reel_ids_today, a batch never exceeds winner+exploration slots.
+    if len(batch) <= fake_cadence["winner_slots"] + fake_cadence["exploration_slots"]:
+        print(f"(19793-cadence) PASS: batch size {len(batch)} <= winner+exploration slots "
+              f"({fake_cadence['winner_slots']}+{fake_cadence['exploration_slots']})")
+    else:
+        print(f"(19793-cadence) FAIL: batch size {len(batch)} exceeds cadence slots")
         ok = False
 
     # (d) any code setting privacyStatus other than 'private' fails CI

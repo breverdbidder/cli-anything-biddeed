@@ -282,6 +282,13 @@ def pacific_today() -> str:
     return datetime.now(timezone.utc).date().isoformat()  # pragma: no cover
 
 
+def pacific_is_weekday() -> bool:
+    """issue #19793 PART 4 -- the 2/day cadence is Mon-Fri only."""
+    if ZoneInfo is not None:
+        return datetime.now(ZoneInfo("America/Los_Angeles")).weekday() < 5
+    return datetime.now(timezone.utc).weekday() < 5  # pragma: no cover
+
+
 # ---------------------------------------------------------------------------
 # spi_gates (deliverable 3 -- token expiry alarm)
 # ---------------------------------------------------------------------------

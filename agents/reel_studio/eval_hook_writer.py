@@ -177,6 +177,66 @@ def a25():
     return would_claim_success is False, {"note": "correctly refuses to treat a 2-variant partial result as full success"}
 
 
+# issue #19793 PART 2 -- remote_bidder archetype: one passing case on an
+# online-venue row, one failing case on an in-person/unknown-venue row.
+
+def a26_remote_bidder_in_archetypes():
+    return "remote_bidder" in hw.ARCHETYPES, {"ARCHETYPES": hw.ARCHETYPES}
+
+
+def a27_remote_bidder_passes_on_online_venue():
+    ok, reasons = hw.check_archetype_data_match(
+        "remote_bidder", {"phase": "postsale"},
+        third_party_bidder=True, plaintiff_confirmed_bank=None,
+        auction_venue_online=True,
+    )
+    return ok is True, {"reasons": reasons}
+
+
+def a28_remote_bidder_fails_on_in_person_venue():
+    ok, reasons = hw.check_archetype_data_match(
+        "remote_bidder", {"phase": "postsale"},
+        third_party_bidder=True, plaintiff_confirmed_bank=None,
+        auction_venue_online=False,
+    )
+    return (ok is False and any("auction_venue" in r for r in reasons)), {"reasons": reasons}
+
+
+def a29_remote_bidder_fails_on_unknown_venue():
+    # None (venue absent/unset) must NOT be treated as online -- "do not
+    # guess, do not default to online" is the issue's own literal rule.
+    ok, reasons = hw.check_archetype_data_match(
+        "remote_bidder", {"phase": "postsale"},
+        third_party_bidder=True, plaintiff_confirmed_bank=None,
+        auction_venue_online=None,
+    )
+    return (ok is False and any("auction_venue" in r for r in reasons)), {"reasons": reasons}
+
+
+def a30_remote_bidder_honesty_guardrail_fails_on_banned_phrase():
+    ok, reasons = hw.check_remote_bidder_honesty_guardrail(
+        "remote_bidder", "Bid From Anywhere In The World…\U0001F310\U0001F3E0",
+        "We bid on your behalf so it is a guaranteed win.",
+    )
+    return (ok is False and reasons), {"reasons": reasons}
+
+
+def a31_remote_bidder_honesty_guardrail_passes_on_approved_phrasing():
+    ok, reasons = hw.check_remote_bidder_honesty_guardrail(
+        "remote_bidder", "This Buyer Never Set Foot In Florida…\U0001F310\U0001F3E0",
+        "Bid online from anywhere - deposit rules still apply.",
+    )
+    return ok is True, {"reasons": reasons}
+
+
+def a32_remote_bidder_honesty_guardrail_not_applicable_other_archetypes():
+    # Non-blocking for every archetype except remote_bidder.
+    ok, reasons = hw.check_remote_bidder_honesty_guardrail(
+        "shock_number", "irrelevant title", "we bid on your behalf",
+    )
+    return (ok is True and reasons == []), {"reasons": reasons}
+
+
 def run_eval():
     assertions = [
         ("title_valid_5_9_words_third_person_ellipsis_2emoji", a1),
@@ -204,6 +264,13 @@ def run_eval():
         ("db_unique_archetype_constraint_present", a23),
         ("prompt_excludes_person_vendor_fields", a24),
         ("refuses_partial_result_as_success", a25),
+        ("remote_bidder_in_archetypes", a26_remote_bidder_in_archetypes),
+        ("remote_bidder_passes_on_online_venue", a27_remote_bidder_passes_on_online_venue),
+        ("remote_bidder_fails_on_in_person_venue", a28_remote_bidder_fails_on_in_person_venue),
+        ("remote_bidder_fails_on_unknown_venue", a29_remote_bidder_fails_on_unknown_venue),
+        ("remote_bidder_honesty_guardrail_fails_on_banned_phrase", a30_remote_bidder_honesty_guardrail_fails_on_banned_phrase),
+        ("remote_bidder_honesty_guardrail_passes_on_approved_phrasing", a31_remote_bidder_honesty_guardrail_passes_on_approved_phrasing),
+        ("remote_bidder_honesty_guardrail_not_applicable_other_archetypes", a32_remote_bidder_honesty_guardrail_not_applicable_other_archetypes),
     ]
     return eval_common.run_assertions("reel-hook-writer", assertions)
 

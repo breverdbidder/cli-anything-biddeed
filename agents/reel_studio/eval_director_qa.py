@@ -239,6 +239,46 @@ def a35_archetype_phase_mismatch_passes():
     return r["pass"] is True, r
 
 
+# issue #19793 PART 2 -- remote_bidder: one passing case on an online-venue
+# row, one failing case on an in-person/unknown-venue row.
+
+ONLINE_VENUE_FACTS = dict(POSTSALE_FACTS, auction_venue_online=True)
+IN_PERSON_VENUE_FACTS = dict(POSTSALE_FACTS, auction_venue_online=False)
+UNKNOWN_VENUE_FACTS = dict(POSTSALE_FACTS, auction_venue_online=None)
+
+
+def a36_remote_bidder_passes_on_online_venue():
+    v = {"variant_dna": {"archetype": "remote_bidder"}}
+    r = dqa.check_archetype_data_match(v, ONLINE_VENUE_FACTS)
+    return r["pass"] is True, r
+
+
+def a37_remote_bidder_fails_on_in_person_venue():
+    v = {"variant_dna": {"archetype": "remote_bidder"}}
+    r = dqa.check_archetype_data_match(v, IN_PERSON_VENUE_FACTS)
+    return r["pass"] is False, r
+
+
+def a38_remote_bidder_fails_on_unknown_venue():
+    v = {"variant_dna": {"archetype": "remote_bidder"}}
+    r = dqa.check_archetype_data_match(v, UNKNOWN_VENUE_FACTS)
+    return r["pass"] is False, r
+
+
+def a39_remote_bidder_honesty_fails_on_banned_phrase():
+    v = {"variant_dna": {"archetype": "remote_bidder"}, "title": "Bid From Anywhere…\U0001F310\U0001F3E0",
+         "script": {"beats": [{"line": "We bid on your behalf, guaranteed."}]}}
+    r = dqa.check_remote_bidder_honesty(v)
+    return r["pass"] is False, r
+
+
+def a40_remote_bidder_honesty_passes_on_approved_phrasing():
+    v = {"variant_dna": {"archetype": "remote_bidder"}, "title": "This Buyer Never Set Foot In Florida…\U0001F310\U0001F3E0",
+         "script": {"beats": [{"line": "Bid online from anywhere - deposit rules still apply."}]}}
+    r = dqa.check_remote_bidder_honesty(v)
+    return r["pass"] is True, r
+
+
 def run_eval():
     assertions = [
         ("planted_person_name_caught", a1_person_name),
@@ -276,6 +316,11 @@ def run_eval():
         ("title_case_passes_on_title_case", a33_title_case_passes),
         ("archetype_phase_mismatch_fails_countdown_on_postsale", a34_archetype_phase_mismatch_fails),
         ("archetype_phase_mismatch_passes_countdown_on_presale", a35_archetype_phase_mismatch_passes),
+        ("remote_bidder_passes_on_online_venue", a36_remote_bidder_passes_on_online_venue),
+        ("remote_bidder_fails_on_in_person_venue", a37_remote_bidder_fails_on_in_person_venue),
+        ("remote_bidder_fails_on_unknown_venue", a38_remote_bidder_fails_on_unknown_venue),
+        ("remote_bidder_honesty_fails_on_banned_phrase", a39_remote_bidder_honesty_fails_on_banned_phrase),
+        ("remote_bidder_honesty_passes_on_approved_phrasing", a40_remote_bidder_honesty_passes_on_approved_phrasing),
     ]
     return eval_common.run_assertions("reel-director-qa", assertions)
 

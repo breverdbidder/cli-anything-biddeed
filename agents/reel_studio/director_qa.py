@@ -118,14 +118,27 @@ def check_archetype_data_match(variant: dict, reel_facts: dict | None) -> dict:
         archetype, reel_facts,
         third_party_bidder=reel_facts.get("third_party_bidder"),
         plaintiff_confirmed_bank=reel_facts.get("plaintiff_confirmed_bank"),
+        auction_venue_online=reel_facts.get("auction_venue_online"),
     )
     observed = {
         "archetype": archetype,
         "phase": reel_facts.get("phase"),
         "third_party_bidder": reel_facts.get("third_party_bidder"),
         "plaintiff_confirmed_bank": reel_facts.get("plaintiff_confirmed_bank"),
+        "auction_venue_online": reel_facts.get("auction_venue_online"),
     }
     return {"pass": ok, "reasons": reasons, "observed": observed}
+
+
+def check_remote_bidder_honesty(variant: dict) -> dict:
+    """Issue #19793 PART 2 -- non-blocking (pass=True) for every archetype
+    except remote_bidder, where it scans the title + full script text for
+    frictionless/bids-on-your-behalf/investment-advice language."""
+    archetype = (variant.get("variant_dna") or {}).get("archetype") or variant.get("archetype")
+    beats = (variant.get("script") or {}).get("beats", [])
+    script_text = " ".join(str(b.get("line", "")) for b in beats)
+    ok, reasons = hook_writer.check_remote_bidder_honesty_guardrail(archetype, variant.get("title", ""), script_text)
+    return {"pass": ok, "reasons": reasons, "observed": {"archetype": archetype}}
 
 
 def check_diversity(variant: dict, siblings: list[dict]) -> dict:
@@ -210,6 +223,7 @@ def review_variant(variant: dict, siblings: list[dict], reel_facts: dict | None 
         "title_case": check_title_case(variant),
         "payoff_leak": check_payoff_leak(variant, reel_facts),
         "archetype_data_match": check_archetype_data_match(variant, reel_facts),
+        "remote_bidder_honesty": check_remote_bidder_honesty(variant),
         "duration_32s": {"pass": None, "reason": "not_applicable_phase_a (no rendered video yet)"},
         "loop_seam_continuity": {"pass": None, "reason": "not_applicable_phase_a (no rendered video yet)"},
     }
@@ -241,13 +255,14 @@ def fetch_reel_facts(reel_id: str) -> dict:
 
     third_party_bidder = None
     plaintiff_confirmed_bank = None
+    auction_venue_online = None
     try:
         import urllib.parse as up
         qcase = up.quote(reel["case_number"])
         qcounty = up.quote(reel["county"])
         arows = lib.pg_rest(
             "multi_county_auctions",
-            f"select=sale_result,winning_bidder,plaintiff"
+            f"select=sale_result,winning_bidder,plaintiff,auction_venue"
             f"&case_number=eq.{qcase}&county=ilike.{qcounty}&limit=1",
         )
         if arows:
@@ -257,11 +272,20 @@ def fetch_reel_facts(reel_id: str) -> dict:
             plaintiff_confirmed_bank = bool(plaintiff) and any(
                 kw in plaintiff.lower() for kw in ("bank", "mortgage", "n.a.", "n a ", "financial", "lending")
             )
+            # issue #19793 PART 2 -- venue comes ONLY from auction_venue, the
+            # sale record's own field. source_platform ('realforeclose' etc.)
+            # is NOT used to infer online-ness -- that would be exactly the
+            # "do not guess, do not default to online" mistake the issue
+            # warns against. None (column absent/unset) stays None, not False.
+            venue = a.get("auction_venue")
+            if venue is not None:
+                auction_venue_online = (str(venue).strip().lower() == "online")
     except Exception:
         pass  # genuine miss -- leave None, never fabricate
 
     reel["third_party_bidder"] = third_party_bidder
     reel["plaintiff_confirmed_bank"] = plaintiff_confirmed_bank
+    reel["auction_venue_online"] = auction_venue_online
     return reel
 
 

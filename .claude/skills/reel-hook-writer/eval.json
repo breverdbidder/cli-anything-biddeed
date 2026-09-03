@@ -1,8 +1,8 @@
 {
   "skill_id": "reel-hook-writer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "pattern": "cmo-factory/reel-variant-studio",
-  "task": "Generate K=4 diverse, compliant variant packages for one shortlisted biddeed_reels property and insert them as pending_approval rows with distinct short codes",
+  "task": "Generate K=4 diverse, compliant variant packages for one shortlisted biddeed_reels property and insert them as pending_approval rows with distinct short codes. issue #19793 PART 2: remote_bidder archetype added to ARCHETYPES with its own data-validity rule (auction_venue='online' only) and honesty guardrail against frictionless/bids-on-your-behalf language (assertions 26-32).",
   "pass_threshold": 0.8,
   "autoloop_compatible": true,
   "assertions": [
@@ -30,6 +30,13 @@
     {"id": 22, "input": "insert_variant for one validated package", "expected": "returned row has status='pending_approval' and a non-null short_code (from analyst.mint_variant_short_link)", "type": "binary"},
     {"id": 23, "input": "Two variants inserted for the same reel_id with the same archetype", "expected": "second insert fails on the DB unique constraint reel_variants_reel_id_archetype_key", "type": "binary"},
     {"id": 24, "input": "Prompt sent to claude-router for a reel", "expected": "prompt contains only sold_amount/assessed_value/delta_pct/condition/county/sale_type -- no buyer/bidder/vendor name field", "type": "binary"},
-    {"id": 25, "input": "Claim '4 variants generated' without a returned inserted[] list of length 4", "expected": "refuses to report success -- ok=True only when len(inserted)==4", "type": "binary"}
+    {"id": 25, "input": "Claim '4 variants generated' without a returned inserted[] list of length 4", "expected": "refuses to report success -- ok=True only when len(inserted)==4", "type": "binary"},
+    {"id": 26, "input": "hw.ARCHETYPES", "expected": "contains 'remote_bidder'", "type": "binary"},
+    {"id": 27, "input": "archetype='remote_bidder', auction_venue_online=true", "expected": "check_archetype_data_match passes", "type": "binary"},
+    {"id": 28, "planted_defect": "remote_bidder_in_person_venue", "input": "archetype='remote_bidder', auction_venue_online=false", "expected": "check_archetype_data_match fails", "type": "binary"},
+    {"id": 29, "planted_defect": "remote_bidder_unknown_venue", "input": "archetype='remote_bidder', auction_venue_online=null", "expected": "check_archetype_data_match fails -- never defaults to online", "type": "binary"},
+    {"id": 30, "planted_defect": "remote_bidder_frictionless_claim", "input": "remote_bidder script says 'we bid on your behalf, guaranteed'", "expected": "check_remote_bidder_honesty_guardrail fails", "type": "binary"},
+    {"id": 31, "input": "remote_bidder script uses 'bid online from anywhere - deposit rules still apply'", "expected": "check_remote_bidder_honesty_guardrail passes", "type": "binary"},
+    {"id": 32, "input": "check_remote_bidder_honesty_guardrail called with archetype='shock_number' and banned phrase text", "expected": "passes (non-blocking) -- guardrail only applies to remote_bidder", "type": "binary"}
   ]
 }

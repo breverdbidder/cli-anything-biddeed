@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import urllib.parse as up
@@ -43,7 +44,7 @@ def _nearest_beat_line(beats: list[dict], target_start_s: float) -> str:
 def fetch_variant_and_reel(variant_id: str) -> tuple[dict, dict]:
     vrows = lib.run_sql(f"""
         select id, reel_id, variant_key, variant_dna, title, script, caption_groups,
-               voice_tags, hashtags, short_code, short_url, status
+               voice_tags, hashtags, short_code, short_url, status, lang
         from winnerdata.reel_variants where id = {lib.sql_str(variant_id)};
     """)
     if not vrows:
@@ -66,9 +67,19 @@ def fetch_variant_and_reel(variant_id: str) -> tuple[dict, dict]:
     return variant, reel
 
 
-def render_variant_bolt32(variant_id: str) -> dict:
+def render_variant_bolt32(variant_id: str, mode: str = "final") -> dict:
+    """mode='final' (default, unchanged behavior) uses eleven_v3/V2_BRAND_VOICE_ID
+    and writes is_draft=false/render_mode='final'. mode='draft' (issue #19793
+    PART 1) uses kokoro (voice keyed off the row's own `lang`, $0, no
+    ElevenLabs credit spent), burns the DRAFT AUDIO watermark, and writes
+    is_draft=true/render_mode='draft'/pending_final_voice=true so the
+    re-render queue is explicit once ElevenLabs credits are topped up."""
+    if mode not in ("draft", "final"):
+        raise ValueError(f"mode must be 'draft' or 'final', got {mode!r}")
+    is_draft = mode == "draft"
+
     variant, reel = fetch_variant_and_reel(variant_id)
-    result = {"variant_id": variant_id, "variant_key": variant["variant_key"], "status": None, "error": None}
+    result = {"variant_id": variant_id, "variant_key": variant["variant_key"], "mode": mode, "status": None, "error": None}
 
     if variant.get("status") == "approved":
         result.update(status="blocked_approved_row", error="M8: refusing to touch an already-approved variant")
@@ -78,7 +89,7 @@ def render_variant_bolt32(variant_id: str) -> dict:
         result.update(status="error", error="parent reel missing imagery -- run v2/presale pipeline on the reel first")
         return result
 
-    key = os.environ.get("ELEVENLABS_API_KEY") or lib.get_vault_secret("elevenlabs_api_key")
+    lang = variant.get("lang") or "en"
 
     beats = variant["script"].get("beats", [])
     title_chosen = variant["title"]
@@ -87,7 +98,7 @@ def render_variant_bolt32(variant_id: str) -> dict:
     loop_line = _nearest_beat_line(beats, 29.5)
     script_text_v3 = " ".join(b.get("line", "") for b in sorted(beats, key=lambda b: float(b.get("start_s", 0))))
     eleven_tags = (variant.get("voice_tags") or {}).get("eleven_v3_tags") or []
-    if eleven_tags:
+    if eleven_tags and not is_draft:
         script_text_v3 = " ".join(eleven_tags[:1]) + " " + script_text_v3
 
     beat_map = lib.build_bolt32_beat_map(title_chosen, setup_line, payoff_line, loop_line)
@@ -95,7 +106,8 @@ def render_variant_bolt32(variant_id: str) -> dict:
 
     date_key = reel["auction_date"].isoformat() if hasattr(reel["auction_date"], "isoformat") else reel["auction_date"]
     case_key = up.quote(reel["case_number"].replace(" ", "_").replace("/", "-"), safe="")
-    prefix = f"{date_key}/{case_key}/variant_{variant['variant_key']}"
+    mode_dir = "draft" if is_draft else "final"
+    prefix = f"{date_key}/{case_key}/variant_{variant['variant_key']}_{lang}_{mode_dir}"
 
     with tempfile.TemporaryDirectory() as tmp:
         wide_path = os.path.join(tmp, "aerial_wide.png")
@@ -107,9 +119,34 @@ def render_variant_bolt32(variant_id: str) -> dict:
 
         qr_path = os.path.join(tmp, "qr.png")
         lib.generate_qr_png(variant["short_url"], qr_path)
+        chip_path = os.path.join(tmp, "chip.png")
+        lib.build_cta_chip_png(variant["short_url"].replace("https://", "").replace("http://", ""),
+                                "See this deal ->", chip_path)
+        qrplate_path = os.path.join(tmp, "qrplate.png")
+        lib.build_qr_plate_png(variant["short_url"], "Scan for the deal", qrplate_path)
 
-        audio_path = os.path.join(tmp, "voice_bolt32.mp3")
-        lib.elevenlabs_tts_v3(script_text_v3, key, audio_path)
+        if is_draft:
+            wav_path = os.path.join(tmp, "voice_bolt32_raw.wav")
+            tts_model = "kokoro"
+            voice_used = lib.kokoro_tts(script_text_v3, wav_path, lang=lang)
+            # biddeed-reels storage bucket's mime allow-list doesn't include
+            # audio/wav (live-confirmed this session, HTTP 415) -- transcode
+            # to mp3 so the same storage_upload() path every other audio
+            # asset in this pipeline uses works unchanged for kokoro too.
+            audio_path = os.path.join(tmp, "voice_bolt32.mp3")
+            _transcode = subprocess.run(
+                ["ffmpeg", "-y", "-i", wav_path, "-codec:a", "libmp3lame", "-qscale:a", "2", audio_path],
+                capture_output=True, text=True,
+            )
+            if _transcode.returncode != 0:
+                raise RuntimeError(f"ffmpeg wav->mp3 transcode failed: {_transcode.stderr[-2000:]}")
+        else:
+            key = os.environ.get("ELEVENLABS_API_KEY") or lib.get_vault_secret("elevenlabs_api_key")
+            audio_path = os.path.join(tmp, "voice_bolt32.mp3")
+            tts_model = lib.V2_TTS_MODEL
+            voice_used = os.environ.get("ELEVENLABS_V2_VOICE_ID", lib.V2_BRAND_VOICE_ID)
+            lib.elevenlabs_tts_v3(script_text_v3, key, audio_path)
+
         audio_url = lib.storage_upload(audio_path, f"{prefix}/voice_bolt32.mp3", "audio/mpeg")
 
         overlays = {
@@ -121,22 +158,26 @@ def render_variant_bolt32(variant_id: str) -> dict:
         }
         images = {"aerial_wide": wide_path, "aerial_tight": tight_path, "street": street_path}
         video_path = os.path.join(tmp, "reel_bolt32.mp4")
-        duration_sec = lib.assemble_video_bolt32(images, audio_path, overlays, qr_path, video_path, title_chosen)
+        duration_sec = lib.assemble_video_bolt32(images, audio_path, overlays, chip_path, qrplate_path,
+                                                   video_path, title_chosen, is_draft=is_draft)
 
         lib.assert_bolt32_duration(duration_sec)
-        lib.assert_bolt32_tts_model(lib.V2_TTS_MODEL)
+        lib.assert_bolt32_tts_model(tts_model, is_draft=is_draft)
 
         video_url = lib.storage_upload(video_path, f"{prefix}/reel_bolt32.mp4", "video/mp4")
 
         lib.run_sql(f"""
             update winnerdata.reel_variants
-            set video_url = {lib.sql_str(video_url)}, tts_model = {lib.sql_str(lib.V2_TTS_MODEL)},
+            set video_url = {lib.sql_str(video_url)}, tts_model = {lib.sql_str(tts_model)},
+                is_draft = {lib.sql_bool(is_draft)}, render_mode = {lib.sql_str(mode)},
+                pending_final_voice = {lib.sql_bool(is_draft)},
                 updated_at = now()
             where id = {lib.sql_str(variant_id)};
         """)
 
         result.update(status="bolt32_done", duration_sec=round(duration_sec, 3),
-                       video_url=video_url, audio_url=audio_url, beat_map=beat_map)
+                       video_url=video_url, audio_url=audio_url, beat_map=beat_map,
+                       tts_model=tts_model, voice_used=voice_used, is_draft=is_draft, lang=lang)
         return result
 
 
@@ -145,9 +186,10 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("render")
     r.add_argument("--variant-id", required=True)
+    r.add_argument("--mode", choices=["draft", "final"], default="final")
     args = ap.parse_args()
     if args.cmd == "render":
-        print(json.dumps(render_variant_bolt32(args.variant_id), indent=2, default=str))
+        print(json.dumps(render_variant_bolt32(args.variant_id, mode=args.mode), indent=2, default=str))
 
 
 if __name__ == "__main__":

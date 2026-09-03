@@ -44,6 +44,7 @@ K_VARIANTS = 4
 ARCHETYPES = [
     "shock_number", "underdog_bidder", "bank_vs_house", "mystery_nobody_bid",
     "red_flag_warning", "hidden_value_reveal", "countdown_presale",
+    "remote_bidder",
 ]
 VOICE_REGISTERS = ["calm_narrator", "hype", "whisper_reveal", "documentary"]
 CAPTION_STYLES = ["karaoke_bold", "minimal_lower_third", "kinetic_type"]
@@ -216,15 +217,29 @@ _PHASE_ONLY_ARCHETYPES = {"countdown_presale": "presale"}
 
 
 def check_archetype_data_match(archetype: str, reel: dict, third_party_bidder: bool | None,
-                                plaintiff_confirmed_bank: bool | None) -> tuple[bool, list[str]]:
-    """Named check (issue #19792 PART 1) -- a semantic bug, not cosmetic.
-    countdown_presale requires phase='presale' (a property that already
-    sold cannot have a countdown); mystery_nobody_bid requires the sale
-    record show NO confirmed third-party bidder; bank_vs_house requires a
-    confirmed bank/lender plaintiff in the case record. `third_party_bidder`
-    / `plaintiff_confirmed_bank` are True/False/None (None = data absent,
-    treated as "not confirmed" -- diversity must be achieved within the
-    archetypes the data supports, never by asserting an unverified story)."""
+                                plaintiff_confirmed_bank: bool | None,
+                                auction_venue_online: bool | None = None) -> tuple[bool, list[str]]:
+    """Named check (issue #19792 PART 1, extended issue #19793 PART 2) -- a
+    semantic bug, not cosmetic. countdown_presale requires phase='presale'
+    (a property that already sold cannot have a countdown); mystery_nobody_bid
+    requires the sale record show NO confirmed third-party bidder;
+    bank_vs_house requires a confirmed bank/lender plaintiff in the case
+    record; remote_bidder requires the sale's own auction-platform record
+    show venue='online' (public.multi_county_auctions.auction_venue).
+    `third_party_bidder` / `plaintiff_confirmed_bank` / `auction_venue_online`
+    are True/False/None (None = data absent, treated as "not confirmed" --
+    diversity must be achieved within the archetypes the data supports,
+    never by asserting an unverified story).
+
+    remote_bidder is the same defect class as countdown_presale on a sold
+    property (issue #19793 PART 2): asserting "you didn't have to be in
+    Florida" about a sale whose venue is unknown or in-person is not a minor
+    embellishment, it is a false claim about how the sale actually happened.
+    `source_platform` values like 'realforeclose'/'realtaxdeed' are NOT used
+    to infer venue here even though those are commonly online platforms --
+    the issue's own rule is "derive from the auction-platform field... where
+    the venue is unknown, do not guess, do not default to online", and
+    auction_venue is that field, not source_platform."""
     reasons = []
     reel = reel or {}
     phase = reel.get("phase")
@@ -241,6 +256,42 @@ def check_archetype_data_match(archetype: str, reel: dict, third_party_bidder: b
         reasons.append("archetype 'bank_vs_house' requires a confirmed bank/lender plaintiff in the case "
                         "record; plaintiff is absent/unconfirmed for this row")
 
+    if archetype == "remote_bidder" and auction_venue_online is not True:
+        reasons.append("archetype 'remote_bidder' requires the sale record's auction_venue='online' "
+                        "(multi_county_auctions.auction_venue); got "
+                        f"{auction_venue_online!r} (None = unknown -- never defaulted to online)")
+
+    return (len(reasons) == 0, reasons)
+
+
+# issue #19793 PART 2 -- remote_bidder's own honesty guardrail. Approved
+# phrasing pattern: "bid online from anywhere - deposit rules still apply".
+# The archetype must not imply frictionlessness, must never state or imply
+# BidDeed bids on anyone's behalf, and must never give investment advice.
+_REMOTE_BIDDER_BANNED_PHRASES = [
+    "no paperwork", "no deposit", "skip the deposit", "we bid for you",
+    "we'll bid for you", "we bid on your behalf", "bid on your behalf",
+    "let us bid", "guaranteed", "risk free", "risk-free", "sure thing",
+    "you should buy", "you should invest", "great investment",
+    "no registration", "instantly own", "own it instantly",
+]
+
+
+def check_remote_bidder_honesty_guardrail(archetype: str, title: str, script_text: str) -> tuple[bool, list[str]]:
+    """Named check (issue #19793 PART 2) -- only applies to remote_bidder.
+    Scans the title + full spoken script for language implying frictionless
+    remote bidding, BidDeed bidding on the viewer's behalf, or investment
+    advice. Non-blocking (pass=True) for every other archetype -- this is
+    remote_bidder's own compliance rule, not a general profanity filter."""
+    if archetype != "remote_bidder":
+        return (True, [])
+    reasons = []
+    blob = f"{title or ''} {script_text or ''}".lower()
+    for phrase in _REMOTE_BIDDER_BANNED_PHRASES:
+        if phrase in blob:
+            reasons.append(f"remote_bidder honesty guardrail: banned phrase {phrase!r} found "
+                            f"(implies frictionlessness, BidDeed bidding on the viewer's behalf, "
+                            f"or investment advice)")
     return (len(reasons) == 0, reasons)
 
 
@@ -348,6 +399,15 @@ def build_prompt(reel: dict, k: int = K_VARIANTS, avoid_archetypes: list[str] | 
         "reference. Every title: 5-9 words, third person (no I/you/we), must contain an "
         "ellipsis (...), and exactly two emoji. Return strict JSON only, no prose, no markdown fences."
     )
+    if (forced_archetype or "") == "remote_bidder":
+        system += (
+            " This variant's archetype is remote_bidder: the hook states the stakes without "
+            "the payoff, the tension beat carries one line on the online bidding mechanism, "
+            "and the loop line closes on place-independence (the buyer never had to set foot "
+            "in Florida). HONESTY GUARDRAIL: never imply frictionlessness -- use the approved "
+            "phrasing pattern 'bid online from anywhere - deposit rules still apply', and never "
+            "state or imply BidDeed bids on anyone's behalf, and never give investment advice."
+        )
     user = f"""Property facts (do not invent any number not given here):
 - county: {county}
 - sale type: {sale_type}
