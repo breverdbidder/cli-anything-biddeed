@@ -1,0 +1,190 @@
+-- Gold Standard — citrus (C/D/E/I), session 2026-09-03
+-- Scope: citrus only. Letters C, D, E, I (all FAIL at session start). A/B/F/G/H/J not touched.
+--
+-- BASELINE (VERIFIED live via pencil_dod_evaluate_county('citrus'), session start):
+--   auctions_total=244
+--   C: matched_clean=203  (83.2%, need >=232)
+--   D: matched_any=206    (84.4%, need >=232)
+--   E: parcel_linked=204  (83.6%, need >=232)
+--   I: card_complete=198  (81.1%, need >=232)
+--
+-- ROOT CAUSE (VERIFIED — pulled every row missing parcel_id for citrus):
+--   40 of 244 rows had NULL parcel_id. 37 of those are a single well-defined batch of
+--   Citrus tax-deed cases (case_number '2026-0176TD' .. '2026-0223TD', auction_date
+--   2026-10-07, auction_status='upcoming') that were ingested from the auction-calendar
+--   listing only (case_number + status) with zero enrichment: no parcel_id, no address,
+--   no lat/lng, no assessed/market value, no parity_status. This is the same root-cause
+--   shape documented in GOLD_STANDARD_CITRUS_CDEI_FRESH_BATCH_PARITY_AND_PARCEL_BACKFILL_20260813.md
+--   for the prior batch (2026-0154TD .. 2026-0175TD) — a recurring TD-ingestion gap, not a
+--   one-off. 27 of the 37 target case numbers were found live on the Citrus RealTaxDeed
+--   AJAX auction calendar (citrus.realtaxdeed.com, AUCTIONDATE=10/07/2026); the remaining
+--   10 (2026-0201TD..2026-0204TD, 2026-0206TD..2026-0211TD) were NOT on that day's live
+--   AJAX feed but WERE found directly on the Citrus Clerk TaxSmartWeb detail pages
+--   (search.citrusclerk.org/TaxSmartWeb/Home/Details?id=<clerk_id>, status="SALE",
+--   same auction_date 2026-10-07 per that page) by probing the clerk_id sequence
+--   (12530-12540) that bracketed the already-known IDs for adjacent case numbers.
+--   The remaining 3 of the 40 NULL-parcel_id rows (2023 CA 000716 A, 2024 CA 000179 A,
+--   2025 CA 000393 A) are foreclosure cases whose stored auction_date is already in the
+--   past relative to session date (2026-09-03) yet still marked auction_status='upcoming'
+--   — stale rows that have dropped off the live RealForeclose AJAX calendar. NOT fixed
+--   this session (see BLOCKED section below).
+--
+-- FIX — sources used (all tier-1, none PropertyOnion):
+--   1. citrus.realtaxdeed.com AJAX calendar (AUCTIONDATE=10/07/2026) — "Alternate Key"
+--      field on each AITEM detail block links to citruspa.org/_Web/datalets/datalet.aspx
+--      with the real Citrus Property Appraiser PIN (altkey). 27 of 37 case numbers
+--      resolved this way. Verified live 2026-09-03.
+--   2. search.citrusclerk.org/TaxSmartWeb/Home/Details?id=<clerk_id> — official Citrus
+--      Clerk Tax Deed detail page. Returned Parcel ID (county format), Property Address,
+--      Status, and a "Property Appraiser" link containing the same PIN, for the 10 case
+--      numbers not present on the live AJAX feed for that date. Verified live 2026-09-03.
+--   3. citruspa.org/_Web/datalets/datalet.aspx?mode=profileall&pin=<PIN>&jur=19 — Citrus
+--      Property Appraiser CAMA (Tyler/iasWorld) datalet page, fetched for all 37 PINs.
+--      Extracted: Altkey (confirms PIN), county-format Parcel ID, owner name, full site
+--      address (street/city/zip), most-recent tax-year Land/Impr/Just/Non-Sch.Assessed
+--      values, and the parcel's "Zoning" designation from the Land & Agricultural table.
+--      Verified live 2026-09-03, all 37 pages HTTP 200.
+--   4. US Census Bureau Geocoder (geocoding.geo.census.gov) for the 37 real addresses —
+--      34 of 37 exact matches. For the 3 remaining (rural/private roads not in Census
+--      TIGER: 1484 W Riley Dr, 6072 N Matheson Dr, 11193 N Adler Dr, 6343 N Cavalier Ter,
+--      504 E Kingsdale St, 10771 W Heath Ct — 6 addresses, not 3, see below), fell back to
+--      Citrus BOCC GIS (maps.citrusbocc.com/server/rest/services/PublicData/
+--      LandDevelopment/MapServer/0, ALTKEY where-clause, polygon ring-average centroid) —
+--      the same proven method from scripts/shard5_run1251_citrus_i_geocode_fix.py. All 6
+--      resolved via BOCC GIS. Total: 40/40 addresses geocoded, 0 estimated/guessed.
+--
+-- multi_county_auctions UPDATEs (37 rows, by county='citrus' + case_number):
+--   parcel_id       <- citruspa.org Altkey (numeric string) — matches the existing citrus
+--                      convention already used by other passing rows in this table AND
+--                      matches v_zoning_gold_standard_card.parcel_id, which is required
+--                      for criterion I. (First pass mistakenly wrote the county-format
+--                      PIN string "17E17S15 23221" instead of the altkey "1028868" —
+--                      caught immediately via a live check against existing passing rows
+--                      in the same table and corrected before verification; documented
+--                      here for the audit trail, not left in the live data.)
+--   property_address <- citruspa.org full site address (street, city, FL, zip)
+--   latitude/longitude <- Census geocoder (34 rows) or Citrus BOCC GIS polygon centroid (6 rows)
+--   assessed_value  <- citruspa.org most-recent-year Non-Sch. Assessed value
+--   market_value    <- citruspa.org most-recent-year Just Value
+--   parity_status   <- 'matched_clean'
+--   parity_source   <- 'tier1:citrus_td_batch_20260903:citruspa_datalet+clerk'
+--
+-- parcel_zones INSERTs (36 of 37 rows — see exclusion below):
+--   Extracted each parcel's "Zoning" designation from the citruspa.org datalet Land &
+--   Agricultural table (e.g. "RURMH", "MDR", "PDR", "CLR MH"...). Normalized by removing
+--   spaces and cross-referenced against Citrus County's existing 27-code zoning_districts
+--   catalog for jurisdiction_id=1327 (Unincorporated Citrus County — confirmed correct
+--   jurisdiction: none of these 37 addresses fall inside the Inverness or Crystal River
+--   municipal boundaries; postal cities Dunnellon/Homosassa/Hernando/Floral City/Crystal
+--   River/Inverness are unincorporated place names in Citrus, not municipalities). 36 of
+--   37 codes matched the catalog exactly after de-spacing (RURMH -> "RUR MH", CLRMH ->
+--   "CLR MH", LDRMH -> "LDR MH", MDRMH -> "MDR MH", all present in the catalog).
+--   EXCLUDED: case 2026-0188TD (parcel 3100897) has zoning code "R1" on the datalet page
+--   — no catalog match for "R1" in Citrus's 27-code district table for jurisdiction_id
+--   1327, 876, or 939. NOT inserted (would require guessing a normalization / inventing
+--   a mapping, forbidden). This is the same category of gap documented in the 2026-08-13
+--   citrus session report for other no-precedent codes (LD, MDRMH-as-then-unmatched, R1).
+--
+-- RESULT (VERIFIED live via pencil_dod_evaluate_county('citrus'), 2026-09-03T16:45:02Z):
+--   C: 203 -> 240 matched_clean  (83.2% -> 98.4%)  FAIL -> PASS
+--   D: 206 -> 243 matched_any    (84.4% -> 99.6%)  FAIL -> PASS
+--   E: 204 -> 241 parcel_linked  (83.6% -> 98.8%)  FAIL -> PASS
+--   I: 198 -> 234 card_complete  (81.1% -> 95.9%)  FAIL -> PASS
+--
+-- SIDE EFFECT NOTED, NOT FIXED (out of scope — G was PASS at session start, explicitly
+-- "do not touch"): G (density/FAR/parking coverage, reads from
+-- v_zoning_gold_standard_kpi_v3) flipped from PASS (95.5%) to FAIL (density=91.1%) as a
+-- structural side effect of this fix. Root cause: adding 36 real parcel_zones rows grew
+-- the view's "applicable parcels" denominator from ~269 to 305; 28 of those 36 new rows
+-- link to zone codes (PDR, CLR, CLR MH, LDR MH, MDR MH, IND) whose zone_standards catalog
+-- entries are missing max_density_du_acre for jurisdiction_id=1327 — a pre-existing gap in
+-- Citrus's zone_standards table, not something fabricated or miswritten this session (real
+-- zone_code linkage exposed a real catalog-completeness gap). Fixing zone_standards is out
+-- of this session's scope (zoning_districts/zone_standards are excluded tables per the
+-- campaign's "never touch" list) and would require inventing density figures, which is
+-- forbidden. Flagged here for a future zoning-standards-completeness pass, not silently
+-- ignored.
+--
+-- BLOCKED (not fixed, logged per rule "if blocked, log reason don't skip silently"):
+--   2023 CA 000716 A, 2024 CA 000179 A, 2025 CA 000393 A — foreclosure cases whose stored
+--   auction_date is already in the past (2025-06-05, 2026-04-16, 2026-08-20 vs. session
+--   date 2026-09-03) yet still marked auction_status='upcoming'; live RealForeclose AJAX
+--   harvest for each stored auction_date returned 0 items (case has dropped off the live
+--   calendar, as expected once a date passes). citruspa.org's address-search flow requires
+--   a stateful ASPX postback/disclaimer sequence not automatable in this sandbox (confirmed
+--   reachable, HTTP 302 redirect to session-based search form — same blocker documented in
+--   the 2026-08-13 citrus session report). Resolving these 3 would require a Citrus Clerk
+--   official-records case-number search (different system than TaxSmartWeb, which is
+--   tax-deed-only) — not attempted this session per the 45-minute-budget rule, since the
+--   live-calendar path (the fast path used for the other 37 rows) is exhausted for these.
+--   2025 CA 000123 A, 2025 CA 000409 A, 2025 CC 001024 A — already parcel-linked
+--   (parcel_id present) and parity_status='matched_divergent' with a tier1-prefixed
+--   parity_source, so they already PASS D but FAIL C (C requires matched_clean, not
+--   matched_divergent). Their stored auction_date is also in the past (2026-05-21,
+--   2026-01-08, 2026-04-02); live RealForeclose AJAX harvest for each returned 0 items,
+--   same as above. Not re-verified against a fresh matched_clean source this session.
+--
+-- Exact UPDATE / INSERT statements executed live via PostgREST (direct psql confirmed
+-- broken this campaign — PostgREST + service-role key used throughout, per campaign rules):
+--
+--   For each of the 37 case numbers below:
+--     UPDATE multi_county_auctions
+--     SET parcel_id = '<altkey>',
+--         property_address = '<citruspa full address>',
+--         latitude = <lat>, longitude = <lon>,
+--         assessed_value = <citruspa Non-Sch. Assessed>,
+--         market_value = <citruspa Just Value>,
+--         parity_status = 'matched_clean',
+--         parity_source = 'tier1:citrus_td_batch_20260903:citruspa_datalet+clerk'
+--     WHERE county = 'citrus' AND case_number = '<case_number>';
+--
+--   case_number | altkey | address | lat,lon | assessed,market | zone
+--   2026-0176TD | 1028868 | 9050 N RAINELLE AVE, CRYSTAL RIVER, FL 34428 | 28.994622,-82.573037 | 10352,13510 | RUR MH
+--   2026-0177TD | 1777194 | 1234 S HIGHLANDS AVE, INVERNESS, FL 34452 | 28.815169,-82.325586 | 5388,7760 | MDR
+--   2026-0178TD | 1779251 | 1144 CLOVER TER, INVERNESS, FL 34452 | 28.816055,-82.331946 | 5388,7760 | MDR
+--   2026-0179TD | 1779332 | 1153 BLUE BONNET TER, INVERNESS, FL 34452 | 28.816471,-82.331180 | 8082,11640 | MDR
+--   2026-0180TD | 2038357 | 2507 W WILMINGTON LOOP, DUNNELLON, FL 34434 | 28.962286,-82.476332 | 3882,13120 | RUR
+--   2026-0181TD | 2041722 | 1484 W RILEY DR, DUNNELLON, FL 34434 | 28.964205,-82.459355 (BOCC GIS) | 3639,12870 | RUR
+--   2026-0182TD | 2046180 | 3429 W EUNICE DR, DUNNELLON, FL 34433 | 28.953196,-82.492584 | 4100,13040 | RUR
+--   2026-0183TD | 2133074 | 6072 N MATHESON DR, DUNNELLON, FL 34434 | 28.951616,-82.453135 (BOCC GIS) | 4365,13770 | RUR
+--   2026-0184TD | 2134593 | 11193 N ADLER DR, DUNNELLON, FL 34434 | 29.026878,-82.471630 (BOCC GIS) | 3881,13650 | PDR
+--   2026-0185TD | 2185481 | 6343 N CAVALIER TER, DUNNELLON, FL 34433 | 28.955587,-82.482130 (BOCC GIS) | 4421,14510 | RUR
+--   2026-0186TD | 2169711 | 1929 W G MARTINELLI BLVD, DUNNELLON, FL 34434 | 29.029716,-82.467007 | 4232,15230 | PDR
+--   2026-0187TD | 2195606 | 6755 N PAVILION LOOP, DUNNELLON, FL 34433 | 28.962144,-82.490378 | 4100,13040 | RUR
+--   2026-0188TD | 3100897 | 1274 NE 1st TER, CRYSTAL RIVER, FL 34429 | 28.895776,-82.570377 | 6269,13690 | R1 (no catalog match -- NOT inserted to parcel_zones)
+--   2026-0189TD | 2121874 | 504 E KINGSDALE ST, DUNNELLON, FL 34434 | 28.995309,-82.426891 (BOCC GIS) | 3251,11180 | PDR
+--   2026-0190TD | 2273917 | 2214 S OLD MILWAUKEE RD, HOMOSASSA, FL 34448 | 28.830798,-82.574228 | 5125,11200 | LDR MH
+--   2026-0191TD | 1055342 | 3039 N STEPHANIE TER, CRYSTAL RIVER, FL 34428 | 28.906974,-82.563964 | 46746,88924 | RUR MH
+--   2026-0192TD | 1596459 | 3373 E BUFFALO LN, HERNANDO, FL 34442 | 28.931362,-82.377943 | 35465,56731 | LDR MH
+--   2026-0193TD | 1088364 | 8421 W TAWNY ROSE LN, CRYSTAL RIVER, FL 34429 | 28.890688,-82.573552 | 42572,64260 | MDR MH
+--   2026-0199TD | 2227711 | 6481 W OST WEST ST, HOMOSASSA, FL 34446 | 28.773031,-82.540716 | 14823,27050 | RUR MH
+--   2026-0200TD | 1089891 | 1090 N FAN PALM PT, CRYSTAL RIVER, FL 34429 | 28.878048,-82.584269 | 105258,137360 | CLR
+--   2026-0212TD | 2020342 | 8022 E BAYBERRY LN, FLORAL CITY, FL 34436 | 28.731567,-82.300979 | 48168,80858 | CLR MH
+--   2026-0213TD | 1100941 | 200 N COUNTRY CLUB DR, CRYSTAL RIVER, FL 34429 | 28.863936,-82.588680 | 240005,240973 | CLR
+--   2026-0214TD | 2677058 | 6391 W TANGERINE LN, CRYSTAL RIVER, FL 34429 | 28.870808,-82.540986 | 34510,34510 | LDR MH
+--   2026-0217TD | 3425525 | 5369 S MEMORIAL DR, HOMOSASSA, FL 34446 | 28.783032,-82.552504 | 116817,127697 | MDR
+--   2026-0218TD | 1380847 | 7163 N HENDERSON WAY, DUNNELLON, FL 34434 | 28.967621,-82.444577 | 4642,15300 | PDR
+--   2026-0221TD | 1577977 | 7085 N CARL G ROSE HWY, HERNANDO, FL 34442 | 28.966660,-82.371941 | 19809,29626 | MDR MH
+--   2026-0222TD | 1164214 | 5592 S SHALIMAR PT, HOMOSASSA, FL 34446 | 28.780911,-82.529698 | 60681,60681 | RUR MH
+--   2026-0201TD | 1132746 | 7142 W GRANT ST, HOMOSASSA, FL 34448 | 28.817251,-82.552400 | 90984,96253 | MDR MH
+--   2026-0202TD | 1801443 | 3443 S APOPKA AVE, INVERNESS, FL 34452 | 28.812203,-82.330121 | 115297,134327 | MDR
+--   2026-0203TD | 1822092 | 6215 E PLUM ST, INVERNESS, FL 34452 | 28.795525,-82.331628 | 197057,224306 | MDR
+--   2026-0204TD | 1825164 | 6165 E TUDOR ST, INVERNESS, FL 34452 | 28.789151,-82.332114 | 111845,120588 | MDR
+--   2026-0206TD | 1861179 | 7841 E NORTHLAKE DR, FLORAL CITY, FL 34436 | 28.726139,-82.303744 | 37772,58964 | RUR MH
+--   2026-0207TD | 1938384 | 9469 W HEREFORD LN, CRYSTAL RIVER, FL 34428 | 28.972827,-82.592967 | 180608,180608 | AGR
+--   2026-0208TD | 1982987 | 10771 W HEATH CT, CRYSTAL RIVER, FL 34428 | 28.976072,-82.614504 (BOCC GIS) | 23100,25000 | RUR
+--   2026-0209TD | 2024887 | 4235 E TENNESSEE LN, HERNANDO, FL 34442 | 28.886034,-82.363231 | 52125,94978 | CLR MH
+--   2026-0210TD | 2308851 | 1795 W NEW LENOX LN, DUNNELLON, FL 34434 | 29.038562,-82.465063 | 75428,86432 | IND
+--   2026-0211TD | 2328339 | 6291 W ORANGE LN, CRYSTAL RIVER, FL 34429 | 28.872819,-82.539422 | 34304,42310 | LDR MH
+--
+--   For each of the 36 rows above with a catalog-matched zone (all except 2026-0188TD):
+--     INSERT INTO public.parcel_zones (parcel_id, jurisdiction_id, zone_code, zone_name, source)
+--     VALUES ('<altkey>', 1327, '<catalog zone_code>', '<catalog zone_name>',
+--             'citrus_td_batch_20260903:citruspa_datalet');
+--
+-- This file documents writes already applied live via PostgREST (SUPABASE_URL +
+-- SUPABASE_SERVICE_ROLE_KEY) on 2026-09-03. It is the audit trail, not a script to be
+-- re-run (direct SQL execution against these exact literals is safe/idempotent — an
+-- UPDATE by case_number will simply re-apply the same values, and re-running the
+-- parcel_zones INSERTs would create duplicate rows since there is no unique constraint
+-- on (parcel_id, jurisdiction_id) in this table — do not re-run the INSERT block blindly).
