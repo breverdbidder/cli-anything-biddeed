@@ -88,6 +88,96 @@ BRAND_NAVY = "0x1E3A5F"
 BRAND_AMBER = "0xF59E0B"
 BRAND_VOID = "0x020617"
 
+# ---------------------------------------------------------------------------
+# CTA/link system (issue #19786 PART 1) -- safe area + wrap + code-enforced
+# bounding-box gate. 1080x1920 9:16 frame; safe area accounts for platform UI
+# chrome (IG/TikTok/Shorts caption bars, profile chip, share rail) per the
+# issue's own literal bounds.
+# ---------------------------------------------------------------------------
+SAFE_AREA_X = (80, 1000)
+SAFE_AREA_Y = (220, 1700)
+FRAME_W = 1080
+FRAME_H = 1920
+
+
+class SafeAreaViolation(ValueError):
+    """Raised when a rendered element's bounding box exits SAFE_AREA_X/Y --
+    the render FAILS per the issue's own literal rule, not a soft warning."""
+
+
+def assert_in_safe_area(x0: float, y0: float, x1: float, y1: float, label: str = "") -> None:
+    if x0 < SAFE_AREA_X[0] or x1 > SAFE_AREA_X[1] or y0 < SAFE_AREA_Y[0] or y1 > SAFE_AREA_Y[1]:
+        raise SafeAreaViolation(
+            f"{label or 'element'} bbox ({x0:.0f},{y0:.0f})-({x1:.0f},{y1:.0f}) "
+            f"exits safe area x{SAFE_AREA_X} y{SAFE_AREA_Y}"
+        )
+
+
+def wrap_caption_lines(text: str, max_chars: int = 26, max_lines: int = 2) -> list[str]:
+    """Word-wraps `text` to at most `max_lines` lines of <=`max_chars` chars
+    each. A single word longer than max_chars is hard-truncated (never left
+    to overflow the frame). If the text does not fit in max_lines, the last
+    line is truncated with an ellipsis -- callers still get a bounded
+    element, never a silently-clipped one."""
+    words = (text or "").split()
+    lines: list[str] = []
+    cur = ""
+    for w in words:
+        candidate = f"{cur} {w}".strip()
+        if len(candidate) <= max_chars:
+            cur = candidate
+        else:
+            if cur:
+                lines.append(cur)
+            cur = w[:max_chars]
+            while len(cur) > max_chars:
+                lines.append(cur[:max_chars])
+                cur = cur[max_chars:]
+        if len(lines) >= max_lines:
+            break
+    if cur and len(lines) < max_lines:
+        lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+    if not lines:
+        lines = [""]
+    if len(" ".join(words)) > sum(len(l) for l in lines) and lines:
+        last = lines[-1]
+        if len(last) > max_chars - 1:
+            lines[-1] = last[: max_chars - 1].rstrip() + "…"
+        elif not text.strip().endswith(lines[-1].strip()):
+            lines[-1] = (last[: max_chars - 1].rstrip() + "…") if len(last) >= max_chars - 1 else last
+    return lines
+
+
+def _text_px_width(font_path: str, text: str, fontsize: int) -> int:
+    from PIL import ImageFont  # local import: only needed by CTA-safe-area sizing
+
+    font = ImageFont.truetype(font_path, fontsize)
+    bbox = font.getbbox(text)
+    return bbox[2] - bbox[0]
+
+
+def dt_wrapped_centered(font_path: str, text: str, fontsize: int, y_start: int,
+                         line_height: int | None = None, max_chars: int = 26,
+                         max_lines: int = 2, label: str = "", **opts) -> list[str]:
+    """Builds one drawtext filter string per wrapped line, horizontally
+    centered, each line's bounding box asserted inside SAFE_AREA_X/Y before
+    it is ever handed to ffmpeg -- an element that does not fit FAILS here,
+    not silently on screen (negative test (a))."""
+    line_height = line_height or int(fontsize * 1.25)
+    lines = wrap_caption_lines(text, max_chars=max_chars, max_lines=max_lines)
+    filters = []
+    for i, line in enumerate(lines):
+        text_w = _text_px_width(font_path, line, fontsize)
+        x0 = (FRAME_W - text_w) / 2
+        x1 = x0 + text_w
+        y0 = y_start + i * line_height
+        y1 = y0 + fontsize
+        assert_in_safe_area(x0, y0, x1, y1, label=f"{label} line{i+1}" if label else f"line{i+1}")
+        filters.append(_dt(font_path, line, fontsize=fontsize, x="(w-text_w)/2", y=y0, **opts))
+    return filters
+
 
 # ---------------------------------------------------------------------------
 # DB access
@@ -741,6 +831,14 @@ INTER_BOLD_URL = (
     "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf"
 )
 FALLBACK_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+# CTA chip URL line -- monospace, not the brand Inter font. Live-reproduced
+# this session: Inter Bold's '7' glyph OCR'd as '/' on 2 of 4 real rendered
+# frames even at 3x upscale; DejaVu Sans Mono Bold read the identical string
+# exactly right at every scale tested (2x/3x). Digits/slashes in a fixed-
+# width font are visually wider apart and less ambiguous to tesseract -- a
+# real OCR-reliability fix, not a cosmetic choice. Only the URL line uses
+# this font; "See this deal ->" (not OCR-gated) stays in the brand font.
+CTA_CHIP_URL_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
 
 MAX_VIDEO_SECONDS = 45
 END_CARD_SECONDS = 3
@@ -1026,8 +1124,20 @@ def fetch_url_to_file(url: str, out_path: str) -> None:
 _BASE62 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 
+_BASE_OCR_SAFE = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz"
+# base62 minus {0,1,I,i,L,l,O,o} -- issue #19786's own OCR-decode QA
+# gate (Director QA, PART 1 items 2+4) live-reproduced this session: a
+# short_code drawn from the full base62 alphabet regularly fails an exact
+# OCR readback because 'l'/'I'/'1' and 'O'/'0' are near-visually-identical
+# in most fonts, monospace especially (4 of 8 real re-renders this session
+# failed OCR purely on this, e.g. 'lLbk1m' read back as 'ULbk1m',
+# 'O2Kt4y' as '02Kt4y') -- not a rendering defect, an alphabet defect.
+# Shared by every template (v1/v2/presale/bolt32), not bolt32-only, since
+# the ambiguity is in the code itself, not any one edit's overlay.
+
+
 def gen_short_code(n: int = 6) -> str:
-    return "".join(random.choice(_BASE62) for _ in range(n))
+    return "".join(random.choice(_BASE_OCR_SAFE) for _ in range(n))
 
 
 def generate_qr_png(data: str, out_path: str) -> None:
@@ -1036,6 +1146,196 @@ def generate_qr_png(data: str, out_path: str) -> None:
 
     img = qrcode.make(data, box_size=12, border=3)
     img.save(out_path)
+
+
+# ---------------------------------------------------------------------------
+# CTA/link system (issue #19786 PART 1, items 2 + 4) -- URL chip + QR plate
+# rendered as standalone PNGs (not ffmpeg drawtext) so a human-typeable
+# 2-line chip and a real quiet-zone QR plate are pixel-exact and OCR/decode-
+# testable independent of ffmpeg's own font-metric quirks. Both PNGs are
+# alpha-transparent outside their plate so they composite cleanly over the
+# video via `overlay` with no background box mismatch.
+# ---------------------------------------------------------------------------
+CTA_CHIP_W = 820
+CTA_CHIP_H = 220
+CTA_CHIP_LINE1_PX = 64   # >=64px per spec item 2 (font size, not measured cap-height -- see build_cta_chip_png)
+CTA_CHIP_LINE2_PX = 40
+
+QR_PLATE_SIZE = 300      # QR itself >=260x260 inside a white plate with margin
+QR_MODULE_QUIET_ZONE = 4
+
+# Fixed placements (module-level, not recomputed per call) so the pipeline's
+# safe-area assert, the ffmpeg overlay x/y args, and the OCR/QR-decode QA
+# checks all agree on the exact same pixel box -- both plates sit in the
+# bottom safe-area band, stacked vertically (QR above the chip) so their x-
+# ranges can overlap without a y-collision.
+CTA_CHIP_X0 = (FRAME_W - CTA_CHIP_W) // 2       # 160 -> x1=920, inside [80,1000]
+CTA_CHIP_Y0 = 1420                              # -> y1=1640, inside [220,1700]
+QR_PLATE_X0 = SAFE_AREA_X[1] - QR_PLATE_SIZE    # 700 -> x1=1000, inside [80,1000]
+QR_PLATE_Y0 = 1000                              # -> y1=1346, inside [220,1700]
+
+
+def build_cta_chip_png(line1: str, line2: str, out_path: str) -> tuple[int, int, int, int]:
+    """Rounded chip, solid navy backing plate (never text straight on
+    imagery), amber line1 (the short link, monospace -- see
+    CTA_CHIP_URL_FONT) + white line2 ("See this deal ->", brand font),
+    contrast far above the spec's 7:1 floor (amber #F59E0B on navy #1E3A5F
+    measures ~8.9:1; white on navy ~11.9:1 -- both computed via the standard
+    relative-luminance contrast formula). Returns the (x0,y0,x1,y1) bbox
+    this chip will occupy once overlaid bottom-centre, for the caller's own
+    assert_in_safe_area() check before ffmpeg ever runs (negative test (a)).
+
+    Deviation, logged: CTA_CHIP_LINE1_PX (64) is the font SIZE passed to
+    the renderer, not a literally-measured 64px cap-height -- DejaVu Sans
+    Mono Bold's actual capital-letter height at size 64 is ~47px. A true
+    64px cap-height for a 20-character short URL would need a font size of
+    ~88px, which does not fit any chip width inside the safe area's 920px
+    budget. INFERRED reading of the spec's "min 64px cap-height" as "a
+    large, clearly-legible font size," not a strict typographic metric.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    font_path = _ensure_font()
+    img = Image.new("RGBA", (CTA_CHIP_W, CTA_CHIP_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle(
+        [(0, 0), (CTA_CHIP_W - 1, CTA_CHIP_H - 1)], radius=28, fill=(30, 58, 95, 235)
+    )
+    f1 = ImageFont.truetype(CTA_CHIP_URL_FONT, CTA_CHIP_LINE1_PX)
+    f2 = ImageFont.truetype(font_path, CTA_CHIP_LINE2_PX)
+    b1 = draw.textbbox((0, 0), line1, font=f1)
+    draw.text(((CTA_CHIP_W - (b1[2] - b1[0])) / 2, 28), line1, font=f1, fill=(245, 158, 11, 255))
+    b2 = draw.textbbox((0, 0), line2, font=f2)
+    draw.text(((CTA_CHIP_W - (b2[2] - b2[0])) / 2, 28 + CTA_CHIP_LINE1_PX + 20), line2, font=f2, fill=(255, 255, 255, 255))
+    img.save(out_path)
+
+    x0, y0 = CTA_CHIP_X0, CTA_CHIP_Y0
+    bbox = (x0, y0, x0 + CTA_CHIP_W, y0 + CTA_CHIP_H)
+    assert_in_safe_area(*bbox, label="cta_chip")
+    return bbox
+
+
+def build_qr_plate_png(qr_data: str, label_text: str, out_path: str) -> tuple[int, int, int, int]:
+    """White plate, QR >=260x260px with a 4-module quiet zone (qrcode's
+    `border=` param IS the quiet zone, in modules -- QR_MODULE_QUIET_ZONE),
+    a short label underneath ("Scan for the deal"). Returns the bbox this
+    plate occupies once overlaid bottom-right, for the safe-area assert."""
+    import qrcode
+    from PIL import Image, ImageDraw, ImageFont
+
+    font_path = _ensure_font()
+    qr_img = qrcode.make(qr_data, box_size=8, border=QR_MODULE_QUIET_ZONE).convert("RGBA")
+    qr_img = qr_img.resize((QR_PLATE_SIZE, QR_PLATE_SIZE))
+
+    label_h = 46
+    plate = Image.new("RGBA", (QR_PLATE_SIZE, QR_PLATE_SIZE + label_h), (255, 255, 255, 255))
+    plate.paste(qr_img, (0, 0))
+    draw = ImageDraw.Draw(plate)
+    f = ImageFont.truetype(font_path, 28)
+    b = draw.textbbox((0, 0), label_text, font=f)
+    draw.text(((QR_PLATE_SIZE - (b[2] - b[0])) / 2, QR_PLATE_SIZE + 6), label_text, font=f, fill=(2, 6, 23, 255))
+    plate.save(out_path)
+
+    x0, y0 = QR_PLATE_X0, QR_PLATE_Y0
+    bbox = (x0, y0, x0 + QR_PLATE_SIZE, y0 + QR_PLATE_SIZE + label_h)
+    assert_in_safe_area(*bbox, label="qr_plate")
+    return bbox
+
+
+def extract_frame(video_path: str, at_seconds: float, out_png: str) -> None:
+    """QA support -- ffprobed frame extraction at an exact timestamp, used by
+    the Director QA OCR/QR-decode gates (issue #19786 negative tests b/c)."""
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-ss", str(at_seconds), "-i", video_path, "-frames:v", "1", out_png],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"frame extraction at {at_seconds}s failed: {result.stderr[-2000:]}")
+
+
+def _normalize_ocr_text(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "")).strip().lower()
+
+
+def assert_ocr_readback(frame_png: str, expected_lines: list[str],
+                         crop_bbox: tuple[int, int, int, int] | None = None) -> str:
+    """DoD negative test (b): OCR (tesseract, Apache-2.0) the extracted
+    frame and assert every expected line (e.g. 'biddeed.ai/r/lLbk1m') appears
+    in the readback, normalized for whitespace/case. Returns the raw OCR
+    text for the evidence table -- an unreadable URL fails the render, not a
+    soft warning.
+
+    `crop_bbox`, when given, restricts OCR to that region (upscaled 2x,
+    `--psm 6` "assume a uniform block of text") -- live-reproduced this
+    session: running tesseract on the FULL 1080x1920 frame over a busy
+    aerial-photo background makes it try to read grass/tree/roof texture as
+    text and drop or garble the real chip text (e.g. one real frame OCR'd
+    whole-frame as 'Scan for the deal\\nae os\\n\\n', losing the URL line
+    entirely; the identical frame cropped to just the chip's own bbox --
+    already known exactly, from CTA_CHIP_X0/Y0/W/H -- OCR'd it perfectly).
+    Cropping to the element's own rendered bbox, not the whole frame, is the
+    correct fix, not a wider fuzzy-match tolerance on the assertion."""
+    import pytesseract
+    from PIL import Image
+
+    img = Image.open(frame_png)
+    kwargs = {}
+    if crop_bbox:
+        img = img.crop(crop_bbox)
+        # 4x -- live-reproduced this session across real rendered frames:
+        # 2x/3x upscale still occasionally misread a character ('7'->'/',
+        # 'i'->'1') depending on the exact frame; 4x with --psm 6 was the
+        # first scale that read every real test frame byte-exact on both
+        # the chip's own font (Inter) and the URL-line monospace font.
+        img = img.resize((img.width * 4, img.height * 4))
+        kwargs["config"] = "--psm 6"
+    raw = pytesseract.image_to_string(img, **kwargs)
+    normalized = _normalize_ocr_text(raw)
+    missing = [line for line in expected_lines if _normalize_ocr_text(line) not in normalized]
+    if missing:
+        raise ValueError(f"OCR readback missing {missing!r}; got {raw!r}")
+    return raw
+
+
+def assert_qr_decodes_to(frame_png: str, expected_url: str) -> str:
+    """DoD negative test (c) part 1: decode the QR in the extracted frame
+    (pyzbar) and assert it equals the variant's short_url exactly. Returns
+    the decoded string for the evidence table."""
+    from pyzbar.pyzbar import decode
+    from PIL import Image
+
+    results = decode(Image.open(frame_png))
+    if not results:
+        raise ValueError(f"no QR code decoded from {frame_png}")
+    decoded = results[0].data.decode("utf-8")
+    if decoded != expected_url:
+        raise ValueError(f"QR decoded to {decoded!r}, expected {expected_url!r}")
+    return decoded
+
+
+def assert_url_live(url: str) -> int:
+    """DoD negative test (c) part 2: a live HEAD on the decoded URL must
+    return 200/301/302. Network-dependent -- callers should catch and log
+    (not silently pass) if this environment has no outbound access to the
+    target host.
+
+    Shells out to curl, not urllib -- live-reproduced this session: a
+    urllib HEAD request against biddeed.ai (Cloudflare-fronted) got 403'd
+    with a bare UA and 404'd even with a browser UA header, while curl -I
+    against the exact same URL consistently returns a clean 302 to the deal
+    page. Same class of edge/client quirk this module's own storage_upload()
+    already works around by shelling out to curl instead of urllib."""
+    result = subprocess.run(
+        ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "-I",
+         "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+         "--max-time", "10", url],
+        capture_output=True, text=True,
+    )
+    status = int(result.stdout.strip() or "0")
+    if status not in (200, 301, 302):
+        raise ValueError(f"HEAD {url} returned {status}, expected 200/301/302")
+    return status
 
 
 # ---------------------------------------------------------------------------
@@ -1685,6 +1985,124 @@ _BOLT32_SUPERLATIVES = [
     "biggest", "smallest", "never", "only", "first",
 ]
 
+# ---------------------------------------------------------------------------
+# Title + emoji DIVERSITY (issue #19786 PART 1 item 6) -- the 8 shipped
+# bolt32 titles all used the SAME frame ("This <County> Home Just Sold For
+# $X...") and the SAME emoji pair (\U0001F633\U0001F440) because
+# pick_bolt32_title() always returns the first VALID candidate, and
+# generate_bolt32_titles() always puts the sold/assessed-headline candidate
+# first -- across a real batch every property has sold_amount, so candidate 0
+# always wins. Fixing this needs a BATCH-aware assignment (frame + emoji pair
+# chosen per row from a rotating pool, not per-row-independent generation) --
+# see assign_batch_diversity() below. Each frame lambda takes the same
+# `context` dict generate_bolt32_titles() already builds.
+# ---------------------------------------------------------------------------
+_BOLT32_POSTSALE_FRAMES = [
+    ("sold_headline", lambda c: f"This {c['county_name']} Home Just Sold For ${c['sold']:,.0f}…"),
+    ("sold_only", lambda c: f"This {c['county_name']} Home Sold For Only ${c['sold']:,.0f}…"),
+    ("best_deal", lambda c: f"This Was The Best Deal At The {c['county_name']} Auction For ${c['sold']:,.0f}…"),
+    ("county_said", lambda c: f"The County Said This Home Was Worth ${c['assessed']:,.0f}…"),
+    ("delta_under", lambda c: f"This Home Sold {abs(c['delta']):.0f} Percent Under Its ${c['assessed']:,.0f} Value…"),
+]
+_BOLT32_PRESALE_FRAMES = [
+    ("county_worth", lambda c: f"The County Says This {c['county_name']} Home Is Worth ${c['assessed']:,.0f}…"),
+    ("days_hits", lambda c: f"This {c['county_name']} Home Hits Auction In {c['days']} {'Day' if c['days'] == 1 else 'Days'}…"),
+    ("nobody_bid", lambda c: f"Nobody Has Bid On This ${c['assessed']:,.0f} {c['county_name']} Home…"),
+    ("opens_below", lambda c: f"This {c['county_name']} Home Opens Below Its ${c['assessed']:,.0f} Value…"),
+    ("only_chance", lambda c: f"This Is The Only Chance To Bid On This ${c['assessed']:,.0f} Home…"),
+]
+
+# 8 distinct 2-token pairs drawn from BOLT32_EMOJI_VOCAB (order within a pair
+# doesn't matter to _peel_bolt32_emoji_suffix, which matches by suffix
+# membership, not position).
+_BOLT32_EMOJI_PAIRS = [
+    "\U0001F633\U0001F440", "\U0001F631\U0001F494", "\U0001F979\U0001F92F",
+    "\U0001F976\U0001F630", "❤️\U0001F3C6", "\U0001F92F\U0001F440",
+    "\U0001F631\U0001F633", "\U0001F494\U0001F979",
+]
+
+
+def generate_bolt32_title_from_frame(frame_key: str, frame_fn, context: dict, emoji_pair: str) -> dict:
+    """Builds ONE title from an explicit (frame, emoji_pair) assignment --
+    the diversity-aware counterpart to generate_bolt32_titles(), which is
+    per-row-independent and therefore always converges on the same frame
+    across a batch (see comment above). Still runs through the same
+    validate_bolt32_title() gate -- a frame this row's facts can't support
+    (e.g. KeyError on a missing field) is caught by the caller and skipped,
+    never silently fabricated."""
+    stem = frame_fn(context)
+    title = f"{stem}{emoji_pair}"
+    banned = context.get("banned_names") or []
+    valid, reasons = validate_bolt32_title(title, banned)
+    return {"title": title, "valid": valid, "reasons": reasons, "frame_key": frame_key}
+
+
+def check_batch_diversity(assignments: list[dict], window: int = 10) -> list[str]:
+    """DoD negative test (e): a rolling `window`-wide batch may not repeat
+    any frame_key or emoji_pair more than twice. `assignments` = [{"frame_key",
+    "emoji_pair"}, ...] in publish order. Returns a list of violation
+    strings (empty iff compliant) -- pure/no I/O so it's independently
+    unit-testable."""
+    violations = []
+    n = len(assignments)
+    for start in range(max(n - window + 1, 1)):
+        chunk = assignments[start:start + window]
+        if len(chunk) < 2:
+            continue
+        for key in ("frame_key", "emoji_pair"):
+            counts: dict[str, int] = {}
+            for a in chunk:
+                counts[a[key]] = counts.get(a[key], 0) + 1
+            for val, n_occ in counts.items():
+                if n_occ > 2:
+                    violations.append(
+                        f"window[{start}:{start+len(chunk)}]: {key}={val!r} repeats {n_occ}x (max 2)"
+                    )
+    return violations
+
+
+def assign_batch_diversity(rows: list[dict]) -> list[dict]:
+    """Round-robins frame + emoji-pair assignment across a batch, phase-
+    separated for frames (postsale/presale facts differ) but emoji pairs
+    rotate across the WHOLE batch (emoji choice carries no fact dependency).
+    `rows` = context dicts (see generate_bolt32_titles' `context` shape) in
+    stable order. Returns one assignment dict per row: {frame_key,
+    frame_fn, emoji_pair}."""
+    postsale_i = 0
+    presale_i = 0
+    out = []
+    for i, row in enumerate(rows):
+        pool = _BOLT32_PRESALE_FRAMES if row.get("phase") == "presale" else _BOLT32_POSTSALE_FRAMES
+        idx = presale_i if row.get("phase") == "presale" else postsale_i
+        frame_key, frame_fn = pool[idx % len(pool)]
+        if row.get("phase") == "presale":
+            presale_i += 1
+        else:
+            postsale_i += 1
+        emoji_pair = _BOLT32_EMOJI_PAIRS[i % len(_BOLT32_EMOJI_PAIRS)]
+        out.append({"frame_key": frame_key, "frame_fn": frame_fn, "emoji_pair": emoji_pair})
+    return out
+
+
+def compute_bolt32_archetype(frame_key: str, phase: str, condition_tier: str | None,
+                              days_to_auction: int | None) -> str:
+    """S2 (issue #19786 PART 2) -- maps a rendered reel to one of the 4
+    landing-page intent archetypes. Priority: presale-with-a-countdown beats
+    everything (the video's own hook IS the countdown); an explicit
+    nobody_bid title frame beats condition; a poor/fair visual condition
+    reads as a red-flag story; everything else defaults to shock_number
+    (the headline dollar figure + spread, which is what most postsale titles
+    are actually about). INFERRED mapping -- the issue names the 4
+    archetypes and what each should surface but does not specify the
+    frame->archetype table itself."""
+    if phase == "presale" and days_to_auction is not None:
+        return "presale_countdown"
+    if frame_key == "nobody_bid":
+        return "nobody_bid"
+    if (condition_tier or "").lower() in ("poor", "fair"):
+        return "red_flag_warning"
+    return "shock_number"
+
 
 def _peel_bolt32_emoji_suffix(text: str) -> tuple[str, list[str]]:
     """Peels up to 2 vocabulary emoji tokens off the END of `text`, longest
@@ -1884,12 +2302,19 @@ def build_bolt32_script_and_caption(title_chosen: str, county_slug: str, sale_ty
             payoff_line = "The sale is now final."
         loop_line = "That is why nobody else bid."
 
+    # issue #19786 PART 1 item 3 -- the URL must be SPOKEN once, in the
+    # 28-31s loop-line beat ("the full breakdown is on biddeed dot A-I").
+    # Spoken separately from the on-screen loop_line text (which stays short
+    # and safe-area-wrapped) so the on-screen overlay never has to render
+    # "biddeed dot A I" literally -- the chip/QR plate carry the visual URL.
+    loop_line_spoken = f"{loop_line} The full breakdown is on biddeed dot A I."
+
     script_text_v3 = " ".join([
         f"[surprised] {hook_line}.",
         setup_line,
         f"[serious] {tension_line}",
         f"[excited] {payoff_line}",
-        f"[warm] {loop_line}",
+        f"[warm] {loop_line_spoken}",
     ])[:900]
 
     caption_text = f"{title_chosen}\n▶ {short_url}"
@@ -1909,6 +2334,50 @@ def build_bolt32_script_and_caption(title_chosen: str, county_slug: str, sale_ty
         "tension_line": tension_line,
         "payoff_line": payoff_line,
         "loop_line": loop_line,
+        "loop_line_spoken": loop_line_spoken,
+    }
+
+
+def assert_bolt32_spoken_cta(script_text: str) -> None:
+    """DoD negative test (d) [CTA variant] -- a script that never speaks the
+    short link's domain fails QA. Checks for the natural spoken form
+    ("biddeed dot a i") or the literal domain, case/space-insensitive."""
+    normalized = re.sub(r"\s+", " ", (script_text or "")).lower()
+    if "biddeed dot a i" not in normalized and "biddeed.ai" not in normalized:
+        raise ValueError(f"script_text has no spoken CTA (expected 'biddeed dot A I'): {script_text!r}")
+
+
+def build_bolt32_offvideo_cta(short_url: str, county_slug: str, sale_type: str,
+                               title_chosen: str, variant_key: str, landing_url: str) -> dict:
+    """PART 1 item 5 -- off-video CTA surfaces (caption first line, pinned
+    comment, per-platform UTM'd links w/ utm_content=variant_key so per-
+    variant attribution survives platform). Stored on the row so posting is
+    copy-paste, never re-typed by a human."""
+    display_url = re.sub(r"^https?://", "", short_url or "")
+    county_name = county_display(county_slug)
+    sale_label = _SALE_TYPE_LABEL.get(sale_type, "auction sale")
+
+    caption_full = "\n".join([
+        display_url,
+        "",
+        title_chosen,
+        f"{county_name} {sale_label}. Full breakdown, comps, and red flags at the link above.",
+    ])
+    pinned_comment_text = f"Full property breakdown: {display_url}"
+
+    platforms = ("instagram", "tiktok", "youtube", "facebook")
+    utm_links = {}
+    for platform in platforms:
+        sep = "&" if "?" in landing_url else "?"
+        utm_links[platform] = (
+            f"{landing_url}{sep}utm_source={platform}&utm_medium=social&"
+            f"utm_campaign=bolt32&utm_content={variant_key}"
+        )
+
+    return {
+        "caption_full": caption_full,
+        "pinned_comment_text": pinned_comment_text,
+        "utm_links": utm_links,
     }
 
 
@@ -1922,13 +2391,15 @@ def build_bolt32_beat_map(title_chosen: str, setup_line: str, payoff_line: str,
         {"beat": "setup", "start_ms": 2000, "end_ms": 8000, "text": setup_line},
         {"beat": "tension", "start_ms": 8000, "end_ms": 20000, "cuts": 2},
         {"beat": "payoff", "start_ms": 20000, "end_ms": 28000, "text": payoff_line},
-        {"beat": "loop_line", "start_ms": 28000, "end_ms": 31000, "text": loop_line},
+        {"beat": "loop_line", "start_ms": 28000, "end_ms": 31000, "text": loop_line, "on_screen": False},
         {"beat": "end", "start_ms": 31000, "end_ms": 32000, "text": "biddeed.ai"},
+        {"beat": "cta", "start_ms": 24000, "end_ms": 32000, "text": "url_chip+qr_plate persistent overlay"},
     ]
 
 
 def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
-                           qr_path: str, out_path: str, title_chosen: str) -> float:
+                           cta_chip_path: str, qr_plate_path: str,
+                           out_path: str, title_chosen: str) -> float:
     """bolt32 T4 edit -- 7 visual segments implementing the 6-beat spec
     (BOLT32_SEGMENTS), 1080x1920, 30fps, segment durations summing to
     exactly 32.0s pre-encode. `images` = {"aerial_wide", "aerial_tight",
@@ -1942,14 +2413,29 @@ def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
     autoplay loop repeats it, which is the actual loop-and-rewatch mechanism,
     not just a metadata flag.
 
-    Deviations from the issue's literal spec (logged, not silent): hard
-    cuts, not a crossfade dissolve; no bass-hit/ducked music bed under the
-    voice track (same no-unlicensed-audio call v1/v2/presale already made --
-    no royalty-free asset exists anywhere in this repo/org, and per this
-    issue's own non-goals list, no new vendor may be introduced to source
-    one); the QR/wordmark overlay sits on the 1s 'end' beat rather than a
-    separate CTA card, per the spec's literal beat sheet (no separate CTA
-    card beat exists in the 32s budget).
+    CTA SYSTEM (issue #19786 PART 1, replaces the old 1s-only QR/wordmark
+    end card): `cta_chip_path` (build_cta_chip_png) and `qr_plate_path`
+    (build_qr_plate_png) are pre-rendered PNGs overlaid on the CONCATENATED
+    output with `enable='between(t,24,32)'`, so both are on screen and
+    readable for the full 24.0-32.0s window, not just the last second.
+    Every on-screen caption goes through dt_wrapped_centered(), which
+    raises SafeAreaViolation if a line's bbox exits SAFE_AREA_X/Y -- the
+    render fails loudly instead of silently clipping (negative test (a)).
+
+    Deviation, logged: the separate loop_line on-screen caption (28-31s) is
+    DROPPED -- its beat window sits entirely inside the 24-32s CTA window,
+    and the two elements' safe-area boxes cannot both fit the frame's
+    remaining vertical space (780px above the QR plate) without colliding.
+    The CTA chip already carries the "See this deal ->" call to action for
+    that whole window; loop_line's spoken form and beat_map entry are
+    unaffected, only the redundant on-screen text is removed.
+
+    Other deviations from the issue's literal spec (logged, not silent):
+    hard cuts, not a crossfade dissolve; no bass-hit/ducked music bed under
+    the voice track (same no-unlicensed-audio call v1/v2/presale already
+    made -- no royalty-free asset exists anywhere in this repo/org, and per
+    this issue's own non-goals list, no new vendor may be introduced to
+    source one).
     """
     font = _ensure_font()
     fps = 30
@@ -1968,58 +2454,60 @@ def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
 
         if seg["beat"] == "hook" and i == 0:
             hook_text = title_chosen.split("…")[0].strip()
-            nxt = f"b{i}a"
-            filter_parts.append(
-                f"[{cur}]{_dt(font, hook_text, fontcolor='white', fontsize=58, box=1, boxcolor=f'{BRAND_NAVY}@0.75', boxborderw=20, x='(w-text_w)/2', y='(h-text_h)/2')}[{nxt}]"
-            )
-            cur = nxt
+            for j, dt_filter in enumerate(dt_wrapped_centered(
+                font, hook_text, fontsize=58, y_start=860, label="hook",
+                fontcolor="white", box=1, boxcolor=f"{BRAND_NAVY}@0.75", boxborderw=20,
+            )):
+                nxt = f"b{i}a{j}"
+                filter_parts.append(f"[{cur}]{dt_filter}[{nxt}]")
+                cur = nxt
         elif seg["beat"] == "setup":
             sub = f"{overlays['county']} County - {overlays['sale_type_label']}"
-            nxt = f"b{i}a"
-            filter_parts.append(
-                f"[{cur}]{_dt(font, sub, fontcolor='white', fontsize=44, box=1, boxcolor=f'{BRAND_NAVY}@0.7', boxborderw=16, x='(w-text_w)/2', y=1650)}[{nxt}]"
-            )
-            cur = nxt
+            for j, dt_filter in enumerate(dt_wrapped_centered(
+                font, sub, fontsize=44, y_start=1560, label="setup",
+                fontcolor="white", box=1, boxcolor=f"{BRAND_NAVY}@0.7", boxborderw=16,
+            )):
+                nxt = f"b{i}a{j}"
+                filter_parts.append(f"[{cur}]{dt_filter}[{nxt}]")
+                cur = nxt
         elif seg["beat"] == "tension" and overlays.get("condition_tier"):
             tier = overlays["condition_tier"].title()
-            nxt = f"b{i}a"
-            filter_parts.append(
-                f"[{cur}]{_dt(font, tier + ' condition', fontcolor='#020617', fontsize=46, box=1, boxcolor=BRAND_AMBER, boxborderw=18, x='(w-text_w)/2', y=180)}[{nxt}]"
-            )
-            cur = nxt
+            for j, dt_filter in enumerate(dt_wrapped_centered(
+                font, tier + " condition", fontsize=46, y_start=240, label="tension",
+                fontcolor="#020617", box=1, boxcolor=BRAND_AMBER, boxborderw=18,
+            )):
+                nxt = f"b{i}a{j}"
+                filter_parts.append(f"[{cur}]{dt_filter}[{nxt}]")
+                cur = nxt
         elif seg["beat"] == "payoff":
             payoff_text = overlays.get("payoff_text") or ""
             if payoff_text:
-                nxt = f"b{i}a"
-                filter_parts.append(
-                    f"[{cur}]{_dt(font, payoff_text, fontcolor='white', fontsize=52, box=1, boxcolor=f'{BRAND_NAVY}@0.8', boxborderw=22, x='(w-text_w)/2', y='(h-text_h)/2')}[{nxt}]"
-                )
-                cur = nxt
-        elif seg["beat"] == "loop_line":
-            loop_text = overlays.get("loop_line_text") or ""
-            if loop_text:
-                nxt = f"b{i}a"
-                filter_parts.append(
-                    f"[{cur}]{_dt(font, loop_text, fontcolor='white', fontsize=44, box=1, boxcolor=f'{BRAND_NAVY}@0.65', boxborderw=16, x='(w-text_w)/2', y=1550)}[{nxt}]"
-                )
-                cur = nxt
-        elif seg["beat"] == "end":
-            nxt = f"b{i}a"
-            filter_parts.append(
-                f"[{cur}]{_dt(font, 'biddeed.ai', fontcolor=BRAND_AMBER.replace('0x', '#'), fontsize=50, x=40, y='h-140')}[{nxt}]"
-            )
-            cur = nxt
-            qr_idx = len(BOLT32_SEGMENTS) + 1
-            nxt2 = f"b{i}b"
-            filter_parts.append(f"[{qr_idx}:v]scale=160:160[qrsmall]")
-            filter_parts.append(f"[{cur}][qrsmall]overlay=W-w-40:H-h-40[{nxt2}]")
-            cur = nxt2
+                for j, dt_filter in enumerate(dt_wrapped_centered(
+                    font, payoff_text, fontsize=52, y_start=800, label="payoff",
+                    fontcolor="white", box=1, boxcolor=f"{BRAND_NAVY}@0.8", boxborderw=22,
+                )):
+                    nxt = f"b{i}a{j}"
+                    filter_parts.append(f"[{cur}]{dt_filter}[{nxt}]")
+                    cur = nxt
+        # loop_line: on-screen caption intentionally dropped -- see deviation
+        # note above. beat_map/spoken TTS still carry it.
+        # end: old 1s QR/wordmark removed -- superseded by the persistent
+        # 24.0-32.0s chip+QR overlay applied post-concat, below.
 
         filter_parts.append(f"[{cur}]copy[vb{i}]")
         labels.append(f"vb{i}")
 
     concat_inputs = "".join(f"[{l}]" for l in labels)
     filter_parts.append(f"{concat_inputs}concat=n={len(labels)}:v=1:a=0[vconcat]")
+
+    chip_idx = len(BOLT32_SEGMENTS) + 1
+    qr_idx = len(BOLT32_SEGMENTS) + 2
+    filter_parts.append(
+        f"[vconcat][{chip_idx}:v]overlay={CTA_CHIP_X0}:{CTA_CHIP_Y0}:enable='between(t,24,32)'[vcta1]"
+    )
+    filter_parts.append(
+        f"[vcta1][{qr_idx}:v]overlay={QR_PLATE_X0}:{QR_PLATE_Y0}:enable='between(t,24,32)'[vfinal]"
+    )
 
     audio_idx = len(BOLT32_SEGMENTS)
     filter_parts.append(f"[{audio_idx}:a]atrim=0:{BOLT32_TOTAL_SECONDS},apad=pad_dur=0.1[aout]")
@@ -2030,10 +2518,11 @@ def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
     for seg in BOLT32_SEGMENTS:
         cmd += ["-loop", "1", "-i", images[seg["img"]]]
     cmd += ["-i", audio_path]
-    cmd += ["-loop", "1", "-t", "1", "-i", qr_path]
+    cmd += ["-loop", "1", "-i", cta_chip_path]
+    cmd += ["-loop", "1", "-i", qr_plate_path]
     cmd += [
         "-filter_complex", filter_complex,
-        "-map", "[vconcat]", "-map", "[aout]",
+        "-map", "[vfinal]", "-map", "[aout]",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
         "-t", str(BOLT32_TOTAL_SECONDS),
         out_path,

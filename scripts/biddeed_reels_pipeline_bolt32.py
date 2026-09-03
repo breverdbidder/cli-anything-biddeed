@@ -85,7 +85,7 @@ def banned_names_for_case(case_number: str, county: str) -> list[str]:
 def _sql_val(col: str, v):
     if col in ("duration_bolt32_sec", "loop_frame_ms"):
         return lib.sql_num(v)
-    if col in ("title_candidates", "beat_map"):
+    if col in ("title_candidates", "beat_map", "utm_links", "cta_qa"):
         return lib.sql_jsonb(v)
     if col == "hashtags":
         return lib.sql_text_array(v)
@@ -161,8 +161,16 @@ def process_row_bolt32(row: dict, keys: dict) -> dict:
             lib.fetch_url_to_file(row["aerial_tight_url"], tight_path)
             lib.fetch_url_to_file(row["street_url"], street_path)
 
-            qr_path = os.path.join(tmp, "qr.png")
-            lib.generate_qr_png(row["short_url"], qr_path)
+            # issue #19786 PART 1 -- every bolt32 render gets the CTA system
+            # (persistent URL chip + QR plate), not just the CP3e re-render
+            # batch (process_row_bolt32_cta). This legacy single-title path
+            # (process_row_bolt32, used by --ids) still doesn't run the
+            # diversity assignment or Director QA -- callers wanting those
+            # should use --cta-batch instead.
+            chip_path = os.path.join(tmp, "cta_chip.png")
+            lib.build_cta_chip_png(re.sub(r"^https?://", "", row["short_url"]), "See this deal →", chip_path)
+            qr_plate_path = os.path.join(tmp, "qr_plate.png")
+            lib.build_qr_plate_png(row["short_url"], "Scan for the deal", qr_plate_path)
 
             audio_path = os.path.join(tmp, "voice_bolt32.mp3")
             lib.elevenlabs_tts_v3(sc["script_text_v3"], keys["elevenlabs"], audio_path)
@@ -177,7 +185,7 @@ def process_row_bolt32(row: dict, keys: dict) -> dict:
             }
             images = {"aerial_wide": wide_path, "aerial_tight": tight_path, "street": street_path}
             video_path = os.path.join(tmp, "reel_bolt32.mp4")
-            duration_sec = lib.assemble_video_bolt32(images, audio_path, overlays, qr_path, video_path, title_chosen)
+            duration_sec = lib.assemble_video_bolt32(images, audio_path, overlays, chip_path, qr_plate_path, video_path, title_chosen)
 
             # DoD gates -- raise (not warn) before anything lands in the DB
             # if either fails. tts_model is asserted against the constant
@@ -218,6 +226,180 @@ def process_row_bolt32(row: dict, keys: dict) -> dict:
         return result
 
 
+def process_row_bolt32_cta(row: dict, keys: dict, frame_key: str, frame_fn, emoji_pair: str) -> dict:
+    """CMO Factory CP3e (issue #19786) -- re-renders an EXISTING bolt32 row
+    (already produced by process_row_bolt32() in a prior session) with the
+    CTA/link system: a diversity-assigned title (frame_key/emoji_pair come
+    from lib.assign_batch_diversity(), computed once for the whole batch by
+    the caller so no frame/emoji pair repeats more than twice), the
+    persistent 24-32s URL chip + QR plate, the spoken CTA, the off-video
+    caption/pinned-comment/UTM strings, and a Director-QA pass (OCR + QR
+    decode + live HEAD) run against the ACTUAL rendered output before
+    anything lands in the DB -- a render that fails QA never overwrites the
+    row's existing (still-valid) video_bolt32_url."""
+    case_number = row["case_number"]
+    county = row["county"]
+    result = {"case_number": case_number, "county": county, "phase": row["phase"], "status": None, "error": None}
+
+    if row.get("status") == "approved":
+        result["status"] = "blocked_approved_row"
+        result["error"] = "M8: refusing to touch an already-approved row"
+        return result
+
+    try:
+        assessed_value = float(row["assessed_value"]) if row.get("assessed_value") is not None else None
+        sold_amount = float(row["sold_amount"]) if row.get("sold_amount") is not None else None
+        delta_pct = float(row["delta_pct"]) if row.get("delta_pct") is not None else None
+        opening_bid = float(row["opening_bid"]) if row.get("opening_bid") is not None else None
+        judgment_amount = float(row["judgment_amount"]) if row.get("judgment_amount") is not None else None
+        days_to_auction = row.get("days_to_auction")
+        condition = row.get("condition_json") or {}
+        condition_tier = condition.get("general_condition_tier")
+        if not (row.get("aerial_wide_url") and row.get("aerial_tight_url") and row.get("street_url")):
+            raise RuntimeError("missing existing imagery -- run v2/presale pipeline first (bolt32 never re-fetches Maps)")
+        if not row.get("short_url"):
+            raise RuntimeError("missing existing short_url -- run v2/presale pipeline first")
+
+        banned = banned_names_for_case(case_number, county)
+
+        title_ctx = {
+            "county_name": lib.county_display(county).replace(" County", ""),
+            "sold": sold_amount, "assessed": assessed_value, "delta": delta_pct, "days": days_to_auction,
+            "phase": row["phase"], "banned_names": banned,
+        }
+        title_result = lib.generate_bolt32_title_from_frame(frame_key, frame_fn, title_ctx, emoji_pair)
+        if not title_result["valid"]:
+            raise RuntimeError(f"assigned frame {frame_key!r} failed validation: {title_result['reasons']}")
+        title_chosen = title_result["title"]
+        archetype = lib.compute_bolt32_archetype(frame_key, row["phase"], condition_tier, days_to_auction)
+
+        facts = {
+            "phase": row["phase"], "sold_amount": sold_amount, "assessed_value": assessed_value,
+            "delta_pct": delta_pct, "opening_bid": opening_bid, "judgment_amount": judgment_amount,
+        }
+        sc = lib.build_bolt32_script_and_caption(title_chosen, county, row.get("sale_type"), facts, condition, row["short_url"])
+        lib.assert_bolt32_spoken_cta(sc["script_text_v3"])
+        beat_map = lib.build_bolt32_beat_map(title_chosen, sc["setup_line"], sc["payoff_line"], sc["loop_line"])
+
+        offvideo = lib.build_bolt32_offvideo_cta(
+            row["short_url"], county, row.get("sale_type"), title_chosen,
+            variant_key=row["short_code"], landing_url=row.get("landing_url") or row["short_url"],
+        )
+        display_url = re.sub(r"^https?://", "", row["short_url"])
+        cta_chip_line1 = display_url
+        cta_chip_line2 = "See this deal →"
+        qr_label_text = "Scan for the deal"
+
+        import urllib.parse as up
+        date_key = row["auction_date"].isoformat() if hasattr(row["auction_date"], "isoformat") else row["auction_date"]
+        case_key = up.quote(case_number.replace(" ", "_").replace("/", "-"), safe="")
+        prefix = f"{date_key}/{case_key}"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wide_path = os.path.join(tmp, "aerial_wide.png")
+            tight_path = os.path.join(tmp, "aerial_tight.png")
+            street_path = os.path.join(tmp, "street.jpg")
+            lib.fetch_url_to_file(row["aerial_wide_url"], wide_path)
+            lib.fetch_url_to_file(row["aerial_tight_url"], tight_path)
+            lib.fetch_url_to_file(row["street_url"], street_path)
+
+            chip_path = os.path.join(tmp, "cta_chip.png")
+            lib.build_cta_chip_png(cta_chip_line1, cta_chip_line2, chip_path)
+            qr_plate_path = os.path.join(tmp, "qr_plate.png")
+            lib.build_qr_plate_png(row["short_url"], qr_label_text, qr_plate_path)
+
+            audio_path = os.path.join(tmp, "voice_bolt32.mp3")
+            lib.elevenlabs_tts_v3(sc["script_text_v3"], keys["elevenlabs"], audio_path)
+            audio_url = lib.storage_upload(audio_path, f"{prefix}/voice_bolt32_cta.mp3", "audio/mpeg")
+
+            overlays = {
+                "county": lib.county_display(county).replace(" County", ""),
+                "sale_type_label": (row.get("sale_type") or "").replace("_", " ").upper(),
+                "condition_tier": condition_tier,
+                "payoff_text": sc["payoff_line"],
+                "loop_line_text": sc["loop_line"],
+            }
+            images = {"aerial_wide": wide_path, "aerial_tight": tight_path, "street": street_path}
+            video_path = os.path.join(tmp, "reel_bolt32_cta.mp4")
+            duration_sec = lib.assemble_video_bolt32(
+                images, audio_path, overlays, chip_path, qr_plate_path, video_path, title_chosen
+            )
+
+            # Director QA gates -- raise before anything lands in the DB.
+            lib.assert_bolt32_duration(duration_sec)
+            lib.assert_bolt32_tts_model(lib.V2_TTS_MODEL)
+
+            frame1_path = os.path.join(tmp, "frame_26_0.png")
+            frame2_path = os.path.join(tmp, "frame_31_5.png")
+            lib.extract_frame(video_path, 26.0, frame1_path)
+            lib.extract_frame(video_path, 31.5, frame2_path)
+            # DoD: OCR readback of the URL chip must equal the intended URL
+            # string exactly (negative test (b)) -- gated on line1 (the URL)
+            # at both timestamps; line2's arrow glyph is cosmetic, not
+            # re-asserted here. Cropped to the chip's own known bbox -- see
+            # assert_ocr_readback()'s docstring for why whole-frame OCR over
+            # a busy aerial photo is unreliable.
+            chip_crop = (lib.CTA_CHIP_X0, lib.CTA_CHIP_Y0,
+                         lib.CTA_CHIP_X0 + lib.CTA_CHIP_W, lib.CTA_CHIP_Y0 + lib.CTA_CHIP_H)
+            ocr_26 = lib.assert_ocr_readback(frame1_path, [cta_chip_line1], crop_bbox=chip_crop)
+            ocr_31_5 = lib.assert_ocr_readback(frame2_path, [cta_chip_line1], crop_bbox=chip_crop)
+            qr_decoded = lib.assert_qr_decodes_to(frame2_path, row["short_url"])
+            try:
+                url_live_status = lib.assert_url_live(row["short_url"])
+            except Exception as e:
+                url_live_status = f"CHECK_FAILED: {e}"
+
+            video_bolt32_url = lib.storage_upload(video_path, f"{prefix}/reel_bolt32_cta.mp4", "video/mp4")
+            frame1_url = lib.storage_upload(frame1_path, f"{prefix}/qa_frame_26_0s.png", "image/png")
+            frame2_url = lib.storage_upload(frame2_path, f"{prefix}/qa_frame_31_5s.png", "image/png")
+
+            cta_qa = {
+                "ocr_26s": ocr_26.strip(), "ocr_31_5s": ocr_31_5.strip(),
+                "qr_decoded": qr_decoded, "url_live_status": str(url_live_status),
+                "frame_26s_url": frame1_url, "frame_31_5s_url": frame2_url,
+            }
+
+            update_row(row["id"], {
+                "title_candidates": [title_result],
+                "title_chosen": title_chosen,
+                "archetype": archetype,
+                "beat_map": beat_map,
+                "video_bolt32_url": video_bolt32_url,
+                "duration_bolt32_sec": round(duration_sec, 3),
+                "caption_text": sc["caption_text"],
+                "caption_full": offvideo["caption_full"],
+                "pinned_comment_text": offvideo["pinned_comment_text"],
+                "cta_chip_line1": cta_chip_line1,
+                "cta_chip_line2": cta_chip_line2,
+                "qr_label_text": qr_label_text,
+                "utm_links": offvideo["utm_links"],
+                "cta_qa": cta_qa,
+                "hashtags": sc["hashtags"],
+                "audio_url": audio_url,
+                "tts_model": lib.V2_TTS_MODEL,
+                "voice_id": os.environ.get("ELEVENLABS_V2_VOICE_ID", lib.V2_BRAND_VOICE_ID),
+            })
+            lib.run_sql(f"""
+                update winnerdata.reel_links set utm_content = {lib.sql_str(row['short_code'])}, updated_at = now()
+                where code = {lib.sql_str(row['short_code'])};
+            """)
+
+            result.update({
+                "status": "cta_done", "title_chosen": title_chosen, "archetype": archetype,
+                "frame_key": frame_key, "emoji_pair": emoji_pair,
+                "duration_sec": round(duration_sec, 3), "video_bolt32_url": video_bolt32_url,
+                "ocr_26s": ocr_26.strip(), "ocr_31_5s": ocr_31_5.strip(), "qr_decoded": qr_decoded,
+                "url_live_status": str(url_live_status),
+                "frame_26s_url": frame1_url, "frame_31_5s_url": frame2_url,
+            })
+            return result
+
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)[:2000]
+        return result
+
+
 def self_test() -> None:
     """Negative tests (a)-(d) from the issue's DoD -- no network/DB/ffmpeg."""
     print("(a) title lacking ellipsis / one emoji:")
@@ -242,10 +424,36 @@ def self_test() -> None:
     except ValueError as e:
         print(f"   raised: {e}")
 
+    print("(a-cta) an element outside the safe area fails:")
+    try:
+        lib.assert_in_safe_area(0, 0, 50, 50, label="test")
+        print("  FAILED TO RAISE")
+    except lib.SafeAreaViolation as e:
+        print(f"   raised: {e}")
+
+    print("(d-cta) a script without the spoken CTA fails:")
+    try:
+        lib.assert_bolt32_spoken_cta("It sold for $100,000. That is why nobody else bid.")
+        print("  FAILED TO RAISE")
+    except ValueError as e:
+        print(f"   raised: {e}")
+    lib.assert_bolt32_spoken_cta("That is why nobody else bid. The full breakdown is on biddeed dot A I.")
+    print("   correctly did not raise for a script containing the spoken CTA")
+
+    print("(e) a batch of 10 with three identical emoji pairs fails:")
+    fake_assignments = [{"frame_key": f"f{i%5}", "emoji_pair": "AA" if i < 3 else f"e{i}"} for i in range(10)]
+    violations = lib.check_batch_diversity(fake_assignments)
+    print(f"   violations found: {violations}" if violations else "  FAILED TO DETECT")
+    ok_assignments = [{"frame_key": f"f{i%5}", "emoji_pair": f"e{i%5}"} for i in range(8)]
+    print("   compliant 8-item batch violations (expect none):", lib.check_batch_diversity(ok_assignments))
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ids", default=None, help="comma-separated biddeed_reels.id list")
+    ap.add_argument("--cta-batch", default=None,
+                     help="comma-separated biddeed_reels.id list -- re-renders each with the "
+                          "CTA/link system (issue #19786), diversity-assigned as ONE batch")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
@@ -253,8 +461,8 @@ def main():
         self_test()
         sys.exit(0)
 
-    if not args.ids:
-        print("ERROR: --ids or --self-test required", file=sys.stderr)
+    if not args.ids and not args.cta_batch:
+        print("ERROR: --ids, --cta-batch, or --self-test required", file=sys.stderr)
         sys.exit(1)
 
     def resolve_key(env_name, vault_names):
@@ -272,6 +480,49 @@ def main():
     if not keys["elevenlabs"]:
         print("ERROR: missing ELEVENLABS_API_KEY (env or vault)", file=sys.stderr)
         sys.exit(1)
+
+    if args.cta_batch:
+        ids = [i.strip() for i in args.cta_batch.split(",") if i.strip()]
+        rows = get_target_rows(ids)
+        print(f"{len(rows)} row(s) in CTA batch.")
+        assignments = lib.assign_batch_diversity([
+            {"phase": r["phase"], "county_name": lib.county_display(r["county"]).replace(" County", ""),
+             "sold": r.get("sold_amount"), "assessed": r.get("assessed_value"),
+             "delta": r.get("delta_pct"), "days": r.get("days_to_auction")}
+            for r in rows
+        ])
+        diversity_violations = lib.check_batch_diversity([
+            {"frame_key": a["frame_key"], "emoji_pair": a["emoji_pair"]} for a in assignments
+        ])
+        if diversity_violations:
+            print("ERROR: batch diversity violated before any render ran:", diversity_violations, file=sys.stderr)
+            sys.exit(1)
+        print("Diversity assignment (frame_key, emoji_pair) per row, zero rolling-window violations confirmed.")
+
+        t0 = time.time()
+        results = []
+        for r, a in zip(rows, assignments):
+            print(f"CTA re-render {r['case_number']} / {r['county']} / {r['phase']} "
+                  f"[{a['frame_key']}, {a['emoji_pair']!r}] ...")
+            res = process_row_bolt32_cta(r, keys, a["frame_key"], a["frame_fn"], a["emoji_pair"])
+            print(f"  -> {res['status']}" + (f" ({res['error']})" if res.get("error") else ""))
+            results.append(res)
+
+        n_ok = sum(1 for r in results if r["status"] == "cta_done")
+        n_err = sum(1 for r in results if r["status"] == "error")
+        print("\n=== CTA BATCH SUMMARY ===")
+        print(f"rows={len(results)} cta_done={n_ok} error={n_err} wall_time_sec={time.time()-t0:.1f}")
+        for r in results:
+            if r["status"] == "cta_done":
+                print(f"  {r['case_number']}/{r['county']}: title={r['title_chosen']!r} archetype={r['archetype']} "
+                      f"dur={r['duration_sec']}s ocr_26s={r['ocr_26s']!r} ocr_31_5s={r['ocr_31_5s']!r} "
+                      f"qr_decoded={r['qr_decoded']!r} url_live={r['url_live_status']} video={r['video_bolt32_url']}")
+        errored = [r for r in results if r["status"] == "error"]
+        if errored:
+            print("\n=== ERRORS ===")
+            for r in errored:
+                print(f"  {r['case_number']}/{r['county']}: {r['error']}")
+        sys.exit(0)
 
     ids = [i.strip() for i in args.ids.split(",") if i.strip()]
     rows = get_target_rows(ids)

@@ -162,3 +162,24 @@ Do not fabricate a numeric fact, a person name's absence, or a passing
 title-validator result to force a render through — a row with no usable
 title candidate, no imagery, or a failing duration/tts_model assert is a
 reported error, not a render.
+
+## CTA/link system + title diversity (issue #19786, added 2026-09-03)
+
+Every bolt32 render now carries a persistent 24.0-32.0s URL chip + QR plate
+(`build_cta_chip_png()`/`build_qr_plate_png()`), a spoken CTA in the
+loop-line beat (`assert_bolt32_spoken_cta()`), and code-enforced safe-area
+text wrapping (`dt_wrapped_centered()`, raises `SafeAreaViolation`). Director
+QA additionally runs OCR (tesseract, cropped to the chip's own bbox --
+whole-frame OCR over a busy aerial photo is unreliable, live-reproduced) and
+QR decode (pyzbar) against the actual rendered frame at 26.0s/31.5s before
+any DB write. `gen_short_code()` draws from an OCR-safe alphabet (excludes
+0/1/I/i/L/l/O/o) for this reason.
+
+For a BATCH of reels (not a single row), use
+`scripts/biddeed_reels_pipeline_bolt32.py --cta-batch <ids>` instead of
+`--ids` -- it calls `assign_batch_diversity()` to round-robin title frame +
+emoji pair across the batch (`check_batch_diversity()` enforces no more than
+2 repeats of either in any rolling 10-item window) and computes each row's
+`archetype` (`compute_bolt32_archetype()`) for S2 intent-routing on the deal
+page. `--ids`/`process_row_bolt32()` still works for a single fresh row but
+does not run diversity assignment or the QA gate.

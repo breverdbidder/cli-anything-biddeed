@@ -108,6 +108,20 @@ async function logErr(env, endpoint, message, detail, status, severity = 'error'
   } catch(_) {}
 }
 
+// S5 Sticky Layers (issue #19786 PART 2) -- generic funnel-event beacon.
+// Fire-and-forget (ctx.waitUntil'd by callers), same shape as
+// log_reel_watch_event's proxy pattern -- no Supabase key of any kind
+// reaches the browser, and a failure here never blocks the page render.
+async function logFunnelEvent(env, sessionId, step, params) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/log_funnel_event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ p_session_id: sessionId, p_step: step, p_params: params || {} }),
+    });
+  } catch (_) {}
+}
+
 // ── S5 Interactive HTML Report — GET /report/:mca_id (issue #18307) ──────────
 async function sha256Hex(str) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -2426,6 +2440,20 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         }
         if (!reel) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
         const submitted = url.searchParams.get('submitted') === '1';
+        // S2 (issue #19786) -- the reel's archetype (persisted at render
+        // time, travels via ?a= appended by resolve_reel_link) reorders the
+        // landing frame to match the promise made in the reel; falls back
+        // to the row's own stored archetype so a direct /deal/... visit
+        // (no ?a=) still gets a sensible default.
+        const archetype = url.searchParams.get('a') || reel.archetype || 'shock_number';
+        if (method === 'GET' && reel.short_code) {
+          ctx.waitUntil(logFunnelEvent(env, `deal-${reel.short_code}`, 'deal_view', { code: reel.short_code, archetype }));
+          // S3 progressive disclosure's locked rung renders on every page
+          // load (rung (b) is always visible), so gate_view fires alongside
+          // deal_view -- an honest reflection of the actual UI, not a
+          // separate user action.
+          ctx.waitUntil(logFunnelEvent(env, `deal-${reel.short_code}`, 'gate_view', { code: reel.short_code, archetype }));
+        }
         // issue #19761 T2: presale rows (phase='presale', calendar/upcoming
         // auctions) render the UPCOMING template with a paid-tier gate on the
         // intel block; postsale rows (phase='postsale', the v1/v2 default)
@@ -2434,9 +2462,9 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         let html;
         if (reel.phase === 'presale') {
           const paidTier = apiKey ? await fetchPaidTier(env, apiKey) : { ok: false, tier: null };
-          html = buildPresaleDealHtml(reel, path, submitted, !!paidTier.ok);
+          html = buildPresaleDealHtml(reel, path, submitted, !!paidTier.ok, archetype);
         } else {
-          html = buildDealLandingHtml(reel, path, submitted);
+          html = buildDealLandingHtml(reel, path, submitted, archetype);
         }
         // A URL carrying a `key`/Bearer credential is a personalized variant
         // of this page -- never let a crawler index it (T2: "noindex for
@@ -2471,6 +2499,12 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         // also allow-lists this value server-side (never trusts the client).
         const sourceRaw = (form.get('source') || '').toString().trim();
         const source = sourceRaw === 'presale_deal' ? 'presale_deal' : 'reel';
+        // S1 (issue #19786) -- carried by a hidden field the deal page's own
+        // inline script fills from localStorage, so a visitor who already
+        // has an anonymous S1 profile gets it upgraded to their email
+        // instead of a second, disconnected lead_profiles row.
+        const visitorId = (form.get('visitor_id') || '').toString().trim().slice(0, 64) || null;
+        const shortCode = (form.get('reel_code') || '').toString().trim() || null;
         const previewQs = url.searchParams.get('preview');
         const backTo = previewQs ? `${basePath}?preview=${encodeURIComponent(previewQs)}` : basePath;
         if (!email || !email.includes('@')) {
@@ -2486,11 +2520,13 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
               p_utm_medium: url.searchParams.get('utm_medium') || null,
               p_utm_campaign: url.searchParams.get('utm_campaign') || null,
               p_source: source,
+              p_visitor_id: visitorId,
             }),
           });
         } catch (e) {
           await logErr(env, '/deal/lead', 'insert_reel_lead failed', String(e), 500);
         }
+        if (shortCode) ctx.waitUntil(logFunnelEvent(env, `deal-${shortCode}`, 'gate_submit', { code: shortCode }));
         const joiner = backTo.includes('?') ? '&' : '?';
         return Response.redirect(`${url.origin}${backTo}${joiner}submitted=1`, 302);
       }
@@ -2520,7 +2556,43 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         if (link.utm_source) target.searchParams.set('utm_source', link.utm_source);
         if (link.utm_medium) target.searchParams.set('utm_medium', link.utm_medium);
         if (link.utm_campaign) target.searchParams.set('utm_campaign', link.utm_campaign);
+        if (link.utm_content) target.searchParams.set('utm_content', link.utm_content);
+        if (link.archetype) target.searchParams.set('a', link.archetype);
+        if (method === 'GET') ctx.waitUntil(logFunnelEvent(env, `reel-${code}`, 'reel_click', { code }));
         return new Response(null, { status: 302, headers: { Location: target.toString(), 'Cache-Control': 'no-store' } });
+      }
+
+      // ── POST /deal/visitor — S1 persistent-context upsert (issue #19786).
+      // Client-side only (this Worker has no cookie/session mechanism -- see
+      // extractApiKey's own comment -- so a RETURNING-visitor greeting needs
+      // localStorage on the browser side; this route is the thin, keyless
+      // proxy to public.upsert_visitor_profile() that the deal page's own
+      // inline script calls on load, matching insert_reel_lead's proxy
+      // pattern). Always 200 with the RPC's own {ok,...} body so the client
+      // can render (or skip) the greeting banner.
+      if (path === '/deal/visitor' && method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch (_) { body = {}; }
+        const visitorId = String(body.visitor_id || '').slice(0, 64);
+        let out = { ok: false };
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/upsert_visitor_profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            body: JSON.stringify({
+              p_visitor_id: visitorId,
+              p_reel_code: body.reel_code || null,
+              p_county: body.county || null,
+              p_archetype: body.archetype || null,
+              p_case_number: body.case_number || null,
+            }),
+          });
+          if (res.ok) out = await res.json();
+          else await logErr(env, '/deal/visitor', 'upsert_visitor_profile non-2xx', await res.text(), res.status);
+        } catch (e) {
+          await logErr(env, '/deal/visitor', 'upsert_visitor_profile failed', String(e), 500);
+        }
+        return new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
       }
 
       // ── GET /reels — BidDeed Reels v2 gallery (issue #19752 directive #4,
@@ -3519,7 +3591,7 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
 // 20260902l_biddeed_reels_v2_rpc.sql) -- no name/vendor field is ever
 // selectable there, so there is nothing here that could leak one. Server-
 // rendered, no JS required to read (T2 spec).
-function buildDealLandingHtml(reel, landingPath, submitted) {
+function buildDealLandingHtml(reel, landingPath, submitted, archetype) {
   const fmtMoney = (n) => (n == null ? null : '$' + Math.round(Number(n)).toLocaleString());
   const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed Sale' : 'Foreclosure Sale';
@@ -3535,13 +3607,51 @@ function buildDealLandingHtml(reel, landingPath, submitted) {
   const ogImage = reel.aerial_tight_url || reel.aerial_wide_url || '';
   const previewBanner = reel.status === 'pending_approval'
     ? `<div class="deal-preview-banner">PREVIEW — pending approval, not yet public</div>` : '';
+  const shortCode = reel.short_code || '';
   const ctaBlock = submitted
     ? `<div class="deal-thanks">Thanks — check your inbox for the full property signal report.</div>`
     : `<form method="POST" action="${escHtml(landingPath)}/lead${escHtml(previewQueryFor(reel))}">
 <input type="hidden" name="case_number" value="${escHtml(reel.case_number)}">
+<input type="hidden" name="reel_code" value="${escHtml(shortCode)}">
+<input type="hidden" name="visitor_id" class="bd-visitor-field" value="">
 <input type="email" name="email" placeholder="you@email.com" required>
 <button type="submit">Send me the report</button>
 </form>`;
+
+  // S2 (issue #19786) -- archetype reorders which section leads. Postsale
+  // archetypes are shock_number (default) or red_flag_warning (see
+  // compute_bolt32_archetype in scripts/biddeed_reels_lib.py) -- nobody_bid
+  // and presale_countdown only ever apply to presale rows.
+  const statsSection = `<div class="deal-stats">
+  <div class="deal-stat"><div class="label">Sold Price</div><div class="value">${escHtml(soldFmt || '&mdash;')}</div></div>
+  <div class="deal-stat"><div class="label">Assessed Value</div><div class="value">${escHtml(fmtMoney(reel.assessed_value) || '&mdash;')}</div></div>
+</div>
+${deltaLine ? `<div class="deal-stat"><div class="label">Vs. Assessed</div><div class="value">${escHtml(deltaLine)}</div></div>` : ''}`;
+  const conditionSection = `<div class="deal-badge">${escHtml(tierLabel)}</div>
+${obs.length ? `<div class="deal-obs">${obs.map(escHtml).join('<br>')}</div>` : ''}
+${reel.street_url ? `<img class="deal-img" src="${escHtml(reel.street_url)}" alt="Street-level view">` : ''}`;
+  const orderedSections = archetype === 'red_flag_warning'
+    ? conditionSection + statsSection
+    : statsSection + conditionSection;
+
+  // S3 progressive disclosure (issue #19786 PART 2) -- rung (a) is the
+  // free stats/condition block above; this is rung (b), VISIBLE BUT
+  // LOCKED -- real section NAMES shown (not a generic teaser), values
+  // blurred. Rung (c) (the actual SIGNAL$ Property Report) is delivered by
+  // the existing email-report pipeline once the single-field email gate is
+  // submitted -- not re-implemented here, see docs/spec/19786.md Residual.
+  const lockedSection = `<div class="deal-locked">
+<h2>5 more sections on this property</h2>
+<div class="deal-locked-row"><span class="label">Value Band</span><span class="value blur">$•••,••• – $•••,•••</span></div>
+<div class="deal-locked-row"><span class="label">Shapira Max Bid</span><span class="value blur">$•••,•••</span></div>
+<div class="deal-locked-row"><span class="label">Red Flags</span><span class="value blur">•• found</span></div>
+<div class="deal-locked-row"><span class="label">Lien Hierarchy</span><span class="value blur">•• liens</span></div>
+<div class="deal-locked-row"><span class="label">Comps</span><span class="value blur">•• nearby</span></div>
+</div>`;
+
+  // S4 (issue #19786) -- property-scoped chat entry, reuses the existing
+  // /chat route (GET /chat?county=&hook=) rather than a new chat surface.
+  const chatHref = `/chat?county=${encodeURIComponent(reel.county || '')}&hook=${encodeURIComponent('property_' + (reel.case_number || ''))}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -3563,6 +3673,7 @@ ${ogImage ? `<meta property="og:image" content="${escHtml(ogImage)}">` : ''}
 body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;padding:2rem 1rem;display:flex;justify-content:center}
 .deal-card{max-width:520px;width:100%}
 .deal-preview-banner{background:#F59E0B;color:#020617;font-weight:700;text-align:center;padding:.5rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem}
+.deal-greeting{background:#0f172a;border:1px solid #F59E0B;border-radius:10px;padding:.75rem .9rem;margin-bottom:1rem;font-size:.85rem;color:#F59E0B;display:none}
 .deal-img{width:100%;border-radius:12px;margin-bottom:1rem;border:1px solid #1e293b;display:block}
 h1{font-size:1.6rem;margin-bottom:.25rem;color:#fff}
 .deal-sub{color:#94a3b8;font-size:.95rem;margin-bottom:1.25rem}
@@ -3572,6 +3683,14 @@ h1{font-size:1.6rem;margin-bottom:.25rem;color:#fff}
 .deal-stat .value{color:#fff;font-size:1.15rem;font-weight:700;margin-top:.2rem}
 .deal-badge{display:inline-block;background:#F59E0B;color:#020617;font-weight:700;padding:.3rem .7rem;border-radius:999px;font-size:.8rem;margin:.5rem 0}
 .deal-obs{color:#cbd5e1;font-size:.9rem;line-height:1.6;margin-bottom:1.5rem}
+.deal-locked{position:relative;background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:1.1rem;margin-bottom:.75rem}
+.deal-locked h2{font-size:1rem;color:#fff;margin-bottom:.75rem}
+.deal-locked-row{display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid #1e293b;font-size:.85rem}
+.deal-locked-row:last-child{border-bottom:none}
+.deal-locked-row .label{color:#94a3b8}
+.deal-locked-row .value{color:#fff;font-weight:600}
+.deal-locked-row .value.blur{filter:blur(4px);user-select:none}
+.deal-chat{display:block;text-align:center;background:#0f172a;border:1px solid #1e293b;color:#F59E0B;font-weight:700;padding:.65rem;border-radius:10px;text-decoration:none;font-size:.85rem;margin-bottom:.75rem}
 .deal-cta{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:1.25rem;margin-top:.75rem}
 .deal-cta h2{font-size:1.05rem;color:#fff;margin-bottom:.75rem}
 .deal-cta input{width:100%;padding:.7rem;border-radius:8px;border:1px solid #334155;background:#020617;color:#fff;margin-bottom:.6rem;font-size:.9rem}
@@ -3582,22 +3701,19 @@ h1{font-size:1.6rem;margin-bottom:.25rem;color:#fff}
 <body>
 <div class="deal-card">
 ${previewBanner}
+<div class="deal-greeting" id="bd-greeting"></div>
 ${ogImage ? `<img class="deal-img" src="${escHtml(ogImage)}" alt="Parcel aerial with boundary outline">` : ''}
 <h1>${escHtml(soldFmt || 'Sold at auction')}</h1>
 <div class="deal-sub">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)}${reel.auction_date ? ' &middot; ' + escHtml(reel.auction_date) : ''}</div>
-<div class="deal-stats">
-  <div class="deal-stat"><div class="label">Sold Price</div><div class="value">${escHtml(soldFmt || '&mdash;')}</div></div>
-  <div class="deal-stat"><div class="label">Assessed Value</div><div class="value">${escHtml(fmtMoney(reel.assessed_value) || '&mdash;')}</div></div>
-</div>
-${deltaLine ? `<div class="deal-stat"><div class="label">Vs. Assessed</div><div class="value">${escHtml(deltaLine)}</div></div>` : ''}
-<div class="deal-badge">${escHtml(tierLabel)}</div>
-${obs.length ? `<div class="deal-obs">${obs.map(escHtml).join('<br>')}</div>` : ''}
-${reel.street_url ? `<img class="deal-img" src="${escHtml(reel.street_url)}" alt="Street-level view">` : ''}
+${orderedSections}
+${lockedSection}
+<a class="deal-chat" href="${escHtml(chatHref)}">Ask Deed about this property &rarr;</a>
 <div class="deal-cta">
 <h2>Get the full property signal report</h2>
 ${ctaBlock}
 </div>
 </div>
+<script>${dealPageStickyScript(shortCode, reel.county || '', archetype || '', reel.case_number || '')}</script>
 </body>
 </html>`;
 }
@@ -3620,7 +3736,7 @@ function presaleMonthAbbrDay(isoDate) {
   return `${months[(m || 1) - 1]} ${d || ''}`.trim();
 }
 
-function buildPresaleDealHtml(reel, landingPath, submitted, paidOk) {
+function buildPresaleDealHtml(reel, landingPath, submitted, paidOk, archetype) {
   const fmtMoney = (n) => (n == null ? null : '$' + Math.round(Number(n)).toLocaleString());
   const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed' : 'Foreclosure';
@@ -3642,14 +3758,19 @@ function buildPresaleDealHtml(reel, landingPath, submitted, paidOk) {
     ? `<div class="psale-banner">PREVIEW — pending approval, not yet public</div>` : '';
   const canonicalUrl = `https://biddeed.ai${landingPath}`;
 
+  const shortCode = reel.short_code || '';
   const ctaBlock = submitted
     ? `<div class="psale-thanks">Alert set — we'll email you before the gavel drops.</div>`
     : `<form method="POST" action="${escHtml(landingPath)}/lead${escHtml(previewQueryFor(reel))}">
 <input type="hidden" name="case_number" value="${escHtml(reel.case_number)}">
 <input type="hidden" name="source" value="presale_deal">
+<input type="hidden" name="reel_code" value="${escHtml(shortCode)}">
+<input type="hidden" name="visitor_id" class="bd-visitor-field" value="">
 <input type="email" name="email" placeholder="you@email.com" required>
 <button type="submit">Set alert</button>
 </form>`;
+  // S4 -- property-scoped chat entry, same /chat route postsale uses.
+  const chatHref = `/chat?county=${encodeURIComponent(reel.county || '')}&hook=${encodeURIComponent('property_' + (reel.case_number || ''))}`;
 
   const gatedInner = paidOk
     ? `
@@ -3722,11 +3843,14 @@ h1{font-size:1.35rem;margin-bottom:.25rem;color:#fff}
 .psale-gate-row.blur{filter:blur(5px);user-select:none;pointer-events:none}
 .psale-gate-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(15,23,42,0)0%,rgba(15,23,42,.85)40%)}
 .psale-gate-overlay a{background:#F59E0B;color:#020617;font-weight:800;padding:.7rem 1.2rem;border-radius:8px;text-decoration:none;font-size:.9rem}
+.psale-greeting{background:#0f172a;border:1px solid #F59E0B;border-radius:10px;padding:.75rem .9rem;margin-bottom:1rem;font-size:.85rem;color:#F59E0B;display:none}
+.psale-chat{display:block;text-align:center;background:#0f172a;border:1px solid #1e293b;color:#F59E0B;font-weight:700;padding:.65rem;border-radius:10px;text-decoration:none;font-size:.85rem;margin-top:.75rem}
 </style>
 </head>
 <body>
 <div class="psale-card">
 ${previewBanner}
+<div class="psale-greeting" id="bd-greeting"></div>
 ${ogImage ? `<img class="psale-img" src="${escHtml(ogImage)}" alt="Parcel aerial with boundary outline">` : ''}
 <h1>${escHtml(title)}</h1>
 <div class="psale-sub">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)} Sale${reel.auction_date ? ' &middot; ' + escHtml(reel.auction_date) : ''}</div>
@@ -3743,11 +3867,13 @@ ${reel.street_url ? `<img class="psale-img" src="${escHtml(reel.street_url)}" al
 ${gatedInner}
 ${gateOverlay}
 </div>
+<a class="psale-chat" href="${escHtml(chatHref)}">Ask Deed about this property &rarr;</a>
 <div class="psale-cta">
 <h2>Get notified before the gavel drops</h2>
 ${ctaBlock}
 </div>
 </div>
+<script>${dealPageStickyScript(shortCode, reel.county || '', archetype || 'presale_countdown', reel.case_number || '')}</script>
 </body>
 </html>`;
 }
@@ -3776,6 +3902,38 @@ const REELS_PLAYER_CSS = `
 .reels-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1.25rem;max-width:1200px;margin:0 auto}
 .reels-preview-banner{background:#F59E0B;color:#020617;font-weight:700;text-align:center;padding:.6rem;border-radius:8px;margin:0 auto 1.5rem;max-width:1200px}
 `;
+
+// S1 Sticky Layer (issue #19786) -- persistent visitor context. This
+// Worker has no cookie/session mechanism (see extractApiKey's comment), so
+// "returning visitor" state lives in localStorage, matching
+// reelPlayerScript()'s own bd_reel_session pattern. Progressive
+// enhancement: the page is fully readable/submittable with JS off (S1's
+// "did you see the free stuff" personalization just doesn't show).
+function dealPageStickyScript(reelCode, county, archetype, caseNumber) {
+  return `
+try {
+  var bdVid = localStorage.getItem('bd_vid');
+  if (!bdVid) {
+    bdVid = 'v_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('bd_vid', bdVid);
+  }
+  document.querySelectorAll('.bd-visitor-field').forEach(function(el) { el.value = bdVid; });
+  fetch('/deal/visitor', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({visitor_id: bdVid, reel_code: ${JSON.stringify(reelCode)}, county: ${JSON.stringify(county)}, archetype: ${JSON.stringify(archetype)}, case_number: ${JSON.stringify(caseNumber)}})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d && d.returning && d.properties_viewed_count > 1 && d.first_county) {
+      var g = document.getElementById('bd-greeting');
+      if (g) {
+        g.textContent = (d.properties_viewed_count - 1) + ' more ' + d.first_county.replace(/\\b\\w/g, function(c){return c.toUpperCase();}) + ' auctions since you were here';
+        g.style.display = 'block';
+      }
+    }
+  }).catch(function(){});
+} catch (e) {}
+`;
+}
 
 function reelPlayerScript() {
   return `
