@@ -1,0 +1,185 @@
+name: TMP - Plaid prod status + WF import idempotency proof (issue 19770, add/use/remove)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    env:
+      WORKER_URL: https://everest-bank-engine.brevardbidderai.workers.dev
+    steps:
+      - name: Guard - required secret present
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          if [ -z "$CFO_SECRET" ]; then
+            echo "::error::CFO_AGENT_SHARED_SECRET missing"
+            exit 1
+          fi
+          echo "Secret present."
+
+      - name: Plaid production status check
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          CODE=$(curl -s -o /tmp/plaid_status.json -w "%{http_code}" -X POST "$WORKER_URL/plaid/production-status" \
+            -H "X-CFO-Secret: $CFO_SECRET")
+          echo "HTTP $CODE"
+          cat /tmp/plaid_status.json
+          echo "### Plaid production status" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/plaid_status.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Negative test - /import rejects wrong secret
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$WORKER_URL/import?entity_code=everest_capital_brevard&mask=0091" \
+            -H "X-CFO-Secret: definitely-wrong" -H "Content-Type: text/csv" -d '01/15/2026,-12.34,*,*,test')
+          echo "Wrong-secret /import probe: $CODE"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::/import must reject a wrong secret (got $CODE)"
+            exit 1
+          fi
+          echo "PASS: /import rejects wrong secret."
+
+      - name: WF CSV fixture (mask 0091) - first upload
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          cat > /tmp/wf_test.csv << 'CSV'
+          01/15/2026,-12.34,*,*,ZZZ IDEMPOTENCY TEST DELETE ME CSV 1 19770
+          01/16/2026,45.67,*,*,ZZZ IDEMPOTENCY TEST DELETE ME CSV 2 19770
+          CSV
+          CODE=$(curl -s -o /tmp/csv_upload1.json -w "%{http_code}" -X POST \
+            "$WORKER_URL/import?entity_code=everest_capital_brevard&mask=0091&account_label=IDEMPOTENCY%20TEST%20CSV%20(delete%20me)" \
+            -H "X-CFO-Secret: $CFO_SECRET" -F "file=@/tmp/wf_test.csv;type=text/csv;filename=wf_test.csv"
+          )
+          echo "HTTP $CODE"
+          cat /tmp/csv_upload1.json
+          echo "### CSV upload 1 (mask 0091)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/csv_upload1.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" != "200" ]; then echo "::error::CSV upload 1 failed"; exit 1; fi
+
+      - name: WF CSV fixture (mask 0091) - re-upload (idempotency)
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          CODE=$(curl -s -o /tmp/csv_upload2.json -w "%{http_code}" -X POST \
+            "$WORKER_URL/import?entity_code=everest_capital_brevard&mask=0091&account_label=IDEMPOTENCY%20TEST%20CSV%20(delete%20me)" \
+            -H "X-CFO-Secret: $CFO_SECRET" -F "file=@/tmp/wf_test.csv;type=text/csv;filename=wf_test.csv"
+          )
+          echo "HTTP $CODE"
+          cat /tmp/csv_upload2.json
+          echo "### CSV re-upload (mask 0091, same file)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/csv_upload2.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" != "200" ]; then echo "::error::CSV re-upload failed"; exit 1; fi
+
+      - name: WF QFX fixture (mask 0092) - first upload
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          cat > /tmp/wf_test.qfx << 'QFX'
+          OFXHEADER:100
+          DATA:OFXSGML
+          VERSION:102
+          SECURITY:NONE
+          ENCODING:USASCII
+          CHARSET:1252
+          COMPRESSION:NONE
+          OLDFILEUID:NONE
+          NEWFILEUID:NONE
+
+          <OFX>
+          <SIGNONMSGSRSV1>
+          <SONRS>
+          <STATUS>
+          <CODE>0
+          <SEVERITY>INFO
+          </STATUS>
+          <DTSERVER>20260115120000
+          <LANGUAGE>ENG
+          </SONRS>
+          </SIGNONMSGSRSV1>
+          <BANKMSGSRSV1>
+          <STMTTRNRS>
+          <TRNUID>1
+          <STATUS>
+          <CODE>0
+          <SEVERITY>INFO
+          </STATUS>
+          <STMTRS>
+          <CURDEF>USD
+          <BANKACCTFROM>
+          <BANKID>121000248
+          <ACCTID>0092
+          <ACCTTYPE>CHECKING
+          </BANKACCTFROM>
+          <BANKTRANLIST>
+          <DTSTART>20260115000000
+          <DTEND>20260117000000
+          <STMTTRN>
+          <TRNTYPE>DEBIT
+          <DTPOSTED>20260115120000
+          <TRNAMT>-12.34
+          <FITID>ZZZIDEMPOTENCYTEST19770QFX001
+          <NAME>ZZZ IDEMPOTENCY TEST DELETE ME QFX 1 19770
+          </STMTTRN>
+          <STMTTRN>
+          <TRNTYPE>CREDIT
+          <DTPOSTED>20260116120000
+          <TRNAMT>45.67
+          <FITID>ZZZIDEMPOTENCYTEST19770QFX002
+          <NAME>ZZZ IDEMPOTENCY TEST DELETE ME QFX 2 19770
+          </STMTTRN>
+          </BANKTRANLIST>
+          <LEDGERBAL>
+          <BALAMT>1000.00
+          <DTASOF>20260117120000
+          </LEDGERBAL>
+          </STMTRS>
+          </STMTTRNRS>
+          </BANKMSGSRSV1>
+          </OFX>
+          QFX
+          CODE=$(curl -s -o /tmp/qfx_upload1.json -w "%{http_code}" -X POST \
+            "$WORKER_URL/import?entity_code=everest_capital_brevard&mask=0092&account_label=IDEMPOTENCY%20TEST%20QFX%20(delete%20me)" \
+            -H "X-CFO-Secret: $CFO_SECRET" -F "file=@/tmp/wf_test.qfx;type=application/x-ofx;filename=wf_test.qfx"
+          )
+          echo "HTTP $CODE"
+          cat /tmp/qfx_upload1.json
+          echo "### QFX upload 1 (mask 0092)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/qfx_upload1.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" != "200" ]; then echo "::error::QFX upload 1 failed"; exit 1; fi
+
+      - name: WF QFX fixture (mask 0092) - re-upload (idempotency)
+        env:
+          CFO_SECRET: ${{ secrets.CFO_AGENT_SHARED_SECRET }}
+        run: |
+          CODE=$(curl -s -o /tmp/qfx_upload2.json -w "%{http_code}" -X POST \
+            "$WORKER_URL/import?entity_code=everest_capital_brevard&mask=0092&account_label=IDEMPOTENCY%20TEST%20QFX%20(delete%20me)" \
+            -H "X-CFO-Secret: $CFO_SECRET" -F "file=@/tmp/wf_test.qfx;type=application/x-ofx;filename=wf_test.qfx"
+          )
+          echo "HTTP $CODE"
+          cat /tmp/qfx_upload2.json
+          echo "### QFX re-upload (mask 0092, same file)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/qfx_upload2.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" != "200" ]; then echo "::error::QFX re-upload failed"; exit 1; fi
+
+      - name: Summary
+        run: |
+          echo "Test fixtures use mask 0091 (CSV) / 0092 (QFX), entity_code=everest_capital_brevard," >> "$GITHUB_STEP_SUMMARY"
+          echo "clearly labeled 'ZZZ IDEMPOTENCY TEST DELETE ME ... 19770'. Row-count-based idempotency" >> "$GITHUB_STEP_SUMMARY"
+          echo "proof (not just the RPC's self-reported upserted count) + cleanup of these rows happens" >> "$GITHUB_STEP_SUMMARY"
+          echo "outside this workflow, via direct DB query, as documented in docs/spec/19770.md." >> "$GITHUB_STEP_SUMMARY"
