@@ -1636,3 +1636,409 @@ def assemble_video_presale(images: dict, audio_path: str, overlays: dict,
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg presale assembly failed: {result.stderr[-3000:]}")
     return _ffprobe_duration(out_path)
+
+
+# ---------------------------------------------------------------------------
+# bolt32 (issue #19779) -- BoltMotivation-technique 32s edit template.
+# T1-T4 technique + hard beat-sheet timings live in
+# docs/gtm/REEL_SPEC_BOLT32.md / .claude/skills/reel-edit-bolt/SKILL.md.
+# Builds on v2/presale's imagery + short-link + QR + eleven_v3 path -- only
+# title generation, script beats, and video assembly are bolt32-specific.
+# ---------------------------------------------------------------------------
+
+BOLT32_TOTAL_SECONDS = 32.0
+BOLT32_DURATION_TOLERANCE = 0.1
+
+# 7 visual segments implementing the 6 named beats of the spec -- "tension"
+# (8.0-20.0s) is split into 2 sub-cuts (aerial_tight, then street) rather
+# than the spec's "3-4 visual cuts": this pipeline has exactly 3 stills per
+# row (aerial_wide, aerial_tight, street/pin-fallback) and no comp-card
+# generator, so 2 cuts is what real imagery supports -- logged as a
+# deviation, not silently short of the spec. Durations sum to exactly
+# 32.0s before encoding; assert_bolt32_duration() checks the ffprobed
+# *output* separately (kept as two functions so the 32s±0.1 assert is
+# independently testable per negative test (c), without re-running ffmpeg).
+BOLT32_SEGMENTS = [
+    {"beat": "hook", "img": "aerial_wide", "seconds": 2.0},
+    {"beat": "setup", "img": "street", "seconds": 6.0},
+    {"beat": "tension", "img": "aerial_tight", "seconds": 6.0},
+    {"beat": "tension", "img": "street", "seconds": 6.0},
+    {"beat": "payoff", "img": "aerial_tight", "seconds": 8.0},
+    {"beat": "loop_line", "img": "aerial_wide", "seconds": 3.0},
+    {"beat": "end", "img": "aerial_wide", "seconds": 1.0},
+]
+assert abs(sum(s["seconds"] for s in BOLT32_SEGMENTS) - BOLT32_TOTAL_SECONDS) < 1e-9
+
+BOLT32_EMOJI_VOCAB = ["❤️", "\U0001F633", "\U0001F631", "\U0001F979",
+                      "\U0001F92F", "\U0001F976", "\U0001F630", "\U0001F494",
+                      "\U0001F3C6", "\U0001F440"]
+# 😳 😱 🥹 🤯 🥶 😰 ❤️ 💔 🏆 👀 (heart listed with its variation selector first
+# since it must be matched as one 2-codepoint token, see _peel_bolt32_emoji_suffix)
+
+_BOLT32_BANNED_PHRASES = [
+    "foreclosure relief", "elevenlabs", "openrouter", "firecrawl",
+    "deepseek", "glm", "tracerfy", "summitleads",
+]
+
+_BOLT32_SUPERLATIVES = [
+    "best", "worst", "greatest", "most", "least", "highest", "lowest",
+    "biggest", "smallest", "never", "only", "first",
+]
+
+
+def _peel_bolt32_emoji_suffix(text: str) -> tuple[str, list[str]]:
+    """Peels up to 2 vocabulary emoji tokens off the END of `text`, longest
+    token first per peel (so the 2-codepoint heart+VS16 is matched whole,
+    never split into a bare heart + a stray variation selector). Returns
+    (remaining_text, tokens_found_in_original_order)."""
+    tokens_by_len = sorted(BOLT32_EMOJI_VOCAB, key=len, reverse=True)
+    found = []
+    remaining = text
+    for _ in range(2):
+        for tok in tokens_by_len:
+            if remaining.endswith(tok):
+                found.append(tok)
+                remaining = remaining[: -len(tok)]
+                break
+        else:
+            break
+    return remaining, list(reversed(found))
+
+
+def validate_bolt32_title(title: str, banned_names: list[str] | None = None) -> tuple[bool, list[str]]:
+    """T1 title validator. Checks (all must pass for valid=True):
+      - starts uppercase
+      - 20-60 chars before the ellipsis
+      - ends with an ellipsis ('…' or literal '...') then EXACTLY two
+        BOLT32_EMOJI_VOCAB tokens, grapheme-aware (negative test (a))
+      - M7 person-name check: none of `banned_names` (the case's own
+        defendant/buyer/plaintiff/owner tokens) appear in the title
+        (negative test (b)), plus a fixed vendor-name/banned-phrase list
+      - stakes score: contains a '$' figure, a bare digit (a count), or a
+        superlative word
+    Returns (valid, reasons) -- reasons is empty iff valid."""
+    reasons = []
+    banned_names = banned_names or []
+    title = title or ""
+
+    if not title or not title[0].isupper():
+        reasons.append("does not start uppercase")
+
+    ELLIPSIS = "…"
+    if ELLIPSIS in title:
+        idx = title.index(ELLIPSIS)
+        stem, emoji_part = title[:idx], title[idx + 1:]
+    elif title.rstrip().find("...") != -1:
+        idx = title.rstrip().find("...")
+        stem, emoji_part = title[:idx], title[idx + 3:]
+    else:
+        reasons.append("missing ellipsis marker")
+        stem, emoji_part = title, ""
+
+    if ELLIPSIS in title or "..." in title:
+        if not (20 <= len(stem) <= 60):
+            reasons.append(f"stem length {len(stem)} not in 20-60 range")
+
+        remaining, emojis = _peel_bolt32_emoji_suffix(emoji_part.strip())
+        if remaining.strip() or len(emojis) != 2:
+            reasons.append(
+                f"expected exactly two vocabulary emoji after the ellipsis, "
+                f"found {emojis!r} with leftover {remaining!r}"
+            )
+
+    lower_title = title.lower()
+    for name in banned_names:
+        name = (name or "").strip()
+        if len(name) >= 3 and name.lower() in lower_title:
+            reasons.append(f"contains banned name: {name!r}")
+    for phrase in _BOLT32_BANNED_PHRASES:
+        if phrase in lower_title:
+            reasons.append(f"contains banned phrase: {phrase!r}")
+
+    has_dollar = "$" in title
+    has_count = bool(re.search(r"\d", title))
+    has_superlative = any(re.search(rf"\b{re.escape(w)}\b", lower_title) for w in _BOLT32_SUPERLATIVES)
+    if not (has_dollar or has_count or has_superlative):
+        reasons.append("no stakes signal ($ figure, count, or superlative)")
+
+    return (len(reasons) == 0, reasons)
+
+
+def generate_bolt32_titles(context: dict) -> list[dict]:
+    """T1 title generator -- 5 candidates, protagonist is always THE PROPERTY,
+    'a bidder', 'the bank', or 'the county' -- NEVER a person name (M7).
+    Every candidate embeds a real numeric fact (assessed_value is populated
+    on both phases in this pipeline's live data; sold_amount on all postsale
+    rows) so the stakes-score check in validate_bolt32_title() always has a
+    real figure to point at, not a guessed one.
+
+    `context`: {phase, county_slug, sold_amount, assessed_value, delta_pct,
+    opening_bid, judgment_amount, days_to_auction, condition_tier,
+    banned_names}. Returns [{"title", "valid", "reasons"}, ...] (up to 5) --
+    callers pick the first valid candidate, or none if all 5 fail (never
+    fabricate a 6th to force a pass)."""
+    county_name = county_display(context["county_slug"]).replace(" County", "")
+    banned = context.get("banned_names") or []
+    candidates = []
+
+    if context.get("phase") == "presale":
+        assessed = context.get("assessed_value")
+        days = context.get("days_to_auction")
+        if assessed:
+            candidates.append(f"The County Says This {county_name} Home Is Worth ${assessed:,.0f}…\U0001F633\U0001F440")
+        if days is not None:
+            day_word = "Day" if days == 1 else "Days"
+            candidates.append(
+                f"This {county_name} Home Hits Auction In {days} {day_word}…\U0001F440\U0001F494"
+            )
+        if assessed:
+            candidates.append(f"Nobody Has Bid On This ${assessed:,.0f} {county_name} Home…\U0001F630\U0001F494")
+            candidates.append(f"This {county_name} Home Opens Below Its ${assessed:,.0f} Value…\U0001F92F\U0001F440")
+            candidates.append(f"This Is The Only Chance To Bid On This ${assessed:,.0f} Home…\U0001F631\U0001F440")
+    else:
+        sold = context.get("sold_amount")
+        assessed = context.get("assessed_value")
+        delta = context.get("delta_pct")
+        if sold:
+            candidates.append(f"This {county_name} Home Just Sold For ${sold:,.0f}…\U0001F633\U0001F440")
+        if delta is not None and assessed:
+            candidates.append(f"This Home Sold {abs(delta):.0f} Percent Under Its ${assessed:,.0f} Value…\U0001F92F\U0001F494")
+        if assessed:
+            candidates.append(f"The County Said This Home Was Worth ${assessed:,.0f}…\U0001F631\U0001F440")
+        if sold:
+            candidates.append(f"This {county_name} Home Sold For Only ${sold:,.0f}…\U0001F976\U0001F494")
+            candidates.append(f"This Was The Best Deal At The {county_name} Auction For ${sold:,.0f}…\U0001F3C6❤️")
+
+    results = []
+    for t in candidates[:5]:
+        ok, reasons = validate_bolt32_title(t, banned)
+        results.append({"title": t, "valid": ok, "reasons": reasons})
+    return results
+
+
+def pick_bolt32_title(candidates: list[dict]) -> dict | None:
+    """First valid candidate wins -- generate_bolt32_titles() already orders
+    candidates by which real facts they carry, not by any further scoring.
+    Returns None (never fabricates a fallback) if all 5 failed validation."""
+    for c in candidates:
+        if c["valid"]:
+            return c
+    return None
+
+
+def assert_bolt32_duration(duration_sec: float) -> None:
+    """DoD negative test (c): a 30.0s or 34.0s assembly must fail this."""
+    if abs(duration_sec - BOLT32_TOTAL_SECONDS) > BOLT32_DURATION_TOLERANCE:
+        raise ValueError(
+            f"bolt32 duration {duration_sec:.3f}s outside "
+            f"{BOLT32_TOTAL_SECONDS}s +/-{BOLT32_DURATION_TOLERANCE}s"
+        )
+
+
+def assert_bolt32_tts_model(tts_model: str | None) -> None:
+    """DoD negative test (d): a render whose tts_model != eleven_v3 fails."""
+    if tts_model != "eleven_v3":
+        raise ValueError(f"bolt32 DoD requires tts_model='eleven_v3', got {tts_model!r}")
+
+
+def build_bolt32_script_and_caption(title_chosen: str, county_slug: str, sale_type: str,
+                                     facts: dict, condition: dict, short_url: str) -> dict:
+    """T4 delivery: continuous voiceover, hook spoken verbatim, eleven_v3
+    audio tags per beat ([surprised] hook / neutral setup / [serious]
+    tension / [excited] payoff / [warm] loop line), no subscribe/follow CTA,
+    no early brand card (brand only appears on the 31-32s end beat)."""
+    county_name = county_display(county_slug)
+    sale_label = _SALE_TYPE_LABEL.get(sale_type, "auction sale")
+    tier = (condition or {}).get("general_condition_tier", "unknown")
+    condition_phrase = _CONDITION_PHRASE.get(tier, _CONDITION_PHRASE["unknown"])
+
+    hook_line = title_chosen.split("…")[0].strip()
+    setup_line = f"Here's a {sale_label} in {county_name}, Florida."
+    tension_line = f"Visual condition points to {condition_phrase}."
+
+    # NOTE: payoff_line/loop_line are rendered both as spoken TTS text AND as
+    # ffmpeg drawtext overlays (assemble_video_bolt32) -- deliberately kept
+    # apostrophe-free. ffmpeg's filtergraph parser treats a backslash-escaped
+    # single quote inside an already single-quoted option value as a syntax
+    # error ("Filter not found"), live-reproduced this session; avoiding the
+    # character here is simpler and safer than patching the shared
+    # _escape_drawtext() helper used by v1/v2/presale.
+    if facts.get("phase") == "presale":
+        basis_bid = facts.get("opening_bid") or facts.get("judgment_amount")
+        payoff_line = (
+            f"Opening bid is ${basis_bid:,.0f}." if basis_bid else
+            (f"The county assesses it at ${facts['assessed_value']:,.0f}." if facts.get("assessed_value") else
+             "The opening bid has not posted yet.")
+        )
+        loop_line = "That is why this one is worth watching."
+    else:
+        sold = facts.get("sold_amount")
+        assessed = facts.get("assessed_value")
+        delta = facts.get("delta_pct")
+        if sold and assessed and delta is not None:
+            direction = "below" if delta < 0 else "above"
+            payoff_line = f"It sold for ${sold:,.0f} -- {abs(delta):.0f} percent {direction} assessed value."
+        elif sold:
+            payoff_line = f"It sold for ${sold:,.0f}."
+        else:
+            payoff_line = "The sale is now final."
+        loop_line = "That is why nobody else bid."
+
+    script_text_v3 = " ".join([
+        f"[surprised] {hook_line}.",
+        setup_line,
+        f"[serious] {tension_line}",
+        f"[excited] {payoff_line}",
+        f"[warm] {loop_line}",
+    ])[:900]
+
+    caption_text = f"{title_chosen}\n▶ {short_url}"
+
+    hashtags = list(_HASHTAG_POOL[:4])
+    county_tag = "#" + county_slug.replace("_", "").title() + "County"
+    hashtags.append(county_tag)
+    hashtags.append("#TaxDeedSale" if sale_type == "tax_deed" else "#ForeclosureAuction")
+    hashtags.append("#Bolt32")
+    hashtags = hashtags[:8]
+
+    return {
+        "script_text_v3": script_text_v3,
+        "caption_text": caption_text,
+        "hashtags": hashtags,
+        "setup_line": setup_line,
+        "tension_line": tension_line,
+        "payoff_line": payoff_line,
+        "loop_line": loop_line,
+    }
+
+
+def build_bolt32_beat_map(title_chosen: str, setup_line: str, payoff_line: str,
+                           loop_line: str) -> list[dict]:
+    """The `beat_map` jsonb column -- one entry per named beat in the spec,
+    hard timings in ms (docs/gtm/REEL_SPEC_BOLT32.md), plus the on-screen
+    text/cut-count actually rendered for that beat."""
+    return [
+        {"beat": "hook", "start_ms": 0, "end_ms": 2000, "text": title_chosen.split("…")[0].strip()},
+        {"beat": "setup", "start_ms": 2000, "end_ms": 8000, "text": setup_line},
+        {"beat": "tension", "start_ms": 8000, "end_ms": 20000, "cuts": 2},
+        {"beat": "payoff", "start_ms": 20000, "end_ms": 28000, "text": payoff_line},
+        {"beat": "loop_line", "start_ms": 28000, "end_ms": 31000, "text": loop_line},
+        {"beat": "end", "start_ms": 31000, "end_ms": 32000, "text": "biddeed.ai"},
+    ]
+
+
+def assemble_video_bolt32(images: dict, audio_path: str, overlays: dict,
+                           qr_path: str, out_path: str, title_chosen: str) -> float:
+    """bolt32 T4 edit -- 7 visual segments implementing the 6-beat spec
+    (BOLT32_SEGMENTS), 1080x1920, 30fps, segment durations summing to
+    exactly 32.0s pre-encode. `images` = {"aerial_wide", "aerial_tight",
+    "street"} still-image paths (street may already be a tight-aerial
+    fallback per the existing v2/presale substitution when no real Street
+    View exists -- not re-implemented here).
+
+    Loop mechanic (T3): the 'end' segment (index 6, 31.0-31.0+1.0s) uses the
+    SAME image ('aerial_wide') as the 'hook' segment (index 0) -- the video
+    visibly cuts back to its own opening frame immediately before an
+    autoplay loop repeats it, which is the actual loop-and-rewatch mechanism,
+    not just a metadata flag.
+
+    Deviations from the issue's literal spec (logged, not silent): hard
+    cuts, not a crossfade dissolve; no bass-hit/ducked music bed under the
+    voice track (same no-unlicensed-audio call v1/v2/presale already made --
+    no royalty-free asset exists anywhere in this repo/org, and per this
+    issue's own non-goals list, no new vendor may be introduced to source
+    one); the QR/wordmark overlay sits on the 1s 'end' beat rather than a
+    separate CTA card, per the spec's literal beat sheet (no separate CTA
+    card beat exists in the 32s budget).
+    """
+    font = _ensure_font()
+    fps = 30
+    filter_parts = []
+    labels = []
+
+    for i, seg in enumerate(BOLT32_SEGMENTS):
+        frames = max(int(seg["seconds"] * fps), 1)
+        zoom_expr = "min(zoom+0.0035,1.12)" if seg["beat"] == "hook" else "min(zoom+0.0007,1.16)"
+        cur = f"b{i}raw"
+        filter_parts.append(
+            f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            f"crop=1080:1920,zoompan=z='{zoom_expr}':d={frames}:s=1080x1920:fps={fps},"
+            f"trim=start_frame=0:end_frame={frames},setpts=PTS-STARTPTS[{cur}]"
+        )
+
+        if seg["beat"] == "hook" and i == 0:
+            hook_text = title_chosen.split("…")[0].strip()
+            nxt = f"b{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, hook_text, fontcolor='white', fontsize=58, box=1, boxcolor=f'{BRAND_NAVY}@0.75', boxborderw=20, x='(w-text_w)/2', y='(h-text_h)/2')}[{nxt}]"
+            )
+            cur = nxt
+        elif seg["beat"] == "setup":
+            sub = f"{overlays['county']} County - {overlays['sale_type_label']}"
+            nxt = f"b{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, sub, fontcolor='white', fontsize=44, box=1, boxcolor=f'{BRAND_NAVY}@0.7', boxborderw=16, x='(w-text_w)/2', y=1650)}[{nxt}]"
+            )
+            cur = nxt
+        elif seg["beat"] == "tension" and overlays.get("condition_tier"):
+            tier = overlays["condition_tier"].title()
+            nxt = f"b{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, tier + ' condition', fontcolor='#020617', fontsize=46, box=1, boxcolor=BRAND_AMBER, boxborderw=18, x='(w-text_w)/2', y=180)}[{nxt}]"
+            )
+            cur = nxt
+        elif seg["beat"] == "payoff":
+            payoff_text = overlays.get("payoff_text") or ""
+            if payoff_text:
+                nxt = f"b{i}a"
+                filter_parts.append(
+                    f"[{cur}]{_dt(font, payoff_text, fontcolor='white', fontsize=52, box=1, boxcolor=f'{BRAND_NAVY}@0.8', boxborderw=22, x='(w-text_w)/2', y='(h-text_h)/2')}[{nxt}]"
+                )
+                cur = nxt
+        elif seg["beat"] == "loop_line":
+            loop_text = overlays.get("loop_line_text") or ""
+            if loop_text:
+                nxt = f"b{i}a"
+                filter_parts.append(
+                    f"[{cur}]{_dt(font, loop_text, fontcolor='white', fontsize=44, box=1, boxcolor=f'{BRAND_NAVY}@0.65', boxborderw=16, x='(w-text_w)/2', y=1550)}[{nxt}]"
+                )
+                cur = nxt
+        elif seg["beat"] == "end":
+            nxt = f"b{i}a"
+            filter_parts.append(
+                f"[{cur}]{_dt(font, 'biddeed.ai', fontcolor=BRAND_AMBER.replace('0x', '#'), fontsize=50, x=40, y='h-140')}[{nxt}]"
+            )
+            cur = nxt
+            qr_idx = len(BOLT32_SEGMENTS) + 1
+            nxt2 = f"b{i}b"
+            filter_parts.append(f"[{qr_idx}:v]scale=160:160[qrsmall]")
+            filter_parts.append(f"[{cur}][qrsmall]overlay=W-w-40:H-h-40[{nxt2}]")
+            cur = nxt2
+
+        filter_parts.append(f"[{cur}]copy[vb{i}]")
+        labels.append(f"vb{i}")
+
+    concat_inputs = "".join(f"[{l}]" for l in labels)
+    filter_parts.append(f"{concat_inputs}concat=n={len(labels)}:v=1:a=0[vconcat]")
+
+    audio_idx = len(BOLT32_SEGMENTS)
+    filter_parts.append(f"[{audio_idx}:a]atrim=0:{BOLT32_TOTAL_SECONDS},apad=pad_dur=0.1[aout]")
+
+    filter_complex = ";".join(filter_parts)
+
+    cmd = ["ffmpeg", "-y"]
+    for seg in BOLT32_SEGMENTS:
+        cmd += ["-loop", "1", "-i", images[seg["img"]]]
+    cmd += ["-i", audio_path]
+    cmd += ["-loop", "1", "-t", "1", "-i", qr_path]
+    cmd += [
+        "-filter_complex", filter_complex,
+        "-map", "[vconcat]", "-map", "[aout]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+        "-t", str(BOLT32_TOTAL_SECONDS),
+        out_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg bolt32 assembly failed: {result.stderr[-3000:]}")
+    return _ffprobe_duration(out_path)

@@ -2577,6 +2577,29 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         });
       }
 
+      // ── POST /reels/:code/event — watch-progress beacon (issue #19779
+      // CP3a measurement hooks). Client JS in reelPlayerScript() posts
+      // play/25/50/75/100/loop as the video element crosses each threshold;
+      // this route is a thin forward to public.log_reel_watch_event()
+      // (SECURITY DEFINER, allow-lists p_event server-side) so no Supabase
+      // key of any kind needs to reach the browser. Always 204 -- a beacon
+      // is fire-and-forget, never blocks or retries client-side.
+      if (path.match(/^\/reels\/[A-Za-z0-9]+\/event$/) && method === 'POST') {
+        const code = path.split('/')[2];
+        try {
+          const body = await request.json().catch(() => ({}));
+          const evt = String(body.event || '');
+          await fetch(`${SUPABASE_URL}/rest/v1/rpc/log_reel_watch_event`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            body: JSON.stringify({ p_code: code, p_event: evt, p_session_id: body.session_id || null }),
+          });
+        } catch (e) {
+          await logErr(env, '/reels/event', 'log_reel_watch_event failed', String(e), 500);
+        }
+        return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+      }
+
       // ── /proof/:slug — shareable "we called it" result cards. Added Aug
       // 10 2026. Checked s5_pdf_cache before building this: zero rows
       // currently have a real captured auction_outcome.sale_price -- the
@@ -3756,15 +3779,55 @@ const REELS_PLAYER_CSS = `
 
 function reelPlayerScript() {
   return `
+var bdReelSession = null;
+try {
+  bdReelSession = localStorage.getItem('bd_reel_session');
+  if (!bdReelSession) {
+    bdReelSession = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('bd_reel_session', bdReelSession);
+  }
+} catch (e) {}
+function bdSendReelEvent(code, evt) {
+  if (!code) return;
+  try {
+    fetch('/reels/' + code + '/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event: evt, session_id: bdReelSession }),
+      keepalive: true,
+    }).catch(function(){});
+  } catch (e) {}
+}
 document.querySelectorAll('.reel-player-wrap').forEach(function(wrap){
   var video = wrap.querySelector('video');
   var overlay = wrap.querySelector('.reel-cta-overlay');
+  var code = wrap.getAttribute('data-reel-code');
+  // issue #19779 CP3a measurement hooks -- an internal AVD proxy ahead of a
+  // real YouTube Analytics connection. sentMarks dedupes so a single watch
+  // session only ever counts each threshold once; loop detection watches
+  // for currentTime dropping back near 0 right after it was near the end
+  // (the native <video loop> attribute never fires 'ended').
+  var sentMarks = {};
+  var prevTime = 0;
   wrap.addEventListener('mouseenter', function(){ video.muted = true; video.play().catch(function(){}); });
   wrap.addEventListener('mouseleave', function(){ video.pause(); });
   wrap.addEventListener('click', function(){ video.muted = !video.muted; if (video.paused) video.play().catch(function(){}); });
+  video.addEventListener('play', function(){
+    if (!sentMarks.play) { sentMarks.play = true; bdSendReelEvent(code, 'play'); }
+  });
   video.addEventListener('timeupdate', function(){
     if (video.duration && video.currentTime >= video.duration - 3) overlay.classList.add('show');
     else overlay.classList.remove('show');
+    if (video.duration) {
+      var pct = (video.currentTime / video.duration) * 100;
+      [25, 50, 75, 100].forEach(function(mark){
+        if (pct >= mark && !sentMarks[mark]) { sentMarks[mark] = true; bdSendReelEvent(code, String(mark)); }
+      });
+      if (prevTime > video.duration * 0.9 && video.currentTime < prevTime - 1) {
+        bdSendReelEvent(code, 'loop');
+      }
+      prevTime = video.currentTime;
+    }
   });
 });
 function copyShortLink(btn, url){
@@ -3786,8 +3849,13 @@ function reelCardHtml(reel) {
   const deltaLine = deltaPct == null ? '' : `${deltaPct < 0 ? '-' : '+'}${Math.abs(deltaPct).toFixed(0)}% vs assessed`;
   const viewHref = `${escHtml(reel.landing_url || '#')}${escHtml(previewQueryFor(reel))}`;
   const posted = reel.status === 'posted';
+  // issue #19779 CP3a: short_code isn't in get_reel_by_code()'s/list_public_reels()
+  // jsonb allow-list uniformly, but short_url always has the shape
+  // biddeed.ai/r/{code} -- deriving it here avoids a second RPC field just
+  // for the watch-event beacon's target path.
+  const reelCode = String(reel.short_url || '').split('/').filter(Boolean).pop() || '';
   return `<div class="reel-card">
-  <div class="reel-player-wrap">
+  <div class="reel-player-wrap" data-reel-code="${escHtml(reelCode)}">
     <video src="${escHtml(reel.video_v2_url)}" poster="${escHtml(reel.aerial_tight_url || '')}" muted playsinline preload="metadata" loop></video>
     <div class="reel-cta-overlay"><a href="${viewHref}">biddeed.ai &rarr;</a></div>
   </div>
