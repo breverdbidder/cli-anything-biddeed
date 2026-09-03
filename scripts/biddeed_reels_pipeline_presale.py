@@ -118,7 +118,10 @@ def update_row(row_id: str, fields: dict) -> None:
     """)
 
 
-def ensure_short_link(existing_code: str | None, landing_url: str) -> tuple[str, str]:
+def ensure_short_link(reel_id: str, existing_code: str | None, landing_url: str) -> tuple[str, str]:
+    """Idempotent, mirroring v2's own ensure_short_link(): reuses an existing
+    short_code on a --force re-run instead of minting a new one and orphaning
+    the old link/QR."""
     if existing_code:
         code = existing_code
         lib.run_sql(f"""
@@ -135,6 +138,11 @@ def ensure_short_link(existing_code: str | None, landing_url: str) -> tuple[str,
                 break
         if code is None:
             raise RuntimeError("could not mint a unique short_code after 5 attempts")
+        lib.run_sql(f"""
+            insert into winnerdata.reel_links (code, reel_id, target, utm_source, utm_medium, utm_campaign)
+            values ({lib.sql_str(code)}, {lib.sql_str(reel_id)}, {lib.sql_str(landing_url)},
+                    'reel', 'social', 'biddeed_reels_presale');
+        """)
     return code, f"{SHORT_BASE}/{code}"
 
 
@@ -270,11 +278,6 @@ def process_presale_deal(row: dict, auction_date: str, days_to_auction: int, for
             slug = lib.slugify_case_number(case_number)
             county_slug = county.replace("_", "-")
             landing_url = f"{LANDING_BASE}/{county_slug}/{slug}"
-            short_code, short_url = ensure_short_link(existing.get("short_code") if existing else None, landing_url)
-
-            qr_path = os.path.join(tmp, "qr.png")
-            lib.generate_qr_png(short_url, qr_path)
-            qr_url = lib.storage_upload(qr_path, f"{prefix}/qr.png", "image/png")
 
             fields = {
                 "sale_type": row.get("sale_type"),
@@ -293,14 +296,16 @@ def process_presale_deal(row: dict, auction_date: str, days_to_auction: int, for
                 "street_url": street_url,
                 "condition_json": condition,
                 "condition_score": condition_score,
-                "short_code": short_code,
-                "short_url": short_url,
-                "qr_url": qr_url,
                 "landing_url": landing_url,
                 "status": "pending_approval",
                 "error_text": None,
             }
 
+            # winnerdata.reel_links.reel_id is a hard FK to biddeed_reels.id --
+            # the row must exist BEFORE the short link does. Upsert first
+            # (short_code/short_url/qr_url filled in by a second small update
+            # right after), unlike v2's pipeline which only ever re-renders
+            # rows v1 already inserted days earlier.
             if existing:
                 row_id = existing["id"]
                 update_row(row_id, fields)
@@ -308,6 +313,14 @@ def process_presale_deal(row: dict, auction_date: str, days_to_auction: int, for
                 row_id = upsert_presale_row(dict(
                     fields, case_number=case_number, county=county, phase="presale",
                 ))
+
+            short_code, short_url = ensure_short_link(row_id, existing.get("short_code") if existing else None, landing_url)
+
+            qr_path = os.path.join(tmp, "qr.png")
+            lib.generate_qr_png(short_url, qr_path)
+            qr_url = lib.storage_upload(qr_path, f"{prefix}/qr.png", "image/png")
+
+            update_row(row_id, {"short_code": short_code, "short_url": short_url, "qr_url": qr_url})
 
             result.update({
                 "status": "deal_page_done", "row_id": row_id, "parcel_outline": parcel_outline,
