@@ -3676,6 +3676,7 @@ body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;padding:2re
 .deal-greeting{background:#0f172a;border:1px solid #F59E0B;border-radius:10px;padding:.75rem .9rem;margin-bottom:1rem;font-size:.85rem;color:#F59E0B;display:none}
 .deal-img{width:100%;border-radius:12px;margin-bottom:1rem;border:1px solid #1e293b;display:block}
 h1{font-size:1.6rem;margin-bottom:.25rem;color:#fff}
+.deal-addr{color:#cbd5e1;font-size:.9rem;margin-bottom:.15rem}
 .deal-sub{color:#94a3b8;font-size:.95rem;margin-bottom:1.25rem}
 .deal-stats{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem}
 .deal-stat{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:.85rem}
@@ -3704,6 +3705,7 @@ ${previewBanner}
 <div class="deal-greeting" id="bd-greeting"></div>
 ${ogImage ? `<img class="deal-img" src="${escHtml(ogImage)}" alt="Parcel aerial with boundary outline">` : ''}
 <h1>${escHtml(soldFmt || 'Sold at auction')}</h1>
+${reel.property_address ? `<div class="deal-addr">${escHtml(reel.property_address)}</div>` : ''}
 <div class="deal-sub">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)}${reel.auction_date ? ' &middot; ' + escHtml(reel.auction_date) : ''}</div>
 ${orderedSections}
 ${lockedSection}
@@ -3820,6 +3822,7 @@ body{background:#020617;color:#e2e8f0;font-family:'Inter',sans-serif;padding:2re
 .psale-banner{background:#F59E0B;color:#020617;font-weight:700;text-align:center;padding:.5rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem}
 .psale-img{width:100%;border-radius:12px;margin-bottom:1rem;border:1px solid #1e293b;display:block}
 h1{font-size:1.35rem;margin-bottom:.25rem;color:#fff}
+.psale-addr{color:#cbd5e1;font-size:.9rem;margin-bottom:.15rem}
 .psale-sub{color:#94a3b8;font-size:.95rem;margin-bottom:.75rem}
 .psale-countdown{display:inline-block;background:#F59E0B;color:#020617;font-weight:800;padding:.35rem .8rem;border-radius:999px;font-size:.8rem;margin-bottom:1rem}
 .psale-stats{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem}
@@ -3853,6 +3856,7 @@ ${previewBanner}
 <div class="psale-greeting" id="bd-greeting"></div>
 ${ogImage ? `<img class="psale-img" src="${escHtml(ogImage)}" alt="Parcel aerial with boundary outline">` : ''}
 <h1>${escHtml(title)}</h1>
+${reel.property_address ? `<div class="psale-addr">${escHtml(reel.property_address)}</div>` : ''}
 <div class="psale-sub">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)} Sale${reel.auction_date ? ' &middot; ' + escHtml(reel.auction_date) : ''}</div>
 <div class="psale-countdown">${escHtml(countdownLabel)}</div>
 <div class="psale-stats">

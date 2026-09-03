@@ -59,6 +59,18 @@ def mint_variant_short_link(reel: dict, variant_key: str) -> tuple[str, str, str
 
     short_url = f"{LANDING_BASE}/r/{code}"
 
+    # issue #19796 (P0): without this row, /r/{code} and /reels/{code} both
+    # 404 -- resolve_reel_link()/get_reel_by_code() join on
+    # winnerdata.reel_links.code, and nothing else ever wrote one for a
+    # variant-minted code. Target is the clickable player page for this
+    # exact code (get_reel_by_code() resolves the variant's own video from
+    # there), not the /deal/... page directly.
+    lib.run_sql(f"""
+        insert into winnerdata.reel_links (code, reel_id, target, utm_content)
+        values ({lib.sql_str(code)}, {lib.sql_str(reel['id'])}, {lib.sql_str(f'{LANDING_BASE}/reels/{code}')}, {lib.sql_str(variant_key)})
+        on conflict (code) do nothing;
+    """)
+
     qr_url = None
     try:
         import tempfile
