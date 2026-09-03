@@ -42,7 +42,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg
-          pip install qrcode
+          pip install qrcode Pillow
 
       - name: Run BidDeed Reels presale pipeline
         env:

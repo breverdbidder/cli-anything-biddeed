@@ -5,4 +5,9 @@ lxml>=4.9.0
 pypdf>=4.0.0
 
 # BidDeed Reels v2 (issue #19752) -- scripts/biddeed_reels_lib.py generate_qr_png()
+# Pillow is qrcode's own image backend -- undeclared until this session
+# (2026-09-03, issue #19761): qrcode installs without it but raises
+# `ModuleNotFoundError: No module named 'PIL'` the first time .make()/.save()
+# actually runs, live-reproduced running scripts/biddeed_reels_pipeline_presale.py.
 qrcode>=7.4.2
+Pillow>=10.0.0
