@@ -22,7 +22,7 @@
     { "q": "Which sale type has the tighter payment deadline?", "a": "A tax deed sale — full payment is due within a short, statute-set window measured in hours, not days. A foreclosure sale's deadline is set by the court in the sale order." },
     { "q": "What happens if I don't pay the balance in time?", "a": "The clerk cancels the sale, readvertises the property, and keeps your deposit to cover the cost of doing it again." }
   ],
-  "links": { "county": "/county/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
+  "links": { "county": "/counties/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
   "author": "ariel-shapira",
   "howto": [
     "Confirm which sale type you're bidding on — foreclosure or tax deed — before auction day.",

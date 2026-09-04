@@ -17,7 +17,7 @@
     { "q": "What is the one thing that can survive a tax deed sale?", "a": "An unpaid lien of record held by a city, county, or special district." },
     { "q": "Do HOA liens survive a Florida tax deed sale?", "a": "No — a private HOA lien is not a governmental lien and does not survive." }
   ],
-  "links": { "county": "/county/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
+  "links": { "county": "/counties/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
   "author": "ariel-shapira",
   "howto": [],
   "version": 1,

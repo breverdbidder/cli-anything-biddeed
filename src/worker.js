@@ -2270,7 +2270,15 @@ async function handleRequest(request, env, ctx) {
         // P1 Discovery is a Next/Vercel surface proxied through the canonical Worker host.
         path === '/discover' || path.startsWith('/discover/') ||
         // Authenticated Alerts UI is a Vercel surface; its API remains Clerk-protected.
-        path === '/alerts' || path.startsWith('/alerts/')
+        path === '/alerts' || path.startsWith('/alerts/') ||
+        // CP-C2 programmatic county SEO pages (biddeed-web PR #17, issue
+        // #19821/#19830) live in the app, not this Worker. Bare '/counties'
+        // (the index) stays local -- buildCountiesIndex() below -- the app's
+        // PR #17 has no app/counties/page.tsx, only [county] and
+        // [county]/[saleType]. Ships dark against production until #17
+        // merges and deploys: until then the upstream 404s, same "ships
+        // dark" contract as /answers/:slug.
+        path.startsWith('/counties/')
       ) {
         return proxyToRadar(request, url);
       }
@@ -2832,13 +2840,17 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         });
       }
 
-      // ── /county/:slug — county deep-link landing page ────────────────────
+      // ── /county/:slug — legacy landing page, 301s to /counties/:slug ─────
+      // Issue #19830 B3.2: the new page lives in biddeed-web PR #17, proxied
+      // above via the /counties/ branch. Preserves inbound links/backlinks
+      // already pointing at /county/. buildCountyPage()/fetchCountyData()
+      // below are now unreachable from this route; left in place (not
+      // deleted) per surgical-change discipline and flagged in the PR
+      // description rather than removed silently.
       if (path.startsWith('/county/')) {
-        const slug = path.replace('/county/', '').toLowerCase().replace(/-/g,'_').replace(/\/.*$/,'');
-        if (!slug) return Response.redirect('/counties', 302);
-        const [data, lots, rtConfig] = await Promise.all([fetchCountyData(slug), fetchCountyLots(slug), fetchRuntimeConfig()]);
-        const html = injectChatwootWidget(withPublicShell(buildCountyPage(slug, data, lots, rtConfig), path), env);
-        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=120' } });
+        const slug = path.replace('/county/', '').toLowerCase().replace(/_/g,'-').replace(/\/.*$/,'');
+        if (!slug) return Response.redirect('/counties', 301);
+        return Response.redirect('/counties/' + slug, 301);
       }
 
       // ── /answers/:slug — answer-asset renderer (SPR-02, issue #19830) ────
@@ -2849,7 +2861,10 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path.startsWith('/answers/')) {
         const slug = path.slice('/answers/'.length).replace(/\/$/, '');
         if (!slug || slug.includes('/')) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        const answerCache = caches.default;
+        const answerCacheKey = new Request('https://biddeed.ai/_internal/answers-cache/' + slug);
         let row = null;
+        let rpcFailed = false;
         try {
           const res = await fetch(SUPABASE_URL + '/rest/v1/rpc/get_published_content', {
             method: 'POST',
@@ -2857,16 +2872,30 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             body: JSON.stringify({ p_slug: slug }),
           });
           if (res.ok) row = await res.json();
-          else await logErr(env, '/answers', 'get_published_content non-2xx', await res.text(), res.status);
+          else { rpcFailed = true; await logErr(env, '/answers', 'get_published_content non-2xx', await res.text(), res.status); }
         } catch (e) {
+          rpcFailed = true;
           await logErr(env, '/answers', 'get_published_content failed', String(e), 500);
+        }
+        // A transient RPC failure (e.g. a Postgres restart) must never look
+        // like a removed page to a crawler -- issue #19830, 2026-09-04 08:26
+        // note: /answers/redemption 404'd for ~60s during the 08:18:55
+        // restart. 404 is reserved for a successful RPC that genuinely found
+        // no published row; any fetch/network/non-2xx failure serves the
+        // last-known-good edge-cached render if one exists, else 503.
+        if (rpcFailed) {
+          const cached = await answerCache.match(answerCacheKey);
+          if (cached) return cached;
+          return new Response('Temporarily unavailable', { status: 503, headers: { 'Retry-After': '30', 'Cache-Control': 'no-store' } });
         }
         if (!row) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
         const scope = row.body_jsonb && row.body_jsonb.scope;
         const countySlug = (scope && scope !== 'statewide') ? scope : null;
         const tokens = await fetchAnswerTokens(countySlug);
         const html = injectChatwootWidget(withPublicShell(buildAnswerPage(row, tokens), path), env);
-        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=120' } });
+        const answerResp = new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=120' } });
+        ctx.waitUntil(answerCache.put(answerCacheKey, answerResp.clone()));
+        return answerResp;
       }
 
       // ── /counties — all counties index ───────────────────────────────────
@@ -2904,7 +2933,10 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         } catch (_) { /* answerSlugs stays [] */ }
         const urlEntries = [
           ...staticUrls.map(p => `  <url><loc>${base}${p}</loc><changefreq>daily</changefreq></url>`),
-          ...countySlugs.map(slug => `  <url><loc>${base}/county/${slug.replace(/_/g,'-')}</loc><changefreq>daily</changefreq></url>`),
+          // #19830 B3.2: county pages now live at /counties/:slug (biddeed-web
+          // PR #17); /county/:slug 301s there. Points here even before #17
+          // merges -- same ships-dark contract as the answer-asset slugs below.
+          ...countySlugs.map(slug => `  <url><loc>${base}/counties/${slug.replace(/_/g,'-')}</loc><changefreq>daily</changefreq></url>`),
           ...blogSlugs.map(slug => `  <url><loc>${base}/blog/${slug}</loc><changefreq>weekly</changefreq></url>`),
           ...answerSlugs.map(slug => `  <url><loc>${base}/answers/${slug}</loc><changefreq>weekly</changefreq></url>`)
         ].join('\n');

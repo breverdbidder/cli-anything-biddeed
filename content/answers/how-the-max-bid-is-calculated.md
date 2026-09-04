@@ -17,7 +17,7 @@
     { "q": "Should repair costs be estimated from listing photos?", "a": "No — vacant auction properties are frequently in worse condition than photos suggest; use a real inspection-based estimate wherever possible." },
     { "q": "Why include a buffer beyond repair costs?", "a": "To absorb what you can't see in advance — a survived lien, an unpaid tax certificate, or an occupant who won't leave on schedule." }
   ],
-  "links": { "county": "/county/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
+  "links": { "county": "/counties/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
   "author": "ariel-shapira",
   "howto": [
     "Pull the case number and confirm the sale is still active.",

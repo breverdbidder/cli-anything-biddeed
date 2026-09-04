@@ -22,7 +22,7 @@
     { "q": "Do property taxes survive a foreclosure?", "a": "Yes, property tax liens keep first-lien priority through a foreclosure sale." },
     { "q": "Do mortgages survive a tax deed sale?", "a": "No, a mortgage does not survive the issuance of a tax deed." }
   ],
-  "links": { "county": "/county/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
+  "links": { "county": "/counties/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
   "author": "ariel-shapira",
   "howto": [],
   "version": 1,

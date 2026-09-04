@@ -17,7 +17,7 @@
     { "q": "Do property taxes survive a Florida foreclosure sale?", "a": "Yes. Florida law makes property tax liens a first lien with priority that survives the sale." },
     { "q": "How do I know what liens survive on a specific property?", "a": "A title search on that parcel before auction day — a SIGNAL$ Property Report includes lien-survival classification for exactly that reason." }
   ],
-  "links": { "county": "/county/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
+  "links": { "county": "/counties/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
   "author": "ariel-shapira",
   "howto": [],
   "version": 1,
