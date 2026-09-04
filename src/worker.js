@@ -4276,12 +4276,26 @@ footer a{color:var(--muted);text-decoration:none}
 }
 
 function buildBlogPost(post) {
+  // Article JSON-LD -- SPR-06 (issue #19826, CONTENT_SOP.md SS5.7 C0 finding):
+  // the 6 BLOG_POSTS carried no schema at all before this.
+  const articleJsonLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: post.title,
+    description: post.description,
+    datePublished: post.date,
+    dateModified: post.date,
+    author: { '@type': 'Organization', name: 'BidDeed.AI', url: 'https://biddeed.ai' },
+    publisher: { '@type': 'Organization', name: 'BidDeed.AI', url: 'https://biddeed.ai' },
+    mainEntityOfPage: { '@type': 'WebPage', '@id': 'https://biddeed.ai/blog/' + post.slug },
+  }).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>${post.title} — BidDeed.AI</title>
 <meta name="description" content="${post.description}">
+<script type="application/ld+json">${articleJsonLd}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -4461,6 +4475,7 @@ function buildChatPage(county, hook, ref) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content">
 <title>BidDeed.AI · Auction Intelligence</title>
+<meta name="description" content="Chat with BidDeed.AI's Deed assistant for live Florida foreclosure and tax deed auction data, max bid calculations, and county-by-county intelligence.">
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -7669,6 +7684,7 @@ ${HOMEPAGE_SCRIPT}
 const TERMS_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Terms of Service — BidDeed.AI</title>
+<meta name="description" content="Terms of Service for BidDeed.AI, Florida foreclosure and tax deed auction intelligence from Everest Capital USA.">
 ${POSTHOG_SCRIPT}
 <style>
 :root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
@@ -7706,6 +7722,7 @@ footer a{color:var(--muted)}
 const PRIVACY_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Privacy Policy — BidDeed.AI</title>
+<meta name="description" content="Privacy Policy for BidDeed.AI — how Everest Capital USA collects, uses, and protects your information.">
 ${POSTHOG_SCRIPT}
 <style>
 :root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
@@ -7745,6 +7762,7 @@ footer a{color:var(--muted)}
 const DISCLAIMER_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Disclaimer — BidDeed.AI</title>
+<meta name="description" content="BidDeed.AI is an information and analytics platform, not legal, financial, or investment advice — read the full disclaimer before bidding.">
 ${POSTHOG_SCRIPT}
 <style>
 :root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
