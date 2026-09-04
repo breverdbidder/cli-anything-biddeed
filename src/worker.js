@@ -3930,7 +3930,11 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const requestedProviderHeader = (request.headers.get('X-Chat-Provider') || '').toLowerCase().trim();
         const effectiveProvider = ['router', 'byok', 'ollama', 'free'].includes(requestedProviderHeader)
           ? requestedProviderHeader
-          : (chatOwnerEmail ? 'router' : 'free');
+          // HOTFIX 2026-09-04 21:05 UTC: the router free tier answers "all tiers exhausted"
+          // (worker_error_log #1043), which broke every anonymous chat after C6 landed.
+          // Anonymous visitors go back to the Smart Router (pre-C6 behaviour) until the
+          // free tier is proven live; the header still selects "free" explicitly.
+          : 'router';
 
         let activeConversationId = null;
         let attachmentCtx = '';
