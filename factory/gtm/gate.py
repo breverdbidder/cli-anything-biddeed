@@ -405,7 +405,8 @@ def main():
 
     if args.check_url:
         try:
-            with urllib.request.urlopen(args.check_url, timeout=15) as resp:
+            req = urllib.request.Request(args.check_url, headers={"User-Agent": "BidDeed-GTM-Gate/1.0 (+https://biddeed.ai)"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 status = resp.status
         except Exception as e:  # noqa: BLE001
             status = None
@@ -415,7 +416,7 @@ def main():
             print("GTM_PAGE_200")
         else:
             overall_ok = False
-            print(f"PAGE CHECK FAIL: status={status}", file=sys.stderr)
+            print(f"PAGE CHECK FAIL: status={status} error={summary.get('page_check_error')}", file=sys.stderr)
 
     if args.check_render_file:
         try:
