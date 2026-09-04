@@ -194,6 +194,121 @@ async function callGemini(apiKey, messages, system, maxTokens) {
     outputTokens: usage.candidatesTokenCount ?? 0
   };
 }
+// ── T11 (issue #19828 PASS 4): real token-by-token streaming ─────────────────
+// Each callXStream() issues the request in the provider's own native streaming
+// mode and returns the raw fetch Response (body not yet consumed) so the
+// existing tier-cascade "try, check res.ok, fall back to next tier" pattern
+// keeps working unmodified up to the point a tier is committed to. Once a
+// tier's res.ok, its SSE body is parsed by the matching extractXDelta() and
+// re-emitted by streamTierCascade() as a single normalized `{text: delta}`
+// shape -- callers (e.g. worker.js /chat/api) don't need per-provider parsing.
+// A tier failing AFTER res.ok (mid-stream) cannot fall back to the next tier
+// without sending garbage to an already-open connection -- same accepted
+// tradeoff every streaming+fallback system makes; see docs/spec/19828.md.
+async function callGeminiStreamStart(apiKey, messages, system, maxTokens) {
+  const isBearer = apiKey.startsWith("AQ.") || apiKey.startsWith("ya29.");
+  const url = `${GEMINI_BASE}/${GEMINI_MODEL}:streamGenerateContent?alt=sse${isBearer ? "" : `&key=${apiKey}`}`;
+  const body = {
+    contents: toGeminiContents(messages),
+    generationConfig: {
+      maxOutputTokens: maxTokens
+    }
+  };
+  if (system) body.systemInstruction = {
+    parts: [
+      {
+        text: system
+      }
+    ]
+  };
+  const reqHeaders = {
+    "content-type": "application/json"
+  };
+  if (isBearer) reqHeaders["Authorization"] = `Bearer ${apiKey}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: reqHeaders,
+    body: JSON.stringify(body)
+  });
+  return { res, model: GEMINI_MODEL, provider: "gemini" };
+}
+// Verified live 2026-09-04 (issue #19828 PASS 4, not assumed): Gemini's SSE
+// `text` field per event is an incremental delta, same as Claude/DeepSeek --
+// NOT a cumulative snapshot of the candidate so far. An 18-chunk streamed
+// response concatenated cleanly into the full text with no overlap/repeat.
+function extractGeminiEvent(evt) {
+  const text = evt.candidates?.[0]?.content?.parts?.[0]?.text;
+  const usage = evt.usageMetadata;
+  return { delta: typeof text === "string" ? text : null, usage };
+}
+async function callDeepSeekStreamStart(apiKey, messages, system, maxTokens) {
+  const body = {
+    model: DEEPSEEK_MODEL,
+    messages: system ? [
+      {
+        role: "system",
+        content: system
+      },
+      ...messages
+    ] : messages,
+    max_tokens: maxTokens,
+    temperature: 0.7,
+    stream: true
+  };
+  const res = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  });
+  return { res, model: DEEPSEEK_MODEL, provider: "deepseek" };
+}
+// DeepSeek uses the OpenAI chat-completions streaming shape: incremental
+// delta.content per chunk, final chunk carries no content but (per OpenAI
+// convention) usage may arrive on the [DONE]-preceding chunk when requested;
+// DeepSeek does not echo usage on stream chunks today, so streamed DeepSeek
+// calls log 0/0 tokens (cost estimate falls back to 0) -- a known, documented
+// gap, not silently swallowed.
+function extractDeepSeekEvent(evt) {
+  const delta = evt.choices?.[0]?.delta?.content;
+  return { delta: typeof delta === "string" ? delta : null, usage: evt.usage ?? null };
+}
+async function callClaudeStreamStart(oauthBearer, messages, system, maxTokens) {
+  const body = {
+    model: CLAUDE_MODEL,
+    messages,
+    max_tokens: maxTokens,
+    stream: true
+  };
+  if (system) body.system = system;
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "anthropic-version": "2023-06-01",
+      "authorization": `Bearer ${oauthBearer}`
+    },
+    body: JSON.stringify(body)
+  });
+  return { res, model: CLAUDE_MODEL, provider: "anthropic" };
+}
+// Anthropic's Messages streaming shape: content_block_delta events carry
+// incremental text; message_delta carries cumulative output_tokens (final
+// usage). input_tokens arrives once on message_start.
+function extractClaudeEvent(evt) {
+  if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+    return { delta: evt.delta.text, usage: null };
+  }
+  if (evt.type === "message_start") {
+    return { delta: null, usage: { inputTokens: evt.message?.usage?.input_tokens ?? 0 } };
+  }
+  if (evt.type === "message_delta") {
+    return { delta: null, usage: { outputTokens: evt.usage?.output_tokens ?? 0 } };
+  }
+  return { delta: null, usage: null };
+}
 // ── T10: vision helpers (issue #19736) ────────────────────────────────────────
 // A trivial 1x1 red PNG, used only by GET /health?probe=vision to exercise the
 // vision tiers live without depending on caller-supplied imagery.
@@ -431,6 +546,176 @@ async function logRequest(row) {
   });
   if (e2) console.error("llm_router_logs insert:", e2.message);
 }
+// ── T11 (issue #19828 PASS 4): streaming SSE response builders ───────────────
+function sseHeaders() {
+  return {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    ...CORS
+  };
+}
+// Cache-hit streaming: caller asked for stream:true but the answer was
+// already cached -- emit it as a single SSE chunk so the response shape is
+// always SSE for stream:true callers, never a shape-switch on cache state.
+function singleChunkSSEResponse(text) {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({
+    start (controller) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`));
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    }
+  });
+  return new Response(body, {
+    status: 200,
+    headers: sseHeaders()
+  });
+}
+// Real token-by-token streaming with tier fallback. Fallback only works
+// BEFORE a tier's res.ok is seen (checking status doesn't consume the body) --
+// once a tier is committed to and forwarding bytes, a mid-stream failure ends
+// the stream early rather than silently falling back (see callXStreamStart()
+// comment). Mirrors the non-streaming cascade's tier gating exactly so
+// streamed and non-streamed requests reach the same providers under the same
+// conditions.
+async function handleStreamingText(ctx) {
+  const { trimmedMessages, system, maxTokens, forceTier, complexity, isCustomerTraffic, source, toolName, requestType, trafficSource, requestId, t0, messages } = ctx;
+  const streamTiers = [];
+  if (!forceTier || forceTier === "gemini") {
+    const key1 = await getVaultSecret("gemini_api_key_biddeed");
+    if (key1) streamTiers.push({
+      id: "T1_gemini_free",
+      start: ()=>callGeminiStreamStart(key1, trimmedMessages, system, maxTokens),
+      extract: extractGeminiEvent,
+      cost: ()=>0
+    });
+  }
+  if (complexity !== "complex" || isCustomerTraffic) {
+    const dsKey = await getVaultSecret("deepseek_api_key");
+    if (dsKey) streamTiers.push({
+      id: "T1.5_deepseek_cheap",
+      start: ()=>callDeepSeekStreamStart(dsKey, trimmedMessages, system, maxTokens),
+      extract: extractDeepSeekEvent,
+      cost: (i, o)=>i / 1_000_000 * 0.14 + o / 1_000_000 * 0.28
+    });
+  }
+  const bearer = await getVaultSecret("anthropic_oauth_bearer");
+  if (bearer) streamTiers.push({
+    id: "T2_claude_oauth",
+    start: ()=>callClaudeStreamStart(bearer, trimmedMessages, system, maxTokens),
+    extract: extractClaudeEvent,
+    cost: ()=>0
+  });
+  if (streamTiers.length === 0) return jsonRes({
+    error: "no LLM credentials configured in vault"
+  }, 503);
+  let committed = null;
+  for (const tier of streamTiers){
+    try {
+      const { res, model, provider } = await tier.start();
+      if (!res.ok) {
+        console.error(`${tier.id} stream start failed:`, res.status, (await res.text()).slice(0, 200));
+        continue;
+      }
+      committed = { tier, res, model, provider };
+      break;
+    } catch (err) {
+      console.error(`${tier.id} stream start threw:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (!committed) {
+    if (isCustomerTraffic) return jsonRes({
+      error: "AI temporarily unavailable. Please try again in 60 seconds.",
+      traffic_source: trafficSource,
+      blocked_t2: true
+    }, 503);
+    return jsonRes({
+      error: "all tiers exhausted — LLM call failed"
+    }, 502);
+  }
+  const { tier, res: upstreamRes, model, provider } = committed;
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let fullText = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
+  const body = new ReadableStream({
+    async start (controller) {
+      const reader = upstreamRes.body.getReader();
+      let buf = "";
+      try {
+        while(true){
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, {
+            stream: true
+          });
+          const lines = buf.split("\n");
+          buf = lines.pop() || "";
+          for (const line of lines){
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (!data || data === "[DONE]") continue;
+            let evt;
+            try {
+              evt = JSON.parse(data);
+            } catch  {
+              continue;
+            }
+            const { delta, usage } = tier.extract(evt);
+            if (delta) {
+              fullText += delta;
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: delta })}\n\n`));
+            }
+            if (usage) {
+              if (typeof usage.inputTokens === "number") inputTokens = usage.inputTokens;
+              if (typeof usage.outputTokens === "number") outputTokens = usage.outputTokens;
+              if (typeof usage.promptTokenCount === "number") inputTokens = usage.promptTokenCount;
+              if (typeof usage.candidatesTokenCount === "number") outputTokens = usage.candidatesTokenCount;
+              if (typeof usage.prompt_tokens === "number") inputTokens = usage.prompt_tokens;
+              if (typeof usage.completion_tokens === "number") outputTokens = usage.completion_tokens;
+            }
+          }
+        }
+        const latencyMs = Date.now() - t0;
+        const costUsd = tier.cost(inputTokens, outputTokens);
+        if (requestType !== "realtime" && fullText) {
+          const cacheKey = await generateCacheKey(messages, system, requestType);
+          const estimatedTokensSaved = Math.floor(trimmedMessages.reduce((s, m)=>s + (m.content?.length ?? 0), 0) / 4);
+          await writeCache(cacheKey, fullText, model, requestType, estimatedTokensSaved);
+        }
+        await logRequest({
+          source,
+          tool_name: toolName,
+          complexity,
+          provider,
+          tier: tier.id,
+          model,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cost_usd: costUsd,
+          latency_ms: latencyMs,
+          request_id: requestId,
+          cache_hit: false,
+          tokens_saved: 0,
+          request_type: requestType,
+          traffic_source: trafficSource,
+          blocked_t2: false
+        });
+      } catch (err) {
+        console.error("stream pump error:", err instanceof Error ? err.message : String(err));
+      } finally{
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      }
+    }
+  });
+  return new Response(body, {
+    status: 200,
+    headers: sseHeaders()
+  });
+}
 // ── Main handler ──────────────────────────────────────────────────────────────
 Deno.serve(async (req)=>{
   if (req.method === "OPTIONS") return new Response(null, {
@@ -542,7 +827,7 @@ Deno.serve(async (req)=>{
       error: "invalid JSON body"
     }, 400);
   }
-  const { messages, system, max_tokens: maxTokens = 2000, source = "mcp", tool_name: toolName = null, force_tier: forceTier, tools, metadata, images } = body;
+  const { messages, system, max_tokens: maxTokens = 2000, source = "mcp", tool_name: toolName = null, force_tier: forceTier, tools, metadata, images, stream: wantStream = false } = body;
   if (!Array.isArray(messages) || messages.length === 0) return jsonRes({
     error: "messages must be a non-empty array"
   }, 400);
@@ -580,6 +865,7 @@ Deno.serve(async (req)=>{
         traffic_source: trafficSource,
         blocked_t2: false
       });
+      if (wantStream) return singleChunkSSEResponse(cached.response);
       return jsonRes({
         text: cached.response,
         provider: "cache",
@@ -598,6 +884,26 @@ Deno.serve(async (req)=>{
   const toolsPruned = (tools?.length ?? 0) - prunedTools.length;
   // ── STAGE 3: Context trimming ───────────────────────────────────────────────
   const trimmedMessages = trimContext(messages);
+  // T11 (issue #19828 PASS 4): real streaming path, text-only (vision keeps
+  // the existing buffered path -- not requested by any caller today). Returns
+  // early; STAGE 4 below is unchanged for every non-streaming caller.
+  if (wantStream && !hasImages) {
+    return await handleStreamingText({
+      trimmedMessages,
+      system,
+      maxTokens,
+      forceTier,
+      complexity,
+      isCustomerTraffic,
+      source,
+      toolName,
+      requestType,
+      trafficSource,
+      requestId,
+      t0,
+      messages
+    });
+  }
   // ── STAGE 4: Tier cascade ───────────────────────────────────────────────────
   const tiers = [];
   if (hasImages) {
