@@ -32,10 +32,13 @@
  *   GET  /security            → Security overview
  *   GET  /data-retention      → Data Retention & Deletion Policy
  *
- *   -- issue #19847 C3: Deal Rooms + Reports (chat identity required, X-Chat-Token) --
- *   GET/POST/PATCH/DELETE /chat/api/rooms[/:id]  → Deal Rooms CRUD
- *   POST /chat/api/rooms/:id/items            → attach a conversation/report/upload/parcel to a room
- *   GET  /chat/api/reports                    → list reports (?room=|conversation=)
+ *   -- issue #19847 C3: Projects + Reports (chat identity required, X-Chat-Token) --
+ *   GET/POST/PATCH/DELETE /chat/api/projects[/:id]  → Projects CRUD (S1 greeting on GET :id)
+ *   POST /chat/api/projects/:id/items         → attach a conversation/report/upload/parcel to a project
+ *   GET/POST /chat/api/projects/:id/files     → list / upload a project file (versioned)
+ *   PATCH/DELETE /chat/api/projects/:id/files/:fileId → rename / delete a project file
+ *   GET  /chat/api/projects/:id/files/:fileId/download → 10-minute signed download URL
+ *   GET  /chat/api/reports                    → list reports (?project=|conversation=)
  *   POST /chat/api/reports                    → generate report(s) from a conversation (json/pdf always, csv if a property table is present)
  *   GET  /chat/api/reports/:id/download       → 10-minute signed download URL (?format= must match the row)
  *   POST /chat/api/reports/:id/share          → create a public read-only /r/:token link
@@ -313,59 +316,173 @@ async function getUploadOwned(env, ownerEmail, uploadId) {
   return rows[0] || null;
 }
 
-// ── Deal Rooms (issue #19847 C3, Claude.ai "Projects" parity) ────────────────
-const ROOM_ITEM_KINDS = new Set(['conversation', 'report', 'upload', 'parcel']);
-async function createRoom(env, ownerEmail, name, county) {
-  const res = await sbAdmin(env, '/rest/v1/biddeed_deal_rooms', {
+// ── Projects (issue #19847 C3, Claude.ai "Projects" parity — renamed from
+// "Deal Rooms" per the 2026-09-04 15:40 UTC scope update: a project is one
+// property/bid the user is working toward, carrying the 5 Sticky Layers
+// (docs/gtm/CTA_AND_STICKY_SPEC.md §"The 5 Sticky Layers"). ──────────────────
+const PROJECT_ITEM_KINDS = new Set(['conversation', 'report', 'upload', 'parcel']);
+async function createProject(env, ownerEmail, opts) {
+  const o = opts || {};
+  const res = await sbAdmin(env, '/rest/v1/biddeed_projects', {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ owner_email: ownerEmail, name: String(name || 'Untitled Room').slice(0, 120), county: county ? String(county).slice(0, 60) : null }),
+    body: JSON.stringify({
+      owner_email: ownerEmail,
+      name: String(o.name || 'Untitled Project').slice(0, 120),
+      county: o.county ? String(o.county).slice(0, 60) : null,
+      case_number: o.caseNumber ? String(o.caseNumber).slice(0, 60) : null,
+      parcel_id: o.parcelId ? String(o.parcelId).slice(0, 60) : null,
+      sale_date: o.saleDate || null,
+      notes: o.firstNote ? String(o.firstNote).slice(0, 2000) : null,
+      // S5 memory — first-touch is write-once at creation (source_intent = a
+      // reel short-link ?intent= or a county-page hook; never overwritten).
+      first_touch: { source: o.source || 'chat', intent: o.intent || null, county: o.county || null, at: new Date().toISOString() },
+      last_viewed_at: new Date().toISOString(),
+    }),
   });
   if (!res || !res.ok) return null;
   const rows = await res.json();
   return rows[0] || null;
 }
-async function listRooms(env, ownerEmail) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_deal_rooms?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=updated_at.desc&select=id,name,county,created_at,updated_at`);
+async function listProjects(env, ownerEmail) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_projects?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=updated_at.desc&select=id,name,county,case_number,sale_date,created_at,updated_at`);
   if (!res || !res.ok) return [];
   return res.json();
 }
-async function getRoomOwned(env, ownerEmail, roomId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_deal_rooms?id=eq.${encodeURIComponent(roomId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,name,county`);
+async function getProjectOwned(env, ownerEmail, projectId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,name,county,case_number,parcel_id,sale_date,notes,conversation_id,first_touch,last_viewed_at`);
   if (!res || !res.ok) return null;
   const rows = await res.json();
   return rows[0] || null;
 }
-async function updateRoom(env, ownerEmail, roomId, patch) {
+// S1 persistent context — computes what's new "since you were here" from live
+// SSOT reads only (multi_county_auctions, read-only per M2), then advances
+// last_viewed_at. Never fabricates a count; a fetch failure yields 0/null,
+// never an invented number.
+async function countNewCountyAuctionsSince(env, county, sinceIso) {
+  if (!county || !sinceIso) return 0;
+  const res = await sbAdmin(env, `/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&created_at=gt.${encodeURIComponent(sinceIso)}&select=id`, { headers: { Prefer: 'count=exact' } });
+  if (!res || !res.ok) return 0;
+  const cr = res.headers.get('content-range'); // "0-9/23"
+  if (cr && cr.includes('/')) { const n = parseInt(cr.split('/')[1], 10); return Number.isFinite(n) ? n : 0; }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows.length : 0;
+}
+async function getLatestAuctionDateForCase(env, county, caseNumber) {
+  if (!county || !caseNumber) return null;
+  const res = await sbAdmin(env, `/rest/v1/multi_county_auctions?county=eq.${encodeURIComponent(county)}&case_number=eq.${encodeURIComponent(caseNumber)}&select=auction_date&order=created_at.desc&limit=1`);
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0]?.auction_date || null;
+}
+async function getProjectDetail(env, ownerEmail, projectId) {
+  const project = await getProjectOwned(env, ownerEmail, projectId);
+  if (!project) return null;
+  const sinceIso = project.last_viewed_at;
+  const [newAuctions, latestSaleDate] = await Promise.all([
+    countNewCountyAuctionsSince(env, project.county, sinceIso),
+    getLatestAuctionDateForCase(env, project.county, project.case_number),
+  ]);
+  const saleDateChanged = !!(latestSaleDate && project.sale_date && latestSaleDate !== project.sale_date);
+  const greeting = {
+    since: sinceIso,
+    new_auctions_count: newAuctions,
+    county: project.county || null,
+    sale_date_changed: saleDateChanged ? { from: project.sale_date, to: latestSaleDate } : null,
+  };
+  const patch = { last_viewed_at: new Date().toISOString() };
+  if (saleDateChanged) patch.sale_date = latestSaleDate;
+  await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  return { project, greeting };
+}
+async function updateProject(env, ownerEmail, projectId, patch) {
   const body = { updated_at: new Date().toISOString() };
   if (patch.name !== undefined) body.name = String(patch.name).slice(0, 120);
   if (patch.county !== undefined) body.county = patch.county ? String(patch.county).slice(0, 60) : null;
-  const res = await sbAdmin(env, `/rest/v1/biddeed_deal_rooms?id=eq.${encodeURIComponent(roomId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, {
+  if (patch.case_number !== undefined) body.case_number = patch.case_number ? String(patch.case_number).slice(0, 60) : null;
+  if (patch.parcel_id !== undefined) body.parcel_id = patch.parcel_id ? String(patch.parcel_id).slice(0, 60) : null;
+  if (patch.sale_date !== undefined) body.sale_date = patch.sale_date || null;
+  if (patch.notes !== undefined) body.notes = patch.notes ? String(patch.notes).slice(0, 2000) : null;
+  if (patch.conversation_id !== undefined) body.conversation_id = patch.conversation_id || null;
+  const res = await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, {
     method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(body),
   });
   if (!res || !res.ok) return null;
   const rows = await res.json();
   return rows[0] || null;
 }
-async function deleteRoom(env, ownerEmail, roomId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_deal_rooms?id=eq.${encodeURIComponent(roomId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'DELETE' });
+async function deleteProject(env, ownerEmail, projectId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'DELETE' });
   return !!(res && res.ok);
 }
-async function addRoomItem(env, roomId, kind, refId) {
-  const res = await sbAdmin(env, '/rest/v1/biddeed_deal_room_items', {
+async function addProjectItem(env, projectId, kind, refId) {
+  const res = await sbAdmin(env, '/rest/v1/biddeed_project_items', {
     method: 'POST', headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ room_id: roomId, kind, ref_id: String(refId) }),
+    body: JSON.stringify({ project_id: projectId, kind, ref_id: String(refId) }),
   });
   if (!res || !res.ok) return null;
   const rows = await res.json();
   return rows[0] || null;
 }
 
+// ── Project Files (issue #19847 C3 scope update — upload/version/rename/
+// download of PDF/CSV/DOCX/XLSX/images inside a project; "download all as a
+// zip" is explicitly NOT built — Ariel: never zip. Individual files only.) ──
+async function nextFileVersion(env, ownerEmail, projectId, filename) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?project_id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&filename=eq.${encodeURIComponent(filename)}&select=version&order=version.desc&limit=1`);
+  if (!res || !res.ok) return 1;
+  const rows = await res.json();
+  return rows[0] ? rows[0].version + 1 : 1;
+}
+async function insertProjectFile(env, ownerEmail, projectId, meta) {
+  const res = await sbAdmin(env, '/rest/v1/biddeed_project_files', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      project_id: projectId, owner_email: ownerEmail, storage_path: meta.storagePath, filename: meta.filename,
+      mime_type: meta.mimeType, version: meta.version, extracted_text: meta.extractedText || null, extraction_status: meta.extractionStatus,
+    }),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function listProjectFiles(env, ownerEmail, projectId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?project_id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&order=filename.asc,version.desc&select=id,filename,mime_type,version,extraction_status,created_at`);
+  if (!res || !res.ok) return [];
+  return res.json();
+}
+// All non-obsolete versions of every file in the project, for S4 chat context
+// -- not just the latest version of each, so Deed can cite whichever version
+// actually contains the fact it's using.
+async function listProjectFilesForContext(env, ownerEmail, projectId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?project_id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&extraction_status=eq.ok&order=created_at.desc&limit=6&select=filename,version,extracted_text`);
+  if (!res || !res.ok) return [];
+  return res.json();
+}
+async function getProjectFileOwned(env, ownerEmail, fileId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?id=eq.${encodeURIComponent(fileId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,project_id,filename,mime_type,version,storage_path,extraction_status`);
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function renameProjectFile(env, ownerEmail, fileId, newFilename) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?id=eq.${encodeURIComponent(fileId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, {
+    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ filename: String(newFilename).slice(0, 200) }),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function deleteProjectFile(env, ownerEmail, fileId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?id=eq.${encodeURIComponent(fileId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'DELETE' });
+  return !!(res && res.ok);
+}
+
 // ── Reports (issue #19847 C3, Claude.ai "Artifacts" parity) ──────────────────
-async function nextReportVersion(env, ownerEmail, conversationId, roomId) {
+async function nextReportVersion(env, ownerEmail, conversationId, projectId) {
   let q = `/rest/v1/biddeed_reports?owner_email=eq.${encodeURIComponent(ownerEmail)}&select=version&order=version.desc&limit=1`;
   if (conversationId) q += `&conversation_id=eq.${encodeURIComponent(conversationId)}`;
-  else if (roomId) q += `&room_id=eq.${encodeURIComponent(roomId)}`;
+  else if (projectId) q += `&project_id=eq.${encodeURIComponent(projectId)}`;
   const res = await sbAdmin(env, q);
   if (!res || !res.ok) return 1;
   const rows = await res.json();
@@ -379,16 +496,16 @@ async function createReportRow(env, row) {
   const rows = await res.json();
   return rows[0] || null;
 }
-async function listReports(env, ownerEmail, { room, conversation } = {}) {
-  let q = `/rest/v1/biddeed_reports?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=created_at.desc&select=id,title,version,format,room_id,conversation_id,created_at`;
-  if (room) q += `&room_id=eq.${encodeURIComponent(room)}`;
+async function listReports(env, ownerEmail, { project, conversation } = {}) {
+  let q = `/rest/v1/biddeed_reports?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=created_at.desc&select=id,title,version,format,project_id,conversation_id,created_at`;
+  if (project) q += `&project_id=eq.${encodeURIComponent(project)}`;
   if (conversation) q += `&conversation_id=eq.${encodeURIComponent(conversation)}`;
   const res = await sbAdmin(env, q);
   if (!res || !res.ok) return [];
   return res.json();
 }
 async function getReportOwned(env, ownerEmail, reportId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_reports?id=eq.${encodeURIComponent(reportId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,title,version,format,storage_path,room_id,conversation_id`);
+  const res = await sbAdmin(env, `/rest/v1/biddeed_reports?id=eq.${encodeURIComponent(reportId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,title,version,format,storage_path,project_id,conversation_id`);
   if (!res || !res.ok) return null;
   const rows = await res.json();
   return rows[0] || null;
@@ -475,21 +592,26 @@ function parseCsvLine(line) {
 // identical DOCX/OCR constraint) rules out. This reuses that exact pattern: a
 // self-printing, print-styled HTML document. Opening it and choosing "Save as
 // PDF" in the browser's print dialog produces a real PDF.
+// Shared token definition for the two standalone documents below (each opens
+// in its own tab/window, outside the /chat shell's own :root) — the ONLY
+// place either document names a color; every rule below reads var(--...).
+// Values are the canon light palette (docs/spec/19878 Chromium sweep).
+const REPORT_DOC_TOKENS = ':root{--cream-1:#fbfaf7;--cream-2:#f5f0e8;--cream-3:#ede3d7;--ink:#1f1b16;--muted:#6e655e;--border:#ddd5c9;--terracotta:#9f4d32}';
 function buildConversationReportHtml(title, messages) {
   const body = messages.map(m => `<div class="rpt-msg rpt-${escHtml(m.role)}"><div class="rpt-role">${m.role === 'user' ? 'You' : 'Deed'}</div><div class="rpt-content">${escHtml(m.content).replace(/\n/g, '<br>')}</div></div>`).join('\n');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title>
 <style>
-body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:32px}
+${REPORT_DOC_TOKENS}
+body{font-family:Inter,Arial,sans-serif;background:var(--cream-1);color:var(--ink);margin:0;padding:32px}
 .rpt-wrap{max-width:760px;margin:0 auto}
-.rpt-hdr{border-bottom:2px solid #1E3A5F;padding-bottom:16px;margin-bottom:24px}
-.rpt-hdr h1{color:#F59E0B;font-size:20px;margin:0 0 4px}
+.rpt-hdr{border-bottom:2px solid var(--terracotta);padding-bottom:16px;margin-bottom:24px}
+.rpt-hdr h1{color:var(--terracotta);font-size:20px;margin:0 0 4px}
 .rpt-msg{margin-bottom:16px;padding:12px 16px;border-radius:8px}
-.rpt-user{background:#1E3A5F}
-.rpt-assistant{background:#0f172a;border:1px solid #1E3A5F}
-.rpt-role{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:6px}
-@media print{body{background:#fff;color:#000}.rpt-user{background:#f1f5f9}.rpt-assistant{background:#fff;border:1px solid #cbd5e1}}
+.rpt-user{background:var(--cream-3)}
+.rpt-assistant{background:var(--cream-2);border:1px solid var(--border)}
+.rpt-role{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
 </style></head><body><div class="rpt-wrap">
-<div class="rpt-hdr"><h1>${escHtml(title)}</h1><div style="font-size:12px;color:#94a3b8">BidDeed.AI &middot; Generated ${escHtml(new Date().toISOString())}</div></div>
+<div class="rpt-hdr"><h1>${escHtml(title)}</h1><div style="font-size:12px;color:var(--muted)">BidDeed.AI &middot; Generated ${escHtml(new Date().toISOString())}</div></div>
 ${body}
 </div>
 <script>setTimeout(function(){window.print();},400);</script>
@@ -499,14 +621,15 @@ ${body}
 function shareLinkPageShell(title, inner) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)} — BidDeed.AI</title>
 <style>
-body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:32px}
+${REPORT_DOC_TOKENS}
+body{font-family:Inter,Arial,sans-serif;background:var(--cream-1);color:var(--ink);margin:0;padding:32px}
 .wrap{max-width:820px;margin:0 auto}
-h1{color:#F59E0B;font-size:20px}
+h1{color:var(--terracotta);font-size:20px}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{border:1px solid #1E3A5F;padding:8px 10px;text-align:left}
-th{background:#1E3A5F}
-pre{white-space:pre-wrap;word-break:break-word;background:#0f172a;border:1px solid #1E3A5F;border-radius:8px;padding:16px;font-size:12px}
-.foot{margin-top:24px;font-size:11px;color:#64748b}
+th,td{border:1px solid var(--border);padding:8px 10px;text-align:left}
+th{background:var(--cream-3)}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--cream-2);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:12px}
+.foot{margin-top:24px;font-size:11px;color:var(--muted)}
 </style></head><body><div class="wrap"><h1>${escHtml(title)}</h1>${inner}<div class="foot">BidDeed.AI &middot; Read-only shared report</div></div></body></html>`;
 }
 
@@ -3816,71 +3939,151 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         return new Response(JSON.stringify({ id: row.id, filename: row.filename, extraction_status: row.extraction_status, extracted_text_preview: (row.extracted_text || '').slice(0, 300) }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
-      // ══ Deal Rooms + Reports (issue #19847 C3 — Claude.ai Projects/Artifacts
-      // parity). All routes below build on the exact #19829 P1 chat identity
+      // ══ Projects + Reports (issue #19847 C3 — Claude.ai Projects/Artifacts
+      // parity, renamed from "Deal Rooms" per the 2026-09-04 15:40 UTC scope
+      // update). All routes below build on the exact #19829 P1 chat identity
       // (X-Chat-Token → verifyChatToken → owner_email) -- no new auth. ══════
 
-      // ── GET/POST /chat/api/rooms ──────────────────────────────────────────
-      if (path === '/chat/api/rooms' && (method === 'GET' || method === 'POST')) {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Deal Rooms not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      // ── GET/POST /chat/api/projects ────────────────────────────────────────
+      if (path === '/chat/api/projects' && (method === 'GET' || method === 'POST')) {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const ownerEmail = await verifyChatToken(env, extractChatToken(request));
         if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (method === 'GET') {
-          const rows = await listRooms(env, ownerEmail);
-          return new Response(JSON.stringify({ rooms: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          const rows = await listProjects(env, ownerEmail);
+          return new Response(JSON.stringify({ projects: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
         let rbody = {};
         try { rbody = await request.json(); } catch (_) {}
-        const room = await createRoom(env, ownerEmail, rbody.name, rbody.county);
-        if (!room) return new Response(JSON.stringify({ error: 'Failed to create room' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ room }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const project = await createProject(env, ownerEmail, {
+          name: rbody.name, county: rbody.county, caseNumber: rbody.case_number, parcelId: rbody.parcel_id,
+          saleDate: rbody.sale_date, firstNote: rbody.first_note, source: rbody.source, intent: rbody.intent,
+        });
+        if (!project) return new Response(JSON.stringify({ error: 'Failed to create project' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ project }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
-      // ── PATCH/DELETE /chat/api/rooms/:id ──────────────────────────────────
-      if (/^\/chat\/api\/rooms\/[^/]+$/.test(path) && (method === 'PATCH' || method === 'DELETE')) {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Deal Rooms not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      // ── GET/PATCH/DELETE /chat/api/projects/:id — GET returns the S1
+      // "since you were here" greeting and advances last_viewed_at. ─────────
+      if (/^\/chat\/api\/projects\/[^/]+$/.test(path) && (method === 'GET' || method === 'PATCH' || method === 'DELETE')) {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const ownerEmail = await verifyChatToken(env, extractChatToken(request));
         if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const roomId = path.split('/')[4];
-        const owned = await getRoomOwned(env, ownerEmail, roomId);
+        const projectId = path.split('/')[4];
+        if (method === 'GET') {
+          const detail = await getProjectDetail(env, ownerEmail, projectId);
+          if (!detail) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          return new Response(JSON.stringify(detail), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        const owned = await getProjectOwned(env, ownerEmail, projectId);
         if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (method === 'DELETE') {
-          const ok = await deleteRoom(env, ownerEmail, roomId);
+          const ok = await deleteProject(env, ownerEmail, projectId);
           return new Response(JSON.stringify({ ok }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
         let pbody = {};
         try { pbody = await request.json(); } catch (_) {}
-        const room = await updateRoom(env, ownerEmail, roomId, pbody);
-        if (!room) return new Response(JSON.stringify({ error: 'Update failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ room }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const project = await updateProject(env, ownerEmail, projectId, pbody);
+        if (!project) return new Response(JSON.stringify({ error: 'Update failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ project }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
-      // ── POST /chat/api/rooms/:id/items — "Add to Room" ────────────────────
-      if (/^\/chat\/api\/rooms\/[^/]+\/items$/.test(path) && method === 'POST') {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Deal Rooms not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      // ── POST /chat/api/projects/:id/items — "Add to Project" ──────────────
+      if (/^\/chat\/api\/projects\/[^/]+\/items$/.test(path) && method === 'POST') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const ownerEmail = await verifyChatToken(env, extractChatToken(request));
         if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const roomId = path.split('/')[4];
-        const owned = await getRoomOwned(env, ownerEmail, roomId);
+        const projectId = path.split('/')[4];
+        const owned = await getProjectOwned(env, ownerEmail, projectId);
         if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         let ibody2 = {};
         try { ibody2 = await request.json(); } catch (_) {}
         const { kind, ref_id } = ibody2;
-        if (!ROOM_ITEM_KINDS.has(kind) || !ref_id) return new Response(JSON.stringify({ error: 'kind (conversation|report|upload|parcel) and ref_id required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (!PROJECT_ITEM_KINDS.has(kind) || !ref_id) return new Response(JSON.stringify({ error: 'kind (conversation|report|upload|parcel) and ref_id required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (kind === 'conversation' && !(await getConversationOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'conversation not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (kind === 'report' && !(await getReportOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'report not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (kind === 'upload' && !(await getUploadOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'upload not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const item = await addRoomItem(env, roomId, kind, ref_id);
+        const item = await addProjectItem(env, projectId, kind, ref_id);
         if (!item) return new Response(JSON.stringify({ error: 'Failed to add item' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         return new Response(JSON.stringify({ item }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
-      // ── GET /chat/api/reports?room=|conversation= ─────────────────────────
+      // ── GET/POST /chat/api/projects/:id/files — S1 "Files" (attachment +
+      // download abilities): upload/list, versioned by filename. ───────────
+      if (/^\/chat\/api\/projects\/[^/]+\/files$/.test(path) && (method === 'GET' || method === 'POST')) {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const projectId = path.split('/')[4];
+        const owned = await getProjectOwned(env, ownerEmail, projectId);
+        if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (method === 'GET') {
+          const files = await listProjectFiles(env, ownerEmail, projectId);
+          return new Response(JSON.stringify({ files }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        const clf = parseInt(request.headers.get('Content-Length') || '0', 10);
+        if (clf > MAX_UPLOAD_BYTES * 1.4) return new Response(JSON.stringify({ error: 'File too large (8MB max)' }), { status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let fbody = {};
+        try { fbody = await request.json(); } catch (_) {
+          return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        const { filename, mime_type, data_base64 } = fbody;
+        if (!filename || !data_base64) return new Response(JSON.stringify({ error: 'filename and data_base64 required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let fbytes;
+        try { fbytes = b64urlToBytesStd(data_base64); } catch (_) {
+          return new Response(JSON.stringify({ error: 'Invalid base64' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        if (fbytes.length > MAX_UPLOAD_BYTES) return new Response(JSON.stringify({ error: 'File too large (8MB max)' }), { status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const safeFname = String(filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+        const version = await nextFileVersion(env, ownerEmail, projectId, safeFname);
+        const storagePath = `${projectId}/${safeFname}.v${version}`;
+        const stored = await storagePutObject(env, 'artifacts', storagePath, fbytes, mime_type);
+        if (!stored) return new Response(JSON.stringify({ error: 'Storage upload failed' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const extraction = await extractUploadText(mime_type, filename, fbytes);
+        const row = await insertProjectFile(env, ownerEmail, projectId, { storagePath, filename: safeFname, mimeType: mime_type, version, extractedText: extraction.text, extractionStatus: extraction.status });
+        if (!row) return new Response(JSON.stringify({ error: 'Failed to record file' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ file: row }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── PATCH (rename) / DELETE /chat/api/projects/:id/files/:fileId ───────
+      if (/^\/chat\/api\/projects\/[^/]+\/files\/[^/]+$/.test(path) && (method === 'PATCH' || method === 'DELETE')) {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const fileId = path.split('/')[6];
+        const file = await getProjectFileOwned(env, ownerEmail, fileId);
+        if (!file) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (method === 'DELETE') {
+          const ok = await deleteProjectFile(env, ownerEmail, fileId);
+          return new Response(JSON.stringify({ ok }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        let rnbody = {};
+        try { rnbody = await request.json(); } catch (_) {}
+        if (!rnbody.filename) return new Response(JSON.stringify({ error: 'filename required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const renamed = await renameProjectFile(env, ownerEmail, fileId, rnbody.filename);
+        if (!renamed) return new Response(JSON.stringify({ error: 'Rename failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ file: renamed }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /chat/api/projects/:id/files/:fileId/download — 10-min signed URL ──
+      if (/^\/chat\/api\/projects\/[^/]+\/files\/[^/]+\/download$/.test(path) && method === 'GET') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const fileId = path.split('/')[6];
+        const file = await getProjectFileOwned(env, ownerEmail, fileId);
+        if (!file) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const signedUrl = await storageSignUrl(env, 'artifacts', file.storage_path, 600);
+        if (!signedUrl) return new Response(JSON.stringify({ error: 'Failed to sign URL' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ url: signedUrl, filename: file.filename, expires_in: 600 }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /chat/api/reports?project=|conversation= ──────────────────────
       if (path === '/chat/api/reports' && method === 'GET') {
         if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const ownerEmail = await verifyChatToken(env, extractChatToken(request));
         if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const rows = await listReports(env, ownerEmail, { room: url.searchParams.get('room'), conversation: url.searchParams.get('conversation') });
+        const rows = await listReports(env, ownerEmail, { project: url.searchParams.get('project'), conversation: url.searchParams.get('conversation') });
         return new Response(JSON.stringify({ reports: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
@@ -3896,26 +4099,26 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         let gbody = {};
         try { gbody = await request.json(); } catch (_) {}
-        const { conversation_id, room_id, title } = gbody;
+        const { conversation_id, project_id, title } = gbody;
         if (!conversation_id) return new Response(JSON.stringify({ error: 'conversation_id required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const messages = await getConversationMessages(env, ownerEmail, conversation_id);
         if (messages === null) return new Response(JSON.stringify({ error: 'conversation not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        if (room_id && !(await getRoomOwned(env, ownerEmail, room_id))) return new Response(JSON.stringify({ error: 'room not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (project_id && !(await getProjectOwned(env, ownerEmail, project_id))) return new Response(JSON.stringify({ error: 'project not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const reportTitle = String(title || 'Deed conversation report').slice(0, 160);
-        const version = await nextReportVersion(env, ownerEmail, conversation_id, room_id);
+        const version = await nextReportVersion(env, ownerEmail, conversation_id, project_id);
         const ownerHash = await sha256Hex(ownerEmail);
         const basePath = `${ownerHash}/${conversation_id}/v${version}`;
         const created = [];
 
         const jsonBytes = new TextEncoder().encode(JSON.stringify({ conversation_id, title: reportTitle, generated_at: new Date().toISOString(), messages }, null, 2));
         if (await storagePutObject(env, 'artifacts', `${basePath}/report.json`, jsonBytes, 'application/json')) {
-          const row = await createReportRow(env, { owner_email: ownerEmail, room_id: room_id || null, conversation_id, title: reportTitle, version, format: 'json', storage_path: `${basePath}/report.json` });
+          const row = await createReportRow(env, { owner_email: ownerEmail, project_id: project_id || null, conversation_id, title: reportTitle, version, format: 'json', storage_path: `${basePath}/report.json` });
           if (row) created.push(row);
         }
 
         const htmlBytes = new TextEncoder().encode(buildConversationReportHtml(reportTitle, messages));
         if (await storagePutObject(env, 'artifacts', `${basePath}/report.html`, htmlBytes, 'text/html')) {
-          const row = await createReportRow(env, { owner_email: ownerEmail, room_id: room_id || null, conversation_id, title: reportTitle, version, format: 'pdf', storage_path: `${basePath}/report.html` });
+          const row = await createReportRow(env, { owner_email: ownerEmail, project_id: project_id || null, conversation_id, title: reportTitle, version, format: 'pdf', storage_path: `${basePath}/report.html` });
           if (row) created.push(row);
         }
 
@@ -3923,7 +4126,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         if (table) {
           const csvBytes = new TextEncoder().encode(tableToCsv(table));
           if (await storagePutObject(env, 'artifacts', `${basePath}/report.csv`, csvBytes, 'text/csv')) {
-            const row = await createReportRow(env, { owner_email: ownerEmail, room_id: room_id || null, conversation_id, title: reportTitle, version, format: 'csv', storage_path: `${basePath}/report.csv` });
+            const row = await createReportRow(env, { owner_email: ownerEmail, project_id: project_id || null, conversation_id, title: reportTitle, version, format: 'csv', storage_path: `${basePath}/report.csv` });
             if (row) created.push(row);
           }
         }
@@ -4017,7 +4220,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
-        const { messages, county, hook, conversation_id, upload_id, public_records } = body;
+        const { messages, county, hook, conversation_id, upload_id, public_records, project_id } = body;
         if (!Array.isArray(messages) || messages.length === 0)
           return new Response(JSON.stringify({ error: 'messages required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (messages.length > 20)
@@ -4029,7 +4232,16 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         let activeConversationId = null;
         let attachmentCtx = '';
         if (chatOwnerEmail) {
-          if (conversation_id) {
+          // S4 project-scoped chat — a project's conversation is created once
+          // and reused on every subsequent turn (composer defaults to the
+          // project's own thread; it is never re-created per message).
+          let activeProject = null;
+          if (project_id) activeProject = await getProjectOwned(env, chatOwnerEmail, project_id);
+          if (activeProject && activeProject.conversation_id && !conversation_id) {
+            const owned = await getConversationOwned(env, chatOwnerEmail, activeProject.conversation_id);
+            if (owned) activeConversationId = activeProject.conversation_id;
+          }
+          if (!activeConversationId && conversation_id) {
             const owned = await getConversationOwned(env, chatOwnerEmail, conversation_id);
             activeConversationId = owned ? conversation_id : null;
           }
@@ -4037,6 +4249,9 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             const firstUserMsg = messages.find(m => m.role === 'user');
             const created = await createConversation(env, chatOwnerEmail, String(firstUserMsg?.content || 'New chat').slice(0, 60));
             activeConversationId = created?.id || null;
+            if (activeProject && activeConversationId && !activeProject.conversation_id) {
+              await updateProject(env, chatOwnerEmail, activeProject.id, { conversation_id: activeConversationId });
+            }
           }
           if (upload_id) {
             const upload = await getUploadOwned(env, chatOwnerEmail, upload_id);
@@ -4044,6 +4259,13 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
               attachmentCtx = `\n\nATTACHMENT — the user uploaded a file named "${upload.filename}". Extracted text follows; cite this filename when you reference facts from it, and do not invent content beyond what's shown:\n"""\n${upload.extracted_text.slice(0, 6000)}\n"""`;
             } else if (upload && upload.extraction_status !== 'ok') {
               attachmentCtx = `\n\nATTACHMENT — the user uploaded a file named "${upload.filename}" but automatic text extraction was not available for this file type. Ask the user to paste or describe the key details if you need them.`;
+            }
+          }
+          if (activeProject) {
+            const projectFiles = await listProjectFilesForContext(env, chatOwnerEmail, activeProject.id);
+            if (projectFiles.length) {
+              const fileBlocks = projectFiles.map(f => `--- FILE: "${f.filename}" (v${f.version}) ---\n${String(f.extracted_text || '').slice(0, 3000)}`).join('\n\n');
+              attachmentCtx += `\n\nPROJECT FILES — this project ("${activeProject.name}") has the following uploaded files. Cite the exact filename in quotes when you use a fact from one of them, and never invent content beyond what's shown:\n${fileBlocks}`;
             }
           }
         }
@@ -5918,7 +6140,9 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .chats-search{padding:8px 12px;border-bottom:1px solid var(--border)}
 .chats-search input{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--text);font-size:12px;font-family:inherit;outline:none}
 .chats-list{flex:1;overflow-y:auto;padding:6px}
-#rooms-list.chats-list{flex:0 1 auto;max-height:180px}
+#projects-list.chats-list{flex:0 1 auto;max-height:180px}
+.project-banner{margin:8px 14px 0;padding:8px 12px;border-radius:8px;background:var(--navy2);border:1px solid rgba(245,158,11,.3);color:var(--muted);font-size:11.5px;line-height:1.5}
+.project-banner strong{color:var(--text)}
 .chats-empty{color:var(--muted);font-size:11.5px;text-align:center;padding:24px 12px}
 .chat-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:9px 10px;cursor:pointer;font-family:inherit}
 .chat-item:hover{background:var(--navy3)}
@@ -5988,13 +6212,13 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 </header>
 
 <div class="chats-scrim" id="chats-scrim"></div>
-<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats and Deal Rooms">
+<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats and Projects">
   <div class="chats-hdr">
-    <h3 id="rooms-hdr-title">Deal Rooms</h3>
-    <button class="chats-new" id="rooms-new-btn" type="button">+ New</button>
+    <h3 id="projects-hdr-title">Projects</h3>
+    <button class="chats-new" id="projects-new-btn" type="button">+ New</button>
     <button class="chats-close" id="chats-close-btn" type="button" aria-label="Close">✕</button>
   </div>
-  <div class="chats-list" id="rooms-list"><div class="chats-empty">Loading…</div></div>
+  <div class="chats-list" id="projects-list"><div class="chats-empty">Loading…</div></div>
   <div class="chats-hdr">
     <h3>Recent chats</h3>
     <button class="chats-new" id="chats-new-btn" type="button">+ New</button>
@@ -6005,7 +6229,8 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 
 <div class="split">
   <div class="chat-col">
-<div class="chat-toolbar"><button class="chats-btn" id="report-open-btn" type="button" title="Report">📄 Report</button><button class="chats-btn" id="chats-open-btn" type="button" title="Deal Rooms and Recent chats">🕘 Chats</button></div>
+<div class="chat-toolbar"><button class="chats-btn" id="report-open-btn" type="button" title="Report">📄 Report</button><button class="chats-btn" id="chats-open-btn" type="button" title="Projects and Recent chats">🕘 Chats</button></div>
+<div class="project-banner" id="project-banner" style="display:none"></div>
 ${countyBar}
 
 <div class="msgs" id="msgs">
@@ -6130,7 +6355,7 @@ let H = [], busy = false, emailDone = false, s5Shown = false, msgCount = 0, retr
 // Chat identity + persistence state (issue #19829 P1) — populated once the
 // user has an email on file (reuses the existing email-capture flow) and a
 // chat_token has been issued; null token = anonymous chat, unaffected.
-var chatState={token:null,email:null,conversationId:null,pendingUploadId:null,pendingUploadName:null,publicRecords:false};
+var chatState={token:null,email:null,conversationId:null,projectId:null,pendingUploadId:null,pendingUploadName:null,publicRecords:false};
 try{chatState.token=localStorage.getItem('bd_chat_token')||null;chatState.email=localStorage.getItem('bd_chat_email')||null;}catch(e){}
 const MAX_RETRIES = 3;
 
@@ -6359,7 +6584,7 @@ function scrollBottom(){const m=document.getElementById('msgs');if(m){m.scrollTo
 
 function actionsHtml(role){
   if(role==='assistant'){
-    return '<div class="msg-actions" data-role="assistant"><button data-action="copy" title="Copy">⧉</button><button data-action="retry" title="Retry">↻</button><button data-action="thumbsup" title="Good response">👍</button><button data-action="thumbsdown" title="Bad response">👎</button><button data-action="addroom" title="Add this chat to a Deal Room">➕ Room</button><button data-action="setalert" disabled title="Coming in P3 - Alerts and Watches">🔔 Alert</button></div>';
+    return '<div class="msg-actions" data-role="assistant"><button data-action="copy" title="Copy">⧉</button><button data-action="retry" title="Retry">↻</button><button data-action="thumbsup" title="Good response">👍</button><button data-action="thumbsdown" title="Bad response">👎</button><button data-action="addproject" title="Add this chat to a Project">➕ Project</button><button data-action="setalert" disabled title="Coming in P3 - Alerts and Watches">🔔 Alert</button></div>';
   }
   return '<div class="msg-actions" data-role="user"><button data-action="edit" title="Edit">✎ Edit</button></div>';
 }
@@ -6425,6 +6650,7 @@ async function attemptStream(){
     if(chatState.token)reqHeaders['X-Chat-Token']=chatState.token;
     const reqBody={messages:H,county:COUNTY,hook:HOOK};
     if(chatState.conversationId)reqBody.conversation_id=chatState.conversationId;
+    if(chatState.projectId)reqBody.project_id=chatState.projectId;
     if(chatState.pendingUploadId)reqBody.upload_id=chatState.pendingUploadId;
     if(chatState.publicRecords)reqBody.public_records=true;
     const res=await fetch('/chat/api',{method:'POST',headers:reqHeaders,body:JSON.stringify(reqBody),signal:controller.signal});
@@ -6967,8 +7193,9 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   if(closeBtn)closeBtn.addEventListener('click',closeDrawer);
   if(scrim)scrim.addEventListener('click',closeDrawer);
   if(newBtn)newBtn.addEventListener('click',function(){
-    chatState.conversationId=null;H=[];
+    chatState.conversationId=null;chatState.projectId=null;H=[];
     document.getElementById('msgs').innerHTML='';
+    var pb=document.getElementById('project-banner');if(pb)pb.style.display='none';
     closeDrawer();
   });
   var searchTimer=null;
@@ -7096,81 +7323,120 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     }else if(action==='edit'&&bbl){
       document.getElementById('inp').value=bbl.textContent||'';
       document.getElementById('inp').focus();
-    }else if(action==='addroom'){
-      if(typeof window.bdAddCurrentChatToRoom==='function')window.bdAddCurrentChatToRoom();
+    }else if(action==='addproject'){
+      if(typeof window.bdAddCurrentChatToProject==='function')window.bdAddCurrentChatToProject();
     }
   });
 
-  // ── Deal Rooms (issue #19847 C3, Claude.ai "Projects" parity) ───────────
-  var roomsListEl=document.getElementById('rooms-list');
-  var roomsNewBtn=document.getElementById('rooms-new-btn');
-  var roomPickerMode=false;
+  // ── Projects (issue #19847 C3, Claude.ai "Projects" parity — one
+  // property/bid the user is working toward; carries the 5 Sticky Layers,
+  // docs/gtm/CTA_AND_STICKY_SPEC.md). ─────────────────────────────────────
+  var projectsListEl=document.getElementById('projects-list');
+  var projectsNewBtn=document.getElementById('projects-new-btn');
+  var projectBanner=document.getElementById('project-banner');
+  var projectPickerMode=false;
 
-  function renderRoomsList(rooms){
-    if(!rooms||!rooms.length){roomsListEl.innerHTML='<div class="chats-empty">'+(roomPickerMode?'No rooms yet — create one to add this chat.':'No Deal Rooms yet — create one to group chats, reports, and parcels.')+'</div>';return;}
-    roomsListEl.innerHTML=rooms.map(function(r){
-      var name=esc2(r.name||'Untitled Room');
-      var county=r.county?esc2(r.county):'';
-      return '<button class="chat-item" data-room-id="'+esc2(r.id)+'"><div class="ci-title">📁 '+name+'</div>'+(county?'<div class="ci-snip">'+county+'</div>':'')+'</button>';
+  function renderProjectsList(projects){
+    if(!projects||!projects.length){projectsListEl.innerHTML='<div class="chats-empty">'+(projectPickerMode?'No projects yet — create one to add this chat.':'No projects yet — create one to group chats, reports, files, and parcels around a property.')+'</div>';return;}
+    projectsListEl.innerHTML=projects.map(function(p){
+      var name=esc2(p.name||'Untitled Project');
+      var county=p.county?esc2(p.county):'';
+      return '<button class="chat-item" data-project-id="'+esc2(p.id)+'"><div class="ci-title">📁 '+name+'</div>'+(county?'<div class="ci-snip">'+county+'</div>':'')+'</button>';
     }).join('');
-    roomsListEl.querySelectorAll('.chat-item').forEach(function(btn){
+    projectsListEl.querySelectorAll('.chat-item').forEach(function(btn){
       btn.addEventListener('click',function(){
-        var roomId=btn.getAttribute('data-room-id');
-        if(roomPickerMode){addChatToRoom(roomId);}else{closeDrawer();loadRoomReports(roomId);}
+        var projectId=btn.getAttribute('data-project-id');
+        if(projectPickerMode){addChatToProject(projectId);}else{closeDrawer();openProject(projectId);}
       });
     });
   }
-  function loadRoomReports(roomId){
-    fetch('/chat/api/reports?room='+encodeURIComponent(roomId),{headers:{'X-Chat-Token':chatState.token}})
-      .then(function(r){return r.ok?r.json():{reports:[]};})
-      .then(function(d){renderReportsPanel(d.reports);})
-      .catch(function(){});
+  // S1 persistent context — opening a project shows what changed since the
+  // last visit (new county auctions, a sale-date drift) and loads its files
+  // + reports into the right panel; also switches the composer to the
+  // project's own chat thread (S4).
+  function renderProjectBanner(greeting){
+    if(!projectBanner)return;
+    if(!greeting||(!greeting.new_auctions_count&&!greeting.sale_date_changed)){projectBanner.style.display='none';return;}
+    var parts=[];
+    if(greeting.new_auctions_count)parts.push(greeting.new_auctions_count+' new '+(greeting.county?esc2(greeting.county)+' ':'')+'auction'+(greeting.new_auctions_count===1?'':'s')+' since you were here');
+    if(greeting.sale_date_changed)parts.push('Sale date moved to '+esc2(greeting.sale_date_changed.to));
+    projectBanner.innerHTML='<strong>Welcome back.</strong> '+parts.join(' · ');
+    projectBanner.style.display='block';
   }
-
-  function loadRooms(){
-    if(!chatState.token){roomsListEl.innerHTML='<div class="chats-empty">Sign in above to use Deal Rooms.</div>';return;}
-    roomsListEl.innerHTML='<div class="chats-empty">Loading…</div>';
-    fetch('/chat/api/rooms',{headers:{'X-Chat-Token':chatState.token}})
-      .then(function(r){return r.ok?r.json():{rooms:[]};})
-      .then(function(d){renderRoomsList(d.rooms);})
-      .catch(function(){roomsListEl.innerHTML='<div class="chats-empty">Could not load Deal Rooms.</div>';});
-  }
-
-  function createRoomThen(cb){
-    var name=window.prompt('Name this Deal Room (e.g. "Brevard tax deed leads"):');
-    if(!name)return;
-    fetch('/chat/api/rooms',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({name:name})})
+  function openProject(projectId){
+    chatState.projectId=projectId;
+    fetch('/chat/api/projects/'+encodeURIComponent(projectId),{headers:{'X-Chat-Token':chatState.token}})
       .then(function(r){return r.ok?r.json():null;})
-      .then(function(d){if(d&&d.room){loadRooms();if(cb)cb(d.room);}})
+      .then(function(d){
+        if(!d)return;
+        renderProjectBanner(d.greeting);
+        if(d.project&&d.project.conversation_id)chatState.conversationId=d.project.conversation_id;
+        loadProjectFilesAndReports(projectId);
+      }).catch(function(){});
+  }
+  function loadProjectFilesAndReports(projectId){
+    Promise.all([
+      fetch('/chat/api/projects/'+encodeURIComponent(projectId)+'/files',{headers:{'X-Chat-Token':chatState.token}}).then(function(r){return r.ok?r.json():{files:[]};}),
+      fetch('/chat/api/reports?project='+encodeURIComponent(projectId),{headers:{'X-Chat-Token':chatState.token}}).then(function(r){return r.ok?r.json():{reports:[]};}),
+    ]).then(function(results){renderReportsPanel(results[1].reports,results[0].files);}).catch(function(){});
+  }
+
+  function loadProjects(){
+    if(!chatState.token){projectsListEl.innerHTML='<div class="chats-empty">Sign in above to use Projects.</div>';return;}
+    projectsListEl.innerHTML='<div class="chats-empty">Loading…</div>';
+    fetch('/chat/api/projects',{headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():{projects:[]};})
+      .then(function(d){renderProjectsList(d.projects);})
+      .catch(function(){projectsListEl.innerHTML='<div class="chats-empty">Could not load projects.</div>';});
+  }
+
+  // S2 hook — a county page or a reel short-link can pre-fill the county and
+  // first note via ?new_project_county=&intent= on /chat itself.
+  var qp=new URLSearchParams(window.location.search);
+  var newProjectCounty=qp.get('new_project_county');
+  var projectIntent=qp.get('intent');
+
+  function createProjectThen(cb,presetCounty,presetIntent){
+    var name=window.prompt('Name this project (e.g. "Brevard tax deed — 123 Main St"):',presetCounty?(presetCounty+' project'):'');
+    if(!name)return;
+    fetch('/chat/api/projects',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({name:name,county:presetCounty||null,first_note:presetIntent||null,source:presetCounty?'county_page':'chat',intent:presetIntent||null})})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){if(d&&d.project){loadProjects();if(cb)cb(d.project);}})
       .catch(function(){});
   }
 
-  function addChatToRoom(roomId){
-    if(!chatState.conversationId){window.alert('Send a message first, then add this chat to a room.');roomPickerMode=false;closeDrawer();return;}
-    fetch('/chat/api/rooms/'+encodeURIComponent(roomId)+'/items',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({kind:'conversation',ref_id:chatState.conversationId})})
+  function addChatToProject(projectId){
+    if(!chatState.conversationId){window.alert('Send a message first, then add this chat to a project.');projectPickerMode=false;closeDrawer();return;}
+    fetch('/chat/api/projects/'+encodeURIComponent(projectId)+'/items',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({kind:'conversation',ref_id:chatState.conversationId})})
       .then(function(r){return r.ok;})
-      .then(function(ok){roomPickerMode=false;closeDrawer();if(ok&&typeof showSystemMessage==='function')showSystemMessage('Added to Deal Room.');})
-      .catch(function(){roomPickerMode=false;});
+      .then(function(ok){projectPickerMode=false;closeDrawer();if(ok&&typeof showSystemMessage==='function')showSystemMessage('Added to project.');})
+      .catch(function(){projectPickerMode=false;});
   }
 
-  if(roomsNewBtn)roomsNewBtn.addEventListener('click',function(){
-    if(!chatState.token){requireIdentityThen(function(){createRoomThen();});return;}
-    createRoomThen();
+  if(projectsNewBtn)projectsNewBtn.addEventListener('click',function(){
+    if(!chatState.token){requireIdentityThen(function(){createProjectThen();});return;}
+    createProjectThen();
   });
 
-  window.bdAddCurrentChatToRoom=function(){
+  window.bdAddCurrentChatToProject=function(){
     requireIdentityThen(function(){
-      roomPickerMode=true;
+      projectPickerMode=true;
       openDrawer();
-      loadRooms();
+      loadProjects();
     });
   };
 
-  if(openBtn)openBtn.addEventListener('click',loadRooms);
+  if(openBtn)openBtn.addEventListener('click',loadProjects);
   var origOnChatIdentityReady=window.onChatIdentityReady;
-  window.onChatIdentityReady=function(){if(origOnChatIdentityReady)origOnChatIdentityReady();if(drawer.classList.contains('open'))loadRooms();};
+  window.onChatIdentityReady=function(){
+    if(origOnChatIdentityReady)origOnChatIdentityReady();
+    if(drawer.classList.contains('open'))loadProjects();
+    if(newProjectCounty){var c=newProjectCounty;newProjectCounty=null;createProjectThen(function(p){openProject(p.id);},c,projectIntent);}
+  };
+  if(newProjectCounty&&chatState.token){var c0=newProjectCounty;newProjectCounty=null;createProjectThen(function(p){openProject(p.id);},c0,projectIntent);}
 
-  // ── Report side panel (issue #19847 C3, Claude.ai "Artifacts" parity) ───
+  // ── Report + Files side panel (issue #19847 C3, Claude.ai "Artifacts"
+  // parity + project FILES: upload/version/rename/download). ──────────────
   var reportOpenBtn=document.getElementById('report-open-btn');
   function fmtLabel(f){return f==='pdf'?'PDF':f==='csv'?'CSV':'JSON';}
   function downloadReport(reportId){
@@ -7188,31 +7454,72 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
         if(btn){var old=btn.textContent;btn.textContent='✓ Link copied';setTimeout(function(){btn.textContent=old;},2000);}
       }).catch(function(){});
   }
-  function renderReportsPanel(reports){
+  function downloadProjectFile(fileId){
+    fetch('/chat/api/projects/'+encodeURIComponent(chatState.projectId)+'/files/'+encodeURIComponent(fileId)+'/download',{headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){if(d&&d.url)window.open(d.url,'_blank');})
+      .catch(function(){});
+  }
+  function renameProjectFilePrompt(fileId,oldName){
+    var name=window.prompt('Rename file:',oldName);
+    if(!name||name===oldName)return;
+    fetch('/chat/api/projects/'+encodeURIComponent(chatState.projectId)+'/files/'+encodeURIComponent(fileId),{method:'PATCH',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({filename:name})})
+      .then(function(){loadProjectFilesAndReports(chatState.projectId);}).catch(function(){});
+  }
+  function uploadProjectFile(file){
+    fileToBase64(file).then(function(b64){
+      return fetch('/chat/api/projects/'+encodeURIComponent(chatState.projectId)+'/files',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({filename:file.name,mime_type:file.type,data_base64:b64})});
+    }).then(function(){loadProjectFilesAndReports(chatState.projectId);}).catch(function(){});
+  }
+  function renderReportsPanel(reports,files){
     var col=document.getElementById('panel-col');
     var body=document.getElementById('panel-body');
     var title=document.getElementById('panel-title');
     if(!col||!body)return;
     if(title)title.textContent='Report';
+    var filesHtml='';
+    if(chatState.projectId){
+      filesHtml='<div style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:4px">Files</div>';
+      if(files&&files.length){
+        filesHtml+=files.map(function(f){
+          return '<div class="pc-card"><div style="font-weight:600;font-size:13px">📄 '+esc2(f.filename)+' — v'+f.version+'</div>'+
+            '<div class="pc-actions"><button class="panel-toggle-btn" data-fdl="'+esc2(f.id)+'">↓ Download</button><button class="panel-toggle-btn" data-fren="'+esc2(f.id)+'" data-fname="'+esc2(f.filename)+'">✎ Rename</button></div></div>';
+        }).join('');
+      }else{
+        filesHtml+='<div class="pc-empty">No files yet.</div>';
+      }
+      filesHtml+='<button class="chats-new" id="project-file-btn" style="margin-top:10px">+ Upload file</button><input type="file" id="project-file-input" style="display:none">';
+      filesHtml+='<div style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 4px">Reports</div>';
+    }
     if(!reports||!reports.length){
-      body.innerHTML='<div class="pc-empty">No reports for this chat yet.</div><button class="chats-new" id="report-generate-btn" style="margin-top:10px">Generate report</button>';
+      filesHtml+='<div class="pc-empty">No reports for this chat yet.</div><button class="chats-new" id="report-generate-btn" style="margin-top:10px">Generate report</button>';
     }else{
-      body.innerHTML=reports.map(function(r){
+      filesHtml+=reports.map(function(r){
         return '<div class="pc-card"><div style="font-weight:600;font-size:13px">'+esc2(r.title||'Report')+' — v'+r.version+' ('+fmtLabel(r.format)+')</div>'+
           '<div class="pc-actions"><button class="panel-toggle-btn" data-dl="'+esc2(r.id)+'">↓ Download</button><button class="panel-toggle-btn" data-share="'+esc2(r.id)+'">🔗 Share link</button></div></div>';
       }).join('')+'<button class="chats-new" id="report-generate-btn" style="margin-top:10px">Generate new version</button>';
     }
+    body.innerHTML=filesHtml;
     col.style.display='flex';panelOpen=true;
     var toggle=document.getElementById('panel-toggle');
     if(toggle)toggle.textContent='Hide ▸';
     body.style.display='block';
     body.querySelectorAll('[data-dl]').forEach(function(b){b.addEventListener('click',function(){downloadReport(b.getAttribute('data-dl'));});});
     body.querySelectorAll('[data-share]').forEach(function(b){b.addEventListener('click',function(){shareReport(b.getAttribute('data-share'),b);});});
+    body.querySelectorAll('[data-fdl]').forEach(function(b){b.addEventListener('click',function(){downloadProjectFile(b.getAttribute('data-fdl'));});});
+    body.querySelectorAll('[data-fren]').forEach(function(b){b.addEventListener('click',function(){renameProjectFilePrompt(b.getAttribute('data-fren'),b.getAttribute('data-fname'));});});
     var genBtn=document.getElementById('report-generate-btn');
     if(genBtn)genBtn.addEventListener('click',function(){generateReport();});
+    var fileBtn=document.getElementById('project-file-btn');
+    var fileInput=document.getElementById('project-file-input');
+    if(fileBtn&&fileInput){
+      fileBtn.addEventListener('click',function(){fileInput.click();});
+      fileInput.addEventListener('change',function(){if(fileInput.files&&fileInput.files[0])uploadProjectFile(fileInput.files[0]);});
+    }
   }
   function loadReportsPanel(){
     if(!chatState.conversationId){window.alert('Send a message first, then generate a report from this chat.');return;}
+    if(chatState.projectId){loadProjectFilesAndReports(chatState.projectId);return;}
     fetch('/chat/api/reports?conversation='+encodeURIComponent(chatState.conversationId),{headers:{'X-Chat-Token':chatState.token}})
       .then(function(r){return r.ok?r.json():{reports:[]};})
       .then(function(d){renderReportsPanel(d.reports);})
@@ -7222,7 +7529,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     if(!chatState.conversationId)return;
     var body=document.getElementById('panel-body');
     if(body)body.innerHTML='<div class="pc-empty">Generating…</div>';
-    fetch('/chat/api/reports',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({conversation_id:chatState.conversationId})})
+    fetch('/chat/api/reports',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({conversation_id:chatState.conversationId,project_id:chatState.projectId||undefined})})
       .then(function(r){return r.ok;})
       .then(function(){loadReportsPanel();})
       .catch(function(){loadReportsPanel();});
@@ -7982,6 +8289,9 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
 <button @click="openChat()" class="fixed right-4 z-30 bg-gradient-to-br from-amber-500 to-amber-400 text-slate-900 font-bold rounded-full shadow-2xl shadow-amber-500/40 px-5 py-3.5 flex items-center gap-2" style="bottom:calc(20px + var(--safe-bottom))">
   <span class="text-lg">✨</span><span>Build with AI</span>
 </button>
+<a href="/chat?new_project_county=COUNTY_SLUG_PLACEHOLDER" class="fixed right-4 z-30 bg-slate-800 border border-slate-700 text-amber-400 font-bold rounded-full shadow-xl px-5 py-3.5 flex items-center gap-2" style="bottom:calc(84px + var(--safe-bottom))">
+  <span class="text-lg">📁</span><span>New Project</span>
+</a>
 
 <!-- OWNER PICKER SHEET (unchanged from v5) -->
 <div x-show="showOwnerPicker" class="fixed inset-0 z-40" x-cloak>
