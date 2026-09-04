@@ -62,3 +62,33 @@ Claude keeps people because five product layers reinforce each other: Chat (thin
 | Skills | **Skills** | the six system skills bound to live RPCs + user-authored SKILL.md playbooks (a bidder's own due-diligence checklist) that produce the same deliverable every time | sidebar "Skills", `/` picker in the composer | C4b (#19924) |
 
 Rule: no layer ships as a page without its harness row in §2 and its function proof in the PR body. Vendor/model names appear only on Settings → Models (C6, #19925).
+
+
+## 7. Checkpoint board v2 — parity = every row VERIFIED (supersedes the CP-C table of 2026-09-04 03:5x UTC)
+Verified = live URL, Chromium, both viewports, harness row green, function proof pasted in the PR, judge ≠ builder. A green run is not evidence.
+
+| CP | Layer | Deliverable | Closes on | Issue | State 2026-09-04 16:00 UTC |
+|---|---|---|---|---|---|
+| C1 | Projects | chat persistence tables | migration live, cross-user 0 rows | #19835 | ✅ approved |
+| C2 | Chat | composer "+" menu, uploads cited, recents, search (Worker /chat) | PDF cited; recents survive reload; search hits | #19835 | ✅ live (TXT); ❌ PDF extractor; ❌ Deed "no auctions" contradiction (P0) |
+| C2b | Chat | verified identity (magic link / OTP or Clerk) — no email-claim reads | other-email token → 0 rows AND unverified email cannot read | #19829 | ❌ not started — blocks D10 |
+| C2c | Chat | one composer everywhere — homepage gets "+", mic, project scope | PDF uploaded from `/` cited by Deed | #19934 | ❌ queued |
+| C3 | Projects | Projects sidebar; files up/version/download (signed URLs); project chat; S1–S5 sticky layers; report progressive disclosure | create → upload → cite → download → S1 greeting after 10 min | #19847 | ⏳ running |
+| C4 | Watches (Cowork) | Scheduled sidebar; watch case/county/sale date; regenerate before sale; Resend + Calendar + Drive | one watch fires (Resend id), one calendar event, one Drive export | #19829 P3 | ❌ not started |
+| C4b | Skills | six live-RPC system skills + user SKILL.md playbooks; `/` picker | six skills return live rows; user skill runs | #19924 | ❌ queued |
+| C5 | Chat | slash commands, ⌘K, Quick/Deep/Voice selector, i18n, a11y ≥ 95 | Lighthouse ≥ 95 every route; keyboard walkthrough | #19829 P4 | ❌ not started |
+| C6 | Chat | model providers: Router default, BYOK, Ollama, free tier | BYOK round trip ×2, key absent from every log, Ollama ping, free-tier note | #19925 | ⏳ running |
+| C8 | Research + API | Settings → Developers: API keys + MCP config | create key → MCP call → revoke → 401 | #19937 | ❌ queued |
+| A | Design | tokens: 23 `:root` → 1 generated, 0 hex outside it, gate wired | harness PALETTE green on all routes | #19845 | ❌ (site-wide literal mapping shipped 15:13 UTC as the interim) |
+| B3 | Content | `/counties/*` + 301 + 503-on-RPC-error | 5 counties live = RPC same minute | #19846 | ❌ 5 runs died |
+| B4 | Content | blog through the renderer, Article JSON-LD | byte-identical bodies | #19830 | ❌ |
+| D10 | Gate | C2b verified identity live | negative test | — | ❌ |
+| D11 | Gate | harness: 0 red gates on every route in routes.json | ui-audit.yml run link | — | 92 red at 15:40 UTC |
+| D12 | Gate | all five Deed layers with function proof | this board all ✅ | — | ❌ |
+
+### Sprint (honest, from today's throughput)
+- **Fri Sep 4 (W1, to 18:00 ET):** Worker palette ✅, map ✅, calendar ✅, PRD ✅; C3 + C6 PRs if the runs deliver.
+- **Shabbat (runner only):** C2c, C4b, C3/C6 fixes, B3 retry — stacked as verified PRs.
+- **Sat Sep 5 21:00–23:00 ET (W2):** merge batch → Chat, Projects, Skills, Providers live.
+- **Sun Sep 6 (W3):** content T-0 per CONTENT_SOP §3 stands on its own; parity rows C4, C5, C8, C2b, A, B3/B4 will NOT all be green by 21:00 ET.
+- **Wed Sep 9:** earliest credible D12 — all five layers verified — if the runner delivers one clean PR per phase per day. Anything later than that is reported as slip, not hidden.
