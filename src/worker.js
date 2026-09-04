@@ -7890,6 +7890,7 @@ const SECURITY_LAST_REVIEWED = 'August 2026';
 const SECURITY_HTML = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Security — BidDeed.AI</title>
+<meta name="description" content="How BidDeed.AI protects your data — encryption, access controls, and payment security via Stripe.">
 ${POSTHOG_SCRIPT}
 <style>
 :root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
