@@ -139,6 +139,367 @@ function extractApiKey(request, url) {
   return url.searchParams.get('key') || '';
 }
 
+// ── Chat identity + persistence (issue #19829 P1) ────────────────────────────
+// This app has no Clerk / Supabase Auth anywhere (confirmed by grep across the
+// whole repo before building this). Rather than silently faking a "verified
+// user" claim, identity here is a stateless, tamper-evident, but NOT
+// inbox-verified binding: POST /chat/api/identity signs {email, exp} with an
+// HMAC key derived from the already-required ROUTER_PROXY_KEY secret (so no
+// NEW Cloudflare secret needs provisioning — see wrangler.toml incident notes
+// on deploy-ordering). Anyone who knows an email address can claim it; this
+// buys real tamper-proof separation between two different chat_token holders
+// (proven in docs/spec/19829-P1.md), not proof the claimed inbox is theirs.
+// Full inbox verification (magic link / OTP) is an explicit, documented gap
+// for a follow-up phase, not something to claim done here.
+const CHAT_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+
+function b64url(bytes) {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let bin = '';
+  for (const b of arr) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlToBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+// Plain standard-base64 decoder for client file uploads (may come as a data:
+// URL — strip any "data:...;base64," prefix first).
+function b64urlToBytesStd(s) {
+  const clean = String(s).replace(/^data:[^,]*;base64,/, '');
+  const bin = atob(clean);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+async function chatHmacKey(env) {
+  const secret = env.ROUTER_PROXY_KEY || '';
+  return crypto.subtle.importKey('raw', new TextEncoder().encode('chat-identity-v1:' + secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+function isValidEmail(email) {
+  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
+}
+async function issueChatToken(env, email) {
+  const enc = new TextEncoder();
+  const payload = JSON.stringify({ email: String(email).toLowerCase().trim(), iat: Date.now(), exp: Date.now() + CHAT_TOKEN_TTL_MS });
+  const key = await chatHmacKey(env);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  return b64url(enc.encode(payload)) + '.' + b64url(sig);
+}
+async function verifyChatToken(env, token) {
+  try {
+    const [p64, s64] = String(token || '').split('.');
+    if (!p64 || !s64) return null;
+    const payloadBytes = b64urlToBytes(p64);
+    const sigBytes = b64urlToBytes(s64);
+    const key = await chatHmacKey(env);
+    const ok = await crypto.subtle.verify('HMAC', key, sigBytes, payloadBytes);
+    if (!ok) return null;
+    const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
+    if (!payload.email || !payload.exp || Date.now() > payload.exp) return null;
+    return payload.email;
+  } catch (_) { return null; }
+}
+function extractChatToken(request) {
+  const h = request.headers.get('X-Chat-Token');
+  if (h) return h.trim();
+  const auth = request.headers.get('Authorization') || '';
+  if (auth.startsWith('ChatBearer ')) return auth.slice(11).trim();
+  return '';
+}
+
+// ── Supabase admin (service_role) REST helper — used ONLY for the new
+// biddeed_chat_* tables and the chat-uploads storage bucket. Fails closed
+// (returns null) when SUPABASE_SERVICE_ROLE_KEY isn't bound yet, so merging
+// this code is safe before that Worker secret is provisioned — persistence
+// features simply stay inactive, existing anonymous chat is unaffected.
+function hasServiceRole(env) { return !!env.SUPABASE_SERVICE_ROLE_KEY; }
+async function sbAdmin(env, pathAndQuery, opts = {}) {
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  const headers = Object.assign({ apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, opts.headers || {});
+  try {
+    const res = await fetch(`${SUPABASE_URL}${pathAndQuery}`, Object.assign({}, opts, { headers }));
+    return res;
+  } catch (_) { return null; }
+}
+
+async function createConversation(env, ownerEmail, title) {
+  const res = await sbAdmin(env, '/rest/v1/biddeed_chat_conversations', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ owner_email: ownerEmail, title: (title || '').slice(0, 120) }),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function touchConversation(env, ownerEmail, conversationId) {
+  await sbAdmin(env, `/rest/v1/biddeed_chat_conversations?id=eq.${encodeURIComponent(conversationId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ updated_at: new Date().toISOString() }),
+  });
+}
+async function insertMessages(env, ownerEmail, conversationId, msgs) {
+  const rows = msgs.map(m => ({ conversation_id: conversationId, owner_email: ownerEmail, role: m.role, content: m.content }));
+  return sbAdmin(env, '/rest/v1/biddeed_chat_messages', { method: 'POST', body: JSON.stringify(rows) });
+}
+async function listConversations(env, ownerEmail, limit = 50) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_chat_conversations?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=updated_at.desc&limit=${limit}&select=id,title,created_at,updated_at`);
+  if (!res || !res.ok) return [];
+  return res.json();
+}
+async function getConversationOwned(env, ownerEmail, conversationId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_chat_conversations?id=eq.${encodeURIComponent(conversationId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id`);
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function getConversationMessages(env, ownerEmail, conversationId) {
+  const owned = await getConversationOwned(env, ownerEmail, conversationId);
+  if (!owned) return null; // 403-equivalent: not this owner's conversation (or doesn't exist)
+  const res = await sbAdmin(env, `/rest/v1/biddeed_chat_messages?conversation_id=eq.${encodeURIComponent(conversationId)}&order=created_at.asc&select=id,role,content,created_at`);
+  if (!res || !res.ok) return [];
+  return res.json();
+}
+async function searchConversations(env, ownerEmail, q) {
+  const tsq = encodeURIComponent(q.trim().split(/\s+/).join(' | '));
+  const res = await sbAdmin(env, `/rest/v1/biddeed_chat_messages?owner_email=eq.${encodeURIComponent(ownerEmail)}&search_vec=fts.${tsq}&select=conversation_id,content,created_at&order=created_at.desc&limit=100`);
+  if (!res || !res.ok) return [];
+  const rows = await res.json();
+  const byConv = new Map();
+  for (const r of rows) {
+    if (!byConv.has(r.conversation_id)) byConv.set(r.conversation_id, { conversation_id: r.conversation_id, snippet: String(r.content).slice(0, 160) });
+  }
+  const convIds = [...byConv.keys()];
+  if (!convIds.length) return [];
+  const orFilter = convIds.map(id => `id.eq.${id}`).join(',');
+  const convRes = await sbAdmin(env, `/rest/v1/biddeed_chat_conversations?owner_email=eq.${encodeURIComponent(ownerEmail)}&or=(${orFilter})&select=id,title,updated_at`);
+  const convRows = convRes && convRes.ok ? await convRes.json() : [];
+  const titleById = new Map(convRows.map(c => [c.id, c]));
+  return convIds.map(id => ({ conversation_id: id, title: titleById.get(id)?.title || '(untitled)', updated_at: titleById.get(id)?.updated_at, snippet: byConv.get(id).snippet })).filter(r => titleById.has(r.conversation_id));
+}
+async function insertUpload(env, ownerEmail, conversationId, meta) {
+  const res = await sbAdmin(env, '/rest/v1/biddeed_chat_uploads', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      conversation_id: conversationId || null, owner_email: ownerEmail, storage_path: meta.storagePath,
+      filename: meta.filename, mime_type: meta.mimeType, extracted_text: meta.extractedText || null, extraction_status: meta.extractionStatus,
+    }),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function getUploadOwned(env, ownerEmail, uploadId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_chat_uploads?id=eq.${encodeURIComponent(uploadId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,filename,extracted_text,extraction_status`);
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+
+// ── Supabase Storage (chat-uploads bucket, private) ──────────────────────────
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB raw file cap
+async function storagePutObject(env, path, bytes, contentType) {
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/chat-uploads/${path}`, {
+      method: 'POST',
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': contentType || 'application/octet-stream', 'x-upsert': 'true' },
+      body: bytes,
+    });
+    return res.ok;
+  } catch (_) { return false; }
+}
+
+// ── Upload text extraction — no npm deps (deploy is `wrangler deploy
+// --no-bundle`, so only Web-standard APIs — DecompressionStream, TextDecoder
+// — are usable, never an imported package). ─────────────────────────────────
+function strToBytes(s) { const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) & 0xff; return a; }
+async function inflateBytes(bytes) {
+  const ds = new DecompressionStream('deflate');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  const buf = await new Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
+}
+function indexPdfObjects(latin1) {
+  const objs = new Map();
+  const objRe = /(\d+)\s+0\s+obj([\s\S]*?)endobj/g;
+  let m;
+  while ((m = objRe.exec(latin1))) objs.set(parseInt(m[1], 10), m[2]);
+  return objs;
+}
+// Balanced << >> extraction — a naive non-greedy regex breaks on nested dicts
+// (e.g. /Resources << /ExtGState << ... >> /Font << ... >> >>).
+function findBalancedDict(text, key) {
+  const m = new RegExp('/' + key + '\\s*<<').exec(text);
+  if (!m) return null;
+  let i = m.index + m[0].length, depth = 1;
+  const start = i;
+  while (i < text.length && depth > 0) {
+    if (text.startsWith('<<', i)) { depth++; i += 2; }
+    else if (text.startsWith('>>', i)) { depth--; i += 2; }
+    else i++;
+  }
+  return text.slice(start, i - 2);
+}
+function findPdfRef(dictText, key) {
+  const m = new RegExp('/' + key + '\\s+(\\d+)\\s+0\\s+R').exec(dictText);
+  return m ? parseInt(m[1], 10) : null;
+}
+async function getPdfStreamBytes(objText) {
+  const sm = /stream\r?\n([\s\S]*?)endstream/.exec(objText);
+  if (!sm) return null;
+  const raw = strToBytes(sm[1]);
+  if (/\/FlateDecode/.test(objText.slice(0, sm.index))) {
+    try { return await inflateBytes(raw); } catch (_) { return raw; }
+  }
+  return raw;
+}
+function hexToUnicodeStr(hex) {
+  let out = '';
+  for (let i = 0; i < hex.length; i += 4) out += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16));
+  return out;
+}
+function parseToUnicodeCMap(cmapText) {
+  const map = new Map();
+  const charRe = /beginbfchar([\s\S]*?)endbfchar/g;
+  let cm;
+  while ((cm = charRe.exec(cmapText))) {
+    const pairRe = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g;
+    let pm;
+    while ((pm = pairRe.exec(cm[1]))) map.set(parseInt(pm[1], 16), hexToUnicodeStr(pm[2]));
+  }
+  const rangeRe = /beginbfrange([\s\S]*?)endbfrange/g;
+  let rm;
+  while ((rm = rangeRe.exec(cmapText))) {
+    const tripleRe = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g;
+    let tm;
+    while ((tm = tripleRe.exec(rm[1]))) {
+      const lo = parseInt(tm[1], 16), hi = parseInt(tm[2], 16), dstStart = parseInt(tm[3], 16);
+      for (let c = lo; c <= hi && c - lo < 65536; c++) map.set(c, String.fromCharCode(dstStart + (c - lo)));
+    }
+  }
+  return map;
+}
+async function buildPdfFontCMaps(objs, fontResourceRefs) {
+  const fontMaps = new Map();
+  for (const [name, objNum] of fontResourceRefs) {
+    const fontObjText = objs.get(objNum);
+    if (!fontObjText) continue;
+    const tuRef = findPdfRef(fontObjText, 'ToUnicode');
+    if (!tuRef) continue;
+    const tuObjText = objs.get(tuRef);
+    if (!tuObjText) continue;
+    const bytes = await getPdfStreamBytes(tuObjText);
+    if (!bytes) continue;
+    fontMaps.set(name, parseToUnicodeCMap(new TextDecoder('latin1').decode(bytes)));
+  }
+  return fontMaps;
+}
+function unescapePdfString(s) { return s.replace(/\\([()\\])/g, '$1').replace(/\\n/g, '\n').replace(/\\r/g, ''); }
+function decodePdfHexShowString(hex, fontName, fontMaps) {
+  const map = fontName ? fontMaps.get(fontName) : null;
+  let out = '';
+  if (map) { for (let i = 0; i + 4 <= hex.length; i += 4) { const code = parseInt(hex.slice(i, i + 4), 16); if (map.has(code)) out += map.get(code); } }
+  else { for (let i = 0; i + 2 <= hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16)); }
+  return out;
+}
+function walkPdfContentStream(content, fontMaps) {
+  let out = '';
+  let currentFont = null;
+  const tokenRe = /\/(\w+)\s+[\d.]+\s+Tf|<([0-9A-Fa-f]*)>\s*Tj|\(((?:[^()\\]|\\.)*)\)\s*Tj|\[((?:[^\[\]]|\\.)*)\]\s*TJ|(T\*|Td|TD)\b/g;
+  let m;
+  while ((m = tokenRe.exec(content))) {
+    if (m[1]) { currentFont = '/' + m[1]; continue; }
+    if (m[5]) { out += (content.substr(m.index, 2) === 'T*' ? '\n' : ' '); continue; }
+    if (m[2] !== undefined && content[m.index] === '<') { out += decodePdfHexShowString(m[2], currentFont, fontMaps); continue; }
+    if (m[3] !== undefined) { out += unescapePdfString(m[3]); continue; }
+    if (m[4] !== undefined) {
+      const partRe = /\(((?:[^()\\]|\\.)*)\)|<([0-9A-Fa-f]*)>/g;
+      let pm;
+      while ((pm = partRe.exec(m[4]))) {
+        if (pm[1] !== undefined) out += unescapePdfString(pm[1]);
+        else if (pm[2] !== undefined) out += decodePdfHexShowString(pm[2], currentFont, fontMaps);
+      }
+      out += ' ';
+      continue;
+    }
+  }
+  return out + '\n';
+}
+// Best-effort PDF text extraction — brute-force-indexes objects by scanning
+// "N 0 obj ... endobj" markers directly (works even when the xref table is a
+// compressed xref stream we don't parse), resolves each page's /Resources
+// /Font entries to their /ToUnicode CMaps for CID-keyed embedded fonts (the
+// overwhelming majority of real-world PDFs, including browser print-to-PDF
+// and Word/Adobe exports), and falls back to literal (...)Tj strings for
+// simple non-CID fonts. Verified against a real production PDF in this repo
+// (winnerdata/batches/2026-08-27/investor_ff/ok-business-llc-25000544.pdf) —
+// see docs/spec/19829-P1.md for the before/after evidence.
+async function extractPdfText(bytes) {
+  const latin1 = Array.from(bytes).map(b => String.fromCharCode(b)).join('');
+  const objs = indexPdfObjects(latin1);
+  const pageObjNums = [];
+  for (const [num, text] of objs) if (/\/Type\s*\/Page\b(?!s)/.test(text)) pageObjNums.push(num);
+  let allText = '';
+  for (const pageNum of pageObjNums) {
+    const pageText = objs.get(pageNum);
+    let resText = findBalancedDict(pageText, 'Resources');
+    if (!resText) { const r = findPdfRef(pageText, 'Resources'); if (r && objs.has(r)) resText = objs.get(r); }
+    const fontRefs = new Map();
+    if (resText) {
+      let fontDictText = findBalancedDict(resText, 'Font');
+      if (!fontDictText) { const fr = findPdfRef(resText, 'Font'); if (fr && objs.has(fr)) fontDictText = objs.get(fr); }
+      if (fontDictText) {
+        const fe = /\/(\w+)\s+(\d+)\s+0\s+R/g; let m;
+        while ((m = fe.exec(fontDictText))) fontRefs.set('/' + m[1], parseInt(m[2], 10));
+      }
+    }
+    const fontMaps = await buildPdfFontCMaps(objs, fontRefs);
+    const contentsArrM = /\/Contents\s*\[([^\]]*)\]/.exec(pageText);
+    const contentRefs = [];
+    if (contentsArrM) { const re = /(\d+)\s+0\s+R/g; let mm; while ((mm = re.exec(contentsArrM[1]))) contentRefs.push(parseInt(mm[1], 10)); }
+    else { const single = findPdfRef(pageText, 'Contents'); if (single) contentRefs.push(single); }
+    for (const cRef of contentRefs) {
+      const cObjText = objs.get(cRef);
+      if (!cObjText) continue;
+      const bytes2 = await getPdfStreamBytes(cObjText);
+      if (!bytes2) continue;
+      allText += walkPdfContentStream(new TextDecoder('latin1').decode(bytes2), fontMaps);
+    }
+  }
+  return { text: allText.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim(), pagesFound: pageObjNums.length };
+}
+
+const TEXT_MIME_TYPES = new Set(['text/plain', 'text/csv', 'text/markdown', 'application/csv']);
+async function extractUploadText(mimeType, filename, bytes) {
+  const mt = (mimeType || '').toLowerCase();
+  const ext = (filename || '').toLowerCase().split('.').pop();
+  try {
+    if (TEXT_MIME_TYPES.has(mt) || ext === 'txt' || ext === 'csv' || ext === 'md') {
+      return { status: 'ok', text: new TextDecoder('utf-8').decode(bytes).slice(0, 50000) };
+    }
+    if (mt === 'application/pdf' || ext === 'pdf') {
+      const { text, pagesFound } = await extractPdfText(bytes);
+      if (!text) return { status: pagesFound > 0 ? 'failed' : 'unsupported', text: null };
+      return { status: 'ok', text: text.slice(0, 50000) };
+    }
+    // DOCX / images: no npm deps available under --no-bundle deploy, and no
+    // OCR/vision pipeline wired yet — honest "unsupported" rather than a
+    // silent empty result. Deferred to a follow-up phase (see spec doc).
+    return { status: 'unsupported', text: null };
+  } catch (_) {
+    return { status: 'failed', text: null };
+  }
+}
+
 async function fetchPaidTier(env, apiKey) {
   if (!apiKey) return { ok: false, tier: null };
   const keyHash = await sha256Hex(apiKey);
@@ -3037,6 +3398,80 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         }
       }
 
+      // ── POST /chat/api/identity — issue a chat session token (#19829 P1) ──
+      // See "Chat identity + persistence" comment block near extractApiKey()
+      // for exactly what this does and does not prove.
+      if (path === '/chat/api/identity' && method === 'POST') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Chat persistence not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let ibody = {};
+        try { ibody = await request.json(); } catch (_) {}
+        if (!isValidEmail(ibody.email)) return new Response(JSON.stringify({ error: 'Valid email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const token = await issueChatToken(env, ibody.email);
+        return new Response(JSON.stringify({ token, email: String(ibody.email).toLowerCase().trim() }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /chat/api/conversations — recent chats list (#19829 P1) ──────
+      if (path === '/chat/api/conversations' && method === 'GET') {
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const rows = await listConversations(env, ownerEmail);
+        return new Response(JSON.stringify({ conversations: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /chat/api/conversations/:id/messages (#19829 P1) ─────────────
+      if (/^\/chat\/api\/conversations\/[^/]+\/messages$/.test(path) && method === 'GET') {
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const conversationId = path.split('/')[4];
+        const rows = await getConversationMessages(env, ownerEmail, conversationId);
+        if (rows === null) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ messages: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /chat/api/search?q= — tsvector search over own chats (#19829 P1) ──
+      if (path === '/chat/api/search' && method === 'GET') {
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const q = (url.searchParams.get('q') || '').trim();
+        if (!q) return new Response(JSON.stringify({ results: [] }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const results = await searchConversations(env, ownerEmail, q);
+        return new Response(JSON.stringify({ results }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── POST /chat/api/upload — document upload + best-effort text
+      // extraction (#19829 P1). Body: { filename, mime_type, data_base64,
+      // conversation_id? }. PDF/CSV/TXT get real extraction; DOCX/images are
+      // stored but return extraction_status='unsupported' (honest, not silent).
+      if (path === '/chat/api/upload' && method === 'POST') {
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const cl2 = parseInt(request.headers.get('Content-Length') || '0', 10);
+        if (cl2 > MAX_UPLOAD_BYTES * 1.4) return new Response(JSON.stringify({ error: 'File too large (8MB max)' }), { status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let ubody = {};
+        try { ubody = await request.json(); } catch (_) {
+          return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        const { filename, mime_type, data_base64, conversation_id } = ubody;
+        if (!filename || !data_base64) return new Response(JSON.stringify({ error: 'filename and data_base64 required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let bytes;
+        try { bytes = b64urlToBytesStd(data_base64); } catch (_) {
+          return new Response(JSON.stringify({ error: 'Invalid base64' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        if (bytes.length > MAX_UPLOAD_BYTES) return new Response(JSON.stringify({ error: 'File too large (8MB max)' }), { status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (conversation_id) {
+          const owned = await getConversationOwned(env, ownerEmail, conversation_id);
+          if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+        const storagePath = `${await sha256Hex(ownerEmail)}/${crypto.randomUUID()}-${safeName}`;
+        const stored = await storagePutObject(env, storagePath, bytes, mime_type);
+        if (!stored) return new Response(JSON.stringify({ error: 'Storage upload failed' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const extraction = await extractUploadText(mime_type, filename, bytes);
+        const row = await insertUpload(env, ownerEmail, conversation_id || null, { storagePath, filename, mimeType: mime_type, extractedText: extraction.text, extractionStatus: extraction.status });
+        if (!row) return new Response(JSON.stringify({ error: 'Failed to record upload' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ id: row.id, filename: row.filename, extraction_status: row.extraction_status, extracted_text_preview: (row.extracted_text || '').slice(0, 300) }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
       // ── POST /chat/api — Streaming SSE ───────────────────────────────────
       if (path === '/chat/api' && method === 'POST') {
         const cl = parseInt(request.headers.get('Content-Length') || '0', 10);
@@ -3053,11 +3488,37 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
-        const { messages, county, hook } = body;
+        const { messages, county, hook, conversation_id, upload_id, public_records } = body;
         if (!Array.isArray(messages) || messages.length === 0)
           return new Response(JSON.stringify({ error: 'messages required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (messages.length > 20)
           return new Response(JSON.stringify({ error: 'Too many messages' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+
+        // ── Persisted chat (#19829 P1) — only active for identified users
+        // (X-Chat-Token verified) and never blocks/degrades anonymous chat.
+        const chatOwnerEmail = hasServiceRole(env) ? await verifyChatToken(env, extractChatToken(request)) : null;
+        let activeConversationId = null;
+        let attachmentCtx = '';
+        if (chatOwnerEmail) {
+          if (conversation_id) {
+            const owned = await getConversationOwned(env, chatOwnerEmail, conversation_id);
+            activeConversationId = owned ? conversation_id : null;
+          }
+          if (!activeConversationId) {
+            const firstUserMsg = messages.find(m => m.role === 'user');
+            const created = await createConversation(env, chatOwnerEmail, String(firstUserMsg?.content || 'New chat').slice(0, 60));
+            activeConversationId = created?.id || null;
+          }
+          if (upload_id) {
+            const upload = await getUploadOwned(env, chatOwnerEmail, upload_id);
+            if (upload && upload.extraction_status === 'ok' && upload.extracted_text) {
+              attachmentCtx = `\n\nATTACHMENT — the user uploaded a file named "${upload.filename}". Extracted text follows; cite this filename when you reference facts from it, and do not invent content beyond what's shown:\n"""\n${upload.extracted_text.slice(0, 6000)}\n"""`;
+            } else if (upload && upload.extraction_status !== 'ok') {
+              attachmentCtx = `\n\nATTACHMENT — the user uploaded a file named "${upload.filename}" but automatic text extraction was not available for this file type. Ask the user to paste or describe the key details if you need them.`;
+            }
+          }
+        }
+        if (public_records) attachmentCtx += '\n\nThe user has enabled "public-records search" for this message — prioritize Sunbiz, county clerk, and property-appraiser style public-record facts already available to you over general commentary.';
         const totalChars = messages.reduce((n, m) => n + String(m.content || '').length, 0);
         if (totalChars > 8000)
           return new Response(JSON.stringify({ error: 'Messages too long' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
@@ -3147,7 +3608,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           ? `\n\nRespond in ${LANG_NAMES[detectedLang]}. Property data (addresses, dates, amounts) stay in English.`
           : '';
 
-        const countyCtx = (county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.') + liveDataCtx + propertyPanelCtx + langInstruction;
+        const countyCtx = (county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.') + liveDataCtx + propertyPanelCtx + langInstruction + attachmentCtx;
         const systemPrompt = `You are BidDeed.AI, the expert AI assistant for Florida foreclosure and tax deed auction intelligence. Built on 20 years of experience from Ariel Shapira, creator of the Shapira Max Bid Formula.
 
 ${countyCtx}
@@ -3270,6 +3731,9 @@ ${DISCLAIMER_SHORT}`;
           let buf = '';
           let fullText = '';
           try {
+            if (chatOwnerEmail && activeConversationId) {
+              await writer.write(encoder.encode(`event: meta\ndata: ${JSON.stringify({ conversation_id: activeConversationId })}\n\n`));
+            }
             if (tier === 'heavy') {
               const warning = "_You're a heavy chat user today — [Investor](https://biddeed.ai/subscribe?tier=investor) gives unlimited daily access._\n\n";
               fullText += warning;
@@ -3303,6 +3767,18 @@ ${DISCLAIMER_SHORT}`;
               if (markerStart !== -1) {
                 const payload = { county: intentCounty, auctions: propertyPanelCards, total: propertyPanelCards.length };
                 await writer.write(encoder.encode(`event: properties\ndata: ${JSON.stringify(payload)}\n\n`));
+              }
+            }
+            if (chatOwnerEmail && activeConversationId && fullText) {
+              const lastUserMsg = messages[messages.length - 1];
+              try {
+                await insertMessages(env, chatOwnerEmail, activeConversationId, [
+                  { role: 'user', content: String(lastUserMsg?.content || '') },
+                  { role: 'assistant', content: fullText },
+                ]);
+                await touchConversation(env, chatOwnerEmail, activeConversationId);
+              } catch (e) {
+                await logErr(env, '/chat/api', 'Chat persistence write failed (non-fatal)', String(e), 500, 'warn');
               }
             }
             await writer.write(encoder.encode('data: [DONE]\n\n'));
@@ -4676,6 +5152,51 @@ html[data-theme=light] .quick-btn,html[data-theme=light] .quick-btn:hover{border
 .attach-progress.ok{color:var(--green);background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2)}
 .attach-progress.err{color:#f87171;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2)}
 
+/* Composer "+" menu (issue #19829 P1) */
+.plus-wrap{position:relative;flex-shrink:0}
+.plus-btn{width:38px;height:38px;border-radius:10px;background:var(--navy2);border:1px solid var(--border);color:var(--muted);font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;-webkit-tap-highlight-color:transparent}
+.plus-btn:hover{background:var(--navy3);border-color:var(--orange);color:var(--text)}
+.plus-menu{display:none;position:absolute;bottom:46px;left:0;background:var(--navy2);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.35);min-width:210px;z-index:40;overflow:hidden}
+.plus-menu.open{display:block}
+.plus-item{display:flex;align-items:center;gap:9px;padding:10px 13px;font-size:12.5px;color:var(--text);cursor:pointer;border:none;background:none;width:100%;text-align:left;font-family:inherit}
+.plus-item:hover{background:var(--navy3)}
+.plus-item.active-toggle{color:var(--orange)}
+.plus-item[disabled]{opacity:.4;cursor:not-allowed}
+.pending-attach{display:none;align-items:center;gap:6px;background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;color:var(--muted);margin-bottom:6px}
+.pending-attach.show{display:flex}
+.pending-attach button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;margin-left:auto;font-family:inherit}
+
+/* Recent chats drawer (issue #19829 P1) */
+.chat-toolbar{display:flex;justify-content:flex-end;padding:8px 14px 0;flex-shrink:0}
+.chats-btn{background:var(--navy2);border:1px solid var(--border);border-radius:7px;color:var(--muted);font-size:11px;font-weight:600;padding:7px 11px;cursor:pointer;font-family:inherit;margin-right:6px;flex-shrink:0}
+.chats-btn:hover{border-color:var(--orange);color:var(--text)}
+.chats-drawer{position:fixed;inset:0 auto 0 0;width:280px;max-width:82vw;background:var(--navy2);border-right:1px solid var(--border);z-index:2000;transform:translateX(-100%);transition:transform .18s ease;display:flex;flex-direction:column}
+.chats-drawer.open{transform:translateX(0)}
+.chats-scrim{position:fixed;inset:0;background:rgba(2,6,23,.55);z-index:1999;display:none}
+.chats-scrim.open{display:block}
+.chats-hdr{display:flex;align-items:center;gap:8px;padding:12px;border-bottom:1px solid var(--border)}
+.chats-hdr h3{font-size:12.5px;color:var(--text);flex:1}
+.chats-new{background:var(--orange);color:var(--navy);border:none;border-radius:7px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+.chats-close{background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer}
+.chats-search{padding:8px 12px;border-bottom:1px solid var(--border)}
+.chats-search input{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--text);font-size:12px;font-family:inherit;outline:none}
+.chats-list{flex:1;overflow-y:auto;padding:6px}
+.chats-empty{color:var(--muted);font-size:11.5px;text-align:center;padding:24px 12px}
+.chat-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:9px 10px;cursor:pointer;font-family:inherit}
+.chat-item:hover{background:var(--navy3)}
+.chat-item .ci-title{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item .ci-snip{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.chats-signin{padding:14px 12px;font-size:11.5px;color:var(--muted)}
+.chats-signin input{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--text);font-size:12px;font-family:inherit;outline:none;margin:8px 0}
+.chats-signin button{width:100%;background:var(--orange);color:var(--navy);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+
+/* Message actions row (issue #19829 P1) */
+.msg-actions{display:flex;gap:4px;margin:4px 0 0 40px;flex-wrap:wrap}
+.msg-actions button{background:none;border:none;color:var(--muted);font-size:12px;padding:3px 6px;border-radius:6px;cursor:pointer;font-family:inherit}
+.msg-actions button:hover:not([disabled]){background:var(--navy3);color:var(--text)}
+.msg-actions button[disabled]{opacity:.35;cursor:not-allowed}
+.msg-actions button.active{color:var(--orange)}
+
 /* SPLIT LAYOUT — property cards right panel */
 .split{flex:1;display:flex;min-height:0;overflow:hidden}
 .chat-col{display:flex;flex-direction:column;flex:1 1 45%;min-width:0;min-height:0;overflow:hidden}
@@ -4728,8 +5249,20 @@ html[data-theme=light] .quick-btn,html[data-theme=light] .quick-btn:hover{border
   <a href="/subscribe?tier=investor" class="upgrade-btn">⚡ $99/mo</a>
 </header>
 
+<div class="chats-scrim" id="chats-scrim"></div>
+<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats">
+  <div class="chats-hdr">
+    <h3>Recent chats</h3>
+    <button class="chats-new" id="chats-new-btn" type="button">+ New</button>
+    <button class="chats-close" id="chats-close-btn" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="chats-search"><input type="text" id="chats-search-input" placeholder="Search your chats..."></div>
+  <div class="chats-list" id="chats-list"><div class="chats-empty">Loading…</div></div>
+</aside>
+
 <div class="split">
   <div class="chat-col">
+<div class="chat-toolbar"><button class="chats-btn" id="chats-open-btn" type="button" title="Recent chats">🕘 Chats</button></div>
 ${countyBar}
 
 <div class="msgs" id="msgs">
@@ -4792,7 +5325,18 @@ ${countyBar}
 </div>
 
 <div class="inp-wrap">
+  <div class="pending-attach" id="pending-attach"><span id="pending-attach-label"></span><button id="pending-attach-clear" type="button" aria-label="Remove attachment">✕</button></div>
   <div class="inp-bar">
+    <div class="plus-wrap">
+      <button class="plus-btn" id="plus-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Add">+</button>
+      <div class="plus-menu" id="plus-menu">
+        <button class="plus-item" id="plus-upload" type="button">📄 Upload documents</button>
+        <button class="plus-item" id="plus-screenshot" type="button">🖼️ Paste screenshot</button>
+        <button class="plus-item" id="plus-records" type="button">🔎 Public-records search</button>
+        <button class="plus-item" id="plus-research" type="button">🔬 Deep Research → SIGNAL$</button>
+      </div>
+      <input type="file" id="plus-file-input" accept=".pdf,.csv,.txt,.md,application/pdf,text/csv,text/plain,text/markdown" style="display:none">
+    </div>
     <input type="text" id="inp" placeholder="Ask about any Florida county..." autocomplete="off" autocorrect="off" spellcheck="false">
     <button class="snd" id="snd" aria-label="Send">
       <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
@@ -4840,6 +5384,11 @@ const COUNTY = ${JSON.stringify(county)};
 const HOOK   = ${JSON.stringify(hook)};
 const AUTO   = ${JSON.stringify(autoMsg)};
 let H = [], busy = false, emailDone = false, s5Shown = false, msgCount = 0, retryCount = 0;
+// Chat identity + persistence state (issue #19829 P1) — populated once the
+// user has an email on file (reuses the existing email-capture flow) and a
+// chat_token has been issued; null token = anonymous chat, unaffected.
+var chatState={token:null,email:null,conversationId:null,pendingUploadId:null,pendingUploadName:null,publicRecords:false};
+try{chatState.token=localStorage.getItem('bd_chat_token')||null;chatState.email=localStorage.getItem('bd_chat_email')||null;}catch(e){}
 const MAX_RETRIES = 3;
 
 // County bar
@@ -5065,13 +5614,19 @@ if(panelToggleBtn)panelToggleBtn.addEventListener('click',function(){
 
 function scrollBottom(){const m=document.getElementById('msgs');if(m){m.scrollTop=m.scrollHeight;}}
 
+function actionsHtml(role){
+  if(role==='assistant'){
+    return '<div class="msg-actions" data-role="assistant"><button data-action="copy" title="Copy">⧉</button><button data-action="retry" title="Retry">↻</button><button data-action="thumbsup" title="Good response">👍</button><button data-action="thumbsdown" title="Bad response">👎</button><button data-action="addroom" disabled title="Coming in P2 - Deal Rooms">➕ Room</button><button data-action="setalert" disabled title="Coming in P3 - Alerts and Watches">🔔 Alert</button></div>';
+  }
+  return '<div class="msg-actions" data-role="user"><button data-action="edit" title="Edit">✎ Edit</button></div>';
+}
 function addMsg(role,content){
   document.getElementById('welcome')?.remove();
   const m=document.getElementById('msgs');
   const row=document.createElement('div');row.className='msg '+role;
   const av=role==='assistant'?'<div class="av ai">BD</div>':'<div class="av user">👤</div>';
   const body = role==='assistant' ? mdToHtml(content) : esc(content);
-  row.innerHTML=av+'<div class="bbl '+role+'">'+body+'</div>';
+  row.innerHTML=av+'<div class="bbl '+role+'">'+body+'</div>'+actionsHtml(role);
   m.appendChild(row);scrollBottom();
   return row.querySelector('.bbl');
 }
@@ -5123,7 +5678,15 @@ async function attemptStream(){
   },5000);
   let fullText='';
   try{
-    const res=await fetch('/chat/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:H,county:COUNTY,hook:HOOK}),signal:controller.signal});
+    const reqHeaders={'Content-Type':'application/json'};
+    if(chatState.token)reqHeaders['X-Chat-Token']=chatState.token;
+    const reqBody={messages:H,county:COUNTY,hook:HOOK};
+    if(chatState.conversationId)reqBody.conversation_id=chatState.conversationId;
+    if(chatState.pendingUploadId)reqBody.upload_id=chatState.pendingUploadId;
+    if(chatState.publicRecords)reqBody.public_records=true;
+    const res=await fetch('/chat/api',{method:'POST',headers:reqHeaders,body:JSON.stringify(reqBody),signal:controller.signal});
+    chatState.pendingUploadId=null;chatState.pendingUploadName=null;
+    var pa=document.getElementById('pending-attach');if(pa)pa.classList.remove('show');
     document.getElementById('typing')?.remove();
     if(!res.ok){addMsg('assistant','Error '+res.status+'. Please try again.');return;}
     document.getElementById('welcome')?.remove();
@@ -5151,12 +5714,17 @@ async function attemptStream(){
           try{renderPropertyPanel(JSON.parse(data));}catch(e){}
           pendingEvent=null;continue;
         }
+        if(pendingEvent==='meta'){
+          try{var metaEvt=JSON.parse(data);if(metaEvt.conversation_id)chatState.conversationId=metaEvt.conversation_id;}catch(e){}
+          pendingEvent=null;continue;
+        }
         try{const evt=JSON.parse(data);if(evt.text){fullText+=evt.text;bbl.innerHTML=mdToHtml(stripPropertiesMarker(fullText));scrollBottom();}}catch(e){}
       }
     }
     fullText=stripPropertiesMarker(fullText);
     bbl.innerHTML=mdToHtml(fullText);
     bbl.id='';
+    bbl.insertAdjacentHTML('afterend',actionsHtml('assistant'));
     H.push({role:'assistant',content:fullText});
     retryCount=0;
     // Show S5 CTA after 2nd message
@@ -5194,6 +5762,25 @@ function showEmailCapture(){
   rowEl.appendChild(inputEl);rowEl.appendChild(btnEl);d.appendChild(lbl);d.appendChild(rowEl);m.appendChild(d);scrollBottom();
 }
 
+// issue #19829 P1 — once an email is known (any existing capture point:
+// email-gate here, voice gate, upload flow), silently establish a chat
+// identity token too so recent-chat persistence "just works" without a
+// separate sign-in screen. No-ops (resolves null) if already have a token
+// for this email, or if the server has no SUPABASE_SERVICE_ROLE_KEY bound
+// yet (persistence not provisioned) — anonymous chat is never blocked by this.
+async function ensureChatIdentity(email){
+  if(!email)return null;
+  if(chatState.token&&chatState.email===email.toLowerCase().trim())return chatState.token;
+  try{
+    const res=await fetch('/chat/api/identity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})});
+    if(!res.ok)return null;
+    const data=await res.json();
+    chatState.token=data.token;chatState.email=data.email;
+    try{localStorage.setItem('bd_chat_token',data.token);localStorage.setItem('bd_chat_email',data.email);}catch(e){}
+    if(typeof onChatIdentityReady==='function')onChatIdentityReady();
+    return data.token;
+  }catch(e){return null;}
+}
 async function saveEmail(){
   const email=(document.getElementById('ei')?.value||'').trim();
   if(!email||!email.includes('@'))return;
@@ -5207,6 +5794,7 @@ async function saveEmail(){
         }catch(e){}
       }
     }).catch(()=>{});
+  ensureChatIdentity(email);
   addMsg('assistant','✅ Done! Daily FL auction alerts sent to '+email+'. What else can I pull up for you?');
   H.push({role:'assistant',content:'Email captured.'});
 }
@@ -5547,6 +6135,225 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
 
   attachFileInput.addEventListener('change',function(){
     if(attachFileInput.files&&attachFileInput.files[0])handleFileSelected(attachFileInput.files[0]);
+  });
+})();
+</script>
+<script>
+// ── Recent chats drawer + composer "+" menu (issue #19829 P1) ───────────────
+(function(){
+  var drawer=document.getElementById('chats-drawer');
+  var scrim=document.getElementById('chats-scrim');
+  var openBtn=document.getElementById('chats-open-btn');
+  var closeBtn=document.getElementById('chats-close-btn');
+  var newBtn=document.getElementById('chats-new-btn');
+  var searchInput=document.getElementById('chats-search-input');
+  var listEl=document.getElementById('chats-list');
+  var pendingAfterAuth=null;
+
+  function esc2(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+  function renderSignIn(){
+    listEl.innerHTML='<div class="chats-signin">Enter your email to save and search your chats.<input type="email" id="chats-signin-email" placeholder="your@email.com"><button id="chats-signin-submit" type="button">Continue</button></div>';
+    var input=document.getElementById('chats-signin-email');
+    var submit=document.getElementById('chats-signin-submit');
+    function go(){
+      var email=(input.value||'').trim();
+      if(!email||email.indexOf('@')===-1)return;
+      submit.textContent='...';
+      ensureChatIdentity(email).then(function(token){
+        if(token){
+          fetch('/chat/lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,county:COUNTY,source:HOOK||'chat_plus_menu'})}).catch(function(){});
+        }else{
+          submit.textContent='Continue';
+          listEl.innerHTML='<div class="chats-empty">Could not start a chat session. Please try again shortly.</div>';
+        }
+      });
+    }
+    submit.addEventListener('click',go);
+    input.addEventListener('keydown',function(e){if(e.key==='Enter')go();});
+  }
+
+  window.onChatIdentityReady=function(){
+    if(pendingAfterAuth){var fn=pendingAfterAuth;pendingAfterAuth=null;fn();}
+    if(drawer.classList.contains('open'))loadConversations();
+  };
+
+  function renderList(items,emptyMsg){
+    if(!items||!items.length){listEl.innerHTML='<div class="chats-empty">'+esc2(emptyMsg)+'</div>';return;}
+    listEl.innerHTML=items.map(function(c){
+      var title=esc2(c.title||'(untitled)');
+      var snip=c.snippet?esc2(c.snippet):'';
+      return '<button class="chat-item" data-conv-id="'+esc2(c.conversation_id||c.id)+'"><div class="ci-title">'+title+'</div>'+(snip?'<div class="ci-snip">'+snip+'</div>':'')+'</button>';
+    }).join('');
+    listEl.querySelectorAll('.chat-item').forEach(function(btn){
+      btn.addEventListener('click',function(){loadConversation(btn.getAttribute('data-conv-id'));});
+    });
+  }
+
+  function loadConversations(){
+    if(!chatState.token){renderSignIn();return;}
+    listEl.innerHTML='<div class="chats-empty">Loading…</div>';
+    fetch('/chat/api/conversations',{headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():{conversations:[]};})
+      .then(function(d){renderList(d.conversations,'No saved chats yet — start one and it will appear here.');})
+      .catch(function(){listEl.innerHTML='<div class="chats-empty">Could not load chats.</div>';});
+  }
+
+  function loadConversation(id){
+    if(!chatState.token)return;
+    fetch('/chat/api/conversations/'+encodeURIComponent(id)+'/messages',{headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){
+        if(!d)return;
+        document.getElementById('welcome')?.remove();
+        var m=document.getElementById('msgs');
+        m.innerHTML='';
+        H=[];
+        d.messages.forEach(function(msg){
+          H.push({role:msg.role,content:msg.content});
+          addMsg(msg.role,msg.content);
+        });
+        chatState.conversationId=id;
+        closeDrawer();
+      }).catch(function(){});
+  }
+
+  function openDrawer(){drawer.classList.add('open');scrim.classList.add('open');loadConversations();}
+  function closeDrawer(){drawer.classList.remove('open');scrim.classList.remove('open');}
+  if(openBtn)openBtn.addEventListener('click',openDrawer);
+  if(closeBtn)closeBtn.addEventListener('click',closeDrawer);
+  if(scrim)scrim.addEventListener('click',closeDrawer);
+  if(newBtn)newBtn.addEventListener('click',function(){
+    chatState.conversationId=null;H=[];
+    document.getElementById('msgs').innerHTML='';
+    closeDrawer();
+  });
+  var searchTimer=null;
+  if(searchInput)searchInput.addEventListener('input',function(){
+    clearTimeout(searchTimer);
+    var q=searchInput.value.trim();
+    if(!q){loadConversations();return;}
+    if(!chatState.token)return;
+    searchTimer=setTimeout(function(){
+      fetch('/chat/api/search?q='+encodeURIComponent(q),{headers:{'X-Chat-Token':chatState.token}})
+        .then(function(r){return r.ok?r.json():{results:[]};})
+        .then(function(d){renderList(d.results,'No matches.');})
+        .catch(function(){});
+    },300);
+  });
+
+  // ── Composer "+" menu ──────────────────────────────────────────────────
+  var plusBtn=document.getElementById('plus-btn');
+  var plusMenu=document.getElementById('plus-menu');
+  var plusUpload=document.getElementById('plus-upload');
+  var plusScreenshot=document.getElementById('plus-screenshot');
+  var plusRecords=document.getElementById('plus-records');
+  var plusResearch=document.getElementById('plus-research');
+  var plusFileInput=document.getElementById('plus-file-input');
+  var pendingAttach=document.getElementById('pending-attach');
+  var pendingAttachLabel=document.getElementById('pending-attach-label');
+  var pendingAttachClear=document.getElementById('pending-attach-clear');
+
+  function closePlusMenu(){plusMenu.classList.remove('open');plusBtn.setAttribute('aria-expanded','false');}
+  function togglePlusMenu(){var open=plusMenu.classList.toggle('open');plusBtn.setAttribute('aria-expanded',open?'true':'false');}
+  if(plusBtn)plusBtn.addEventListener('click',function(e){e.stopPropagation();togglePlusMenu();});
+  document.addEventListener('click',function(e){if(plusMenu&&plusMenu.classList.contains('open')&&!plusMenu.contains(e.target)&&e.target!==plusBtn)closePlusMenu();});
+
+  function requireIdentityThen(fn){
+    if(chatState.token){fn();return;}
+    pendingAfterAuth=fn;
+    openDrawer();
+  }
+
+  function fileToBase64(file){
+    return new Promise(function(resolve,reject){
+      var reader=new FileReader();
+      reader.onload=function(){resolve(String(reader.result).split(',')[1]||'');};
+      reader.onerror=reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function uploadFile(file){
+    pendingAttachLabel.textContent='Uploading '+file.name+'…';
+    pendingAttach.classList.add('show');
+    fileToBase64(file).then(function(b64){
+      return fetch('/chat/api/upload',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({filename:file.name,mime_type:file.type,data_base64:b64,conversation_id:chatState.conversationId})});
+    }).then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});}).then(function(res){
+      if(!res.ok){pendingAttachLabel.textContent='Upload failed';setTimeout(function(){pendingAttach.classList.remove('show');},2500);return;}
+      chatState.pendingUploadId=res.d.id;chatState.pendingUploadName=res.d.filename;
+      var statusTxt=res.d.extraction_status==='ok'?'📄 '+res.d.filename+' — ready':'📄 '+res.d.filename+' — attached (no text preview for this file type)';
+      pendingAttachLabel.textContent=statusTxt;
+    }).catch(function(){pendingAttachLabel.textContent='Upload failed';setTimeout(function(){pendingAttach.classList.remove('show');},2500);});
+  }
+
+  if(pendingAttachClear)pendingAttachClear.addEventListener('click',function(){chatState.pendingUploadId=null;chatState.pendingUploadName=null;pendingAttach.classList.remove('show');});
+
+  if(plusUpload)plusUpload.addEventListener('click',function(){closePlusMenu();requireIdentityThen(function(){plusFileInput.click();});});
+  if(plusFileInput)plusFileInput.addEventListener('change',function(){if(plusFileInput.files&&plusFileInput.files[0]){uploadFile(plusFileInput.files[0]);plusFileInput.value='';}});
+
+  if(plusScreenshot)plusScreenshot.addEventListener('click',function(){
+    closePlusMenu();
+    requireIdentityThen(function(){
+      var inp=document.getElementById('inp');
+      showSystemMessage('Paste your screenshot now (Ctrl/Cmd+V) — it will attach to your next message.');
+      inp.focus();
+    });
+  });
+  document.addEventListener('paste',function(e){
+    if(!e.clipboardData||!e.clipboardData.items)return;
+    for(var i=0;i<e.clipboardData.items.length;i++){
+      var item=e.clipboardData.items[i];
+      if(item.type&&item.type.indexOf('image/')===0){
+        var blob=item.getAsFile();
+        if(!blob)continue;
+        requireIdentityThen(function(){uploadFile(new File([blob],'screenshot.png',{type:blob.type||'image/png'}));});
+        break;
+      }
+    }
+  });
+
+  if(plusRecords)plusRecords.addEventListener('click',function(){
+    chatState.publicRecords=!chatState.publicRecords;
+    plusRecords.classList.toggle('active-toggle',chatState.publicRecords);
+    plusRecords.textContent=(chatState.publicRecords?'✅ ':'🔎 ')+'Public-records search';
+  });
+
+  if(plusResearch)plusResearch.addEventListener('click',function(){
+    closePlusMenu();
+    requireIdentityThen(function(){
+      ask('Run deep research on the property we\\'re discussing and tell me what a SIGNAL$ Property Report would cover.');
+    });
+  });
+
+  // ── Message action row delegation (copy / retry / edit / thumbs) ───────
+  document.getElementById('msgs').addEventListener('click',function(e){
+    var btn=e.target.closest('[data-action]');
+    if(!btn||btn.disabled)return;
+    var action=btn.getAttribute('data-action');
+    var row=btn.closest('.msg');
+    var bbl=row?row.querySelector('.bbl'):null;
+    if(action==='copy'&&bbl){
+      var txt=bbl.innerText||bbl.textContent||'';
+      if(navigator.clipboard)navigator.clipboard.writeText(txt).then(function(){
+        var old=btn.textContent;btn.textContent='✓';setTimeout(function(){btn.textContent=old;},1200);
+      }).catch(function(){});
+    }else if(action==='retry'){
+      var lastUser=null;
+      for(var i=H.length-1;i>=0;i--){if(H[i].role==='user'){lastUser=H[i];break;}}
+      if(lastUser){
+        if(H.length&&H[H.length-1].role==='assistant')H.pop();
+        document.getElementById('inp').value=lastUser.content;
+        if(H.length&&H[H.length-1].role==='user')H.pop();
+        send();
+      }
+    }else if(action==='thumbsup'||action==='thumbsdown'){
+      btn.classList.toggle('active');
+      if(window.posthog)posthog.capture('deed_chat_feedback',{rating:action==='thumbsup'?'up':'down'});
+    }else if(action==='edit'&&bbl){
+      document.getElementById('inp').value=bbl.textContent||'';
+      document.getElementById('inp').focus();
+    }
   });
 })();
 </script>
