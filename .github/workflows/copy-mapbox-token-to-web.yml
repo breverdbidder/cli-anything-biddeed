@@ -1,0 +1,32 @@
+name: Copy Mapbox token to biddeed-web
+
+# One-off: NEXT_PUBLIC_MAPBOX_TOKEN exists as a secret in this repo but was
+# never carried into breverdbidder/biddeed-web when its build moved from Vercel
+# to Cloudflare (cloudflare-production.yml), so /radar renders "Mapbox token
+# not configured". Copies the secret across using the vault PAT inside the
+# masked runner; the value never leaves GitHub.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy secret
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          MAPBOX_VALUE: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MAPBOX_VALUE" || { echo "::error::NEXT_PUBLIC_MAPBOX_TOKEN is empty in this repo"; exit 1; }
+          payload=$(jq -nc --arg q "SELECT vault_secret('everest_gh_pat') AS v;" '{query: $q}')
+          resp=$(curl -sS -X POST "https://api.supabase.com/v1/projects/mocerqjnksmhcjzxrewo/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -H "User-Agent: cli-anything-biddeed-cc/1.0" -d "$payload")
+          GH_PAT=$(echo "$resp" | jq -r '.[0].v // empty')
+          test -n "$GH_PAT" || { echo "::error::everest_gh_pat not returned from vault"; exit 1; }
+          echo "::add-mask::$GH_PAT"; echo "::add-mask::$MAPBOX_VALUE"
+          echo "$MAPBOX_VALUE" | GH_TOKEN="$GH_PAT" gh secret set NEXT_PUBLIC_MAPBOX_TOKEN --repo breverdbidder/biddeed-web
+          echo "copied NEXT_PUBLIC_MAPBOX_TOKEN to breverdbidder/biddeed-web"
