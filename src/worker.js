@@ -2509,6 +2509,7 @@ function withPublicShell(html, path) {
     publicNavLink(path, '/radar?view=calendar', 'Calendar', '▦', p => p === '/calendar'),
     publicNavLink(path, '/counties', 'Counties', '⌖', p => p === '/counties' || p.startsWith('/county/')),
     publicNavLink(path, '/buy-report', 'Reports', '▤', p => p === '/buy-report' || p.startsWith('/free-report') || p.startsWith('/report/')),
+    publicNavLink(path, '/chat?view=projects', 'Projects', '📁'),
     publicNavLink(path, '/blog', 'Blog', '✦', p => p === '/blog' || p.startsWith('/blog/')),
   ].join('');
   const label = publicRouteLabel(path);
@@ -7441,6 +7442,12 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   var projectIntent=qp.get('intent');
   var projectCase=qp.get('case');
   var projectSource=qp.get('source');
+  // Workspace sidebar "Projects" entry (issue #19847 Pass 3) — links here
+  // with ?view=projects from every page; same sign-in-sheet gate as every
+  // other project entry point.
+  if(qp.get('view')==='projects'){
+    requireIdentityThen(function(){openDrawer();loadProjects();});
+  }
 
   function createProjectThen(cb,presetCounty,presetIntent,presetCase,presetSource){
     var name=window.prompt('Name this project (e.g. "Brevard tax deed — 123 Main St"):',presetCounty?(presetCounty+' project'):'');
