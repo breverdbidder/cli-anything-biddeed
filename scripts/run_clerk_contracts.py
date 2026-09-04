@@ -26,6 +26,10 @@ def main() -> int:
             sale_types = ["foreclosure", "tax_deed"] if source.get("sale_type") == "both" else [source.get("sale_type")]
             for sale_type in sale_types:
                 cmd = [sys.executable, str(ADAPTER), "--county", county, "--sale-type", sale_type, "--url", source["url"], "--start-date", args.start_date, "--days-ahead", str(args.days_ahead)]
+                if source.get("crawl"):
+                    cmd.append("--crawl")
+                for extra_url in source.get("extra_urls", []):
+                    cmd.extend(["--extra-url", extra_url])
                 if args.apply:
                     cmd.append("--apply")
                 proc = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, timeout=90)

@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 import urllib.parse
 import urllib.request
 from decimal import Decimal, InvalidOperation
@@ -69,9 +70,15 @@ def parse_money(value: str | None) -> Decimal | None:
 
 
 def fetch(url: str) -> tuple[str, str]:
-    request = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html,application/xhtml+xml"})
-    with urllib.request.urlopen(request, timeout=25) as response:
-        body = response.read().decode("utf-8", errors="replace")
+    request = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html,application/xhtml+xml,application/pdf"})
+    with urllib.request.urlopen(request, timeout=35) as response:
+        raw = response.read()
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if "pdf" in content_type or url.lower().split("?")[0].endswith(".pdf"):
+            converted = subprocess.run(["pdftotext", "-layout", "-", "-"], input=raw, capture_output=True, timeout=20, check=False)
+            body = converted.stdout.decode("utf-8", errors="replace")
+        else:
+            body = raw.decode("utf-8", errors="replace")
         return str(response.status), body
 
 
@@ -98,6 +105,32 @@ def parse_structured_rows(url: str, html: str, county: str, sale_type: str, star
     soup = BeautifulSoup(html, "html.parser")
     rows: list[dict] = []
     evidence: list[dict] = []
+
+    # Accept only explicit JSON-LD records with a date and identity; prose remains non-authoritative.
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            payload = json.loads(script.string or script.get_text())
+        except (TypeError, json.JSONDecodeError):
+            continue
+        items = payload if isinstance(payload, list) else payload.get("itemListElement", []) if isinstance(payload, dict) else []
+        for item in items:
+            item = item.get("item", item) if isinstance(item, dict) else {}
+            if not isinstance(item, dict):
+                continue
+            date_text = item.get("startDate") or item.get("date") or item.get("eventDate")
+            sale_date = parse_date(str(date_text or ""))
+            identity = item.get("identifier") or item.get("caseNumber") or item.get("parcelNumber") or item.get("url")
+            if not sale_date or not identity or not (start <= sale_date <= end):
+                continue
+            amount = parse_money(str(item.get("price") or item.get("openingBid") or item.get("amount") or ""))
+            aid = hashlib.sha256(f"{county}|{sale_type}|{identity}|{sale_date.isoformat()}".encode()).hexdigest()[:40]
+            rows.append({"aid": aid, "county_slug": county, "auction_type": sale_type, "case_number": str(identity), "judgment_amount": float(amount) if amount is not None else None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": str(date_text), "county_subdomain": "clerk-public-jsonld", "case_clerk_url": url, "source_response_id": None, "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+            evidence.append({"url": url, "sale_type": sale_type, "identity": str(identity), "sale_date": sale_date.isoformat(), "amount_present": amount is not None, "format": "json-ld"})
+
+    page_text = clean(soup.get_text(" ", strip=True)).lower()
+    if not rows and any(marker in page_text for marker in ("no properties currently", "no properties are currently", "no properties available for sale")):
+        evidence.append({"url": url, "sale_type": sale_type, "authoritative_zero_candidate": True, "reason": "official page states no properties available"})
+
     for table in soup.find_all("table"):
         headers = [key(clean(x.get_text(" ", strip=True))) for x in table.find_all("th")]
         if not headers:
@@ -139,6 +172,34 @@ def parse_structured_rows(url: str, html: str, county: str, sale_type: str, star
     return rows, evidence
 
 
+def parse_explicit_prose_rows(url: str, html: str, county: str, sale_type: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict]]:
+    """Parse only explicit labeled sale blocks, not arbitrary prose.
+
+    This contract is intentionally narrow for Clerk pages such as Hamilton:
+    DATE OF SALE + Case No. + optional Judgment amount. It refuses a row when
+    either the sale date or case identity is absent.
+    """
+    text = clean(BeautifulSoup(html, "html.parser").get_text(" ", strip=True))
+    blocks = re.split(r"(?=DATE\s+OF\s+SALE\s*[–-])", text, flags=re.I)
+    rows: list[dict] = []
+    evidence: list[dict] = []
+    for block in blocks:
+        date_match = re.search(r"DATE\s+OF\s+SALE\s*[–-]\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})", block, flags=re.I)
+        case_match = re.search(r"Case\s+No\.?\s*[:#-]?\s*([A-Z0-9-]+)", block, flags=re.I)
+        if not date_match or not case_match:
+            continue
+        sale_date = parse_date(date_match.group(1))
+        if not sale_date or not (start <= sale_date <= end):
+            continue
+        identity = case_match.group(1).strip()
+        amount_match = re.search(r"(?:Judgment\s+amount|Opening\s+bid)\s*[:$]?\s*([$0-9,]+(?:\.\d{1,2})?)", block, flags=re.I)
+        amount = parse_money(amount_match.group(1) if amount_match else None)
+        aid = hashlib.sha256(f"{county}|{sale_type}|{identity}|{sale_date.isoformat()}".encode()).hexdigest()[:40]
+        rows.append({"aid": aid, "county_slug": county, "auction_type": sale_type, "case_number": identity, "judgment_amount": float(amount) if amount is not None else None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": date_match.group(1), "county_subdomain": "clerk-public-prose", "case_clerk_url": url, "source_response_id": None, "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+        evidence.append({"url": url, "sale_type": sale_type, "identity": identity, "sale_date": sale_date.isoformat(), "amount_present": amount is not None, "format": "labeled-clerk-prose"})
+    return rows, evidence
+
+
 def upsert(rows: list[dict]) -> int:
     if not rows:
         return 0
@@ -164,11 +225,27 @@ def main() -> int:
     parser.add_argument("--days-ahead", type=int, default=14)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--crawl", action="store_true", help="follow same-host links; disabled by default for bounded daily runs")
+    parser.add_argument("--extra-url", action="append", default=[], help="explicit official linked document/page to inspect")
     args = parser.parse_args()
     start = dt.date.fromisoformat(args.start_date)
     end = start + dt.timedelta(days=args.days_ahead)
     status, html = fetch(args.url)
     rows, evidence = parse_structured_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+    prose_rows, prose_evidence = parse_explicit_prose_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+    rows.extend(prose_rows)
+    evidence.extend(prose_evidence)
+    extra_links = list(dict.fromkeys(args.extra_url))
+    for link in extra_links:
+        try:
+            nested_status, nested_html = fetch(link)
+            nested_rows, nested_evidence = parse_structured_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
+            nested_prose_rows, nested_prose_evidence = parse_explicit_prose_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
+            rows.extend(nested_rows)
+            rows.extend(nested_prose_rows)
+            evidence.extend(nested_evidence)
+            evidence.extend(nested_prose_evidence)
+        except Exception as exc:
+            evidence.append({"url": link, "error": str(exc)})
     if args.crawl:
         for link in same_host_links(args.url, html):
             try:

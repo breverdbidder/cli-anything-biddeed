@@ -2,6 +2,10 @@
   "version": "2026-09-04",
   "publication_ssot": ["RealAuction", "RealForeclose", "RealTDM", "Clerk of Courts", "Property Appraiser"],
   "counties": {
+    "charlotte": {
+      "authority": "Clerk of Courts / RealTaxDeed",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://charlotteclerk.com/departments/taxdeed/"}]
+    },
     "desoto": {
       "authority": "Clerk of Courts",
       "sources": [{"sale_type": "both", "adapter": "manual_review", "url": "https://www.desotoclerk.com/", "status": "official_root_verified; public-sales path returned 404"}]
@@ -14,17 +18,21 @@
       "authority": "Clerk of Courts",
       "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://www.franklinclerk.com/courts/property-sales/"}]
     },
+    "indian_river": {
+      "authority": "Clerk of Courts / RealForeclose / RealTaxDeed",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://indianriverclerk.com/recording-services/tax-deeds/"}, {"sale_type": "foreclosure", "adapter": "real_foreclose", "url": "https://www.indian-river.realforeclose.com/"}]
+    },
     "gadsden": {
       "authority": "Clerk of Courts",
       "sources": [{"sale_type": "both", "adapter": "manual_review", "url": null, "status": "official endpoint not verified"}]
     },
     "glades": {
       "authority": "Clerk of Courts",
-      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/foreclosures/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/tax-deeds/"}]
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/foreclosures/", "extra_urls": ["https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45ae2da1a2db0"]}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/tax-deeds/", "extra_urls": ["https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45ae2e0755827", "https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45f90a38a593a"]}]
     },
     "hamilton": {
       "authority": "Clerk of Courts",
-      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://hamiltonclerk.com/foreclosures/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://hamiltoncountyfl.com/tax-deeds/"}]
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://hamiltonclerk.com/foreclosures/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://hamiltoncountyfl.com/tax-deeds/", "extra_urls": ["https://hamiltoncountyfl.com/wp-content/uploads/LIST-OF-PROPERTIES-07-13-2023-002.pdf"]}]
     },
     "holmes": {
       "authority": "Clerk of Courts",
@@ -32,7 +40,7 @@
     },
     "jefferson": {
       "authority": "Clerk of Courts",
-      "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://www.jeffersonclerk.com/clerk-services/property-sales/"}]
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://www.jeffersonclerk.com/clerk-services/property-sales/foreclosures/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://www.jeffersonclerk.com/clerk-services/property-sales/tax-deed-sales/"}]
     },
     "lafayette": {
       "authority": "Clerk of Courts",
@@ -46,13 +54,37 @@
       "authority": "Clerk of Courts",
       "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://libertyclerk.com/courts/tax-deeds/"}]
     },
+    "miami_dade": {
+      "authority": "Clerk of Courts / RealForeclose / RealTDM",
+      "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://www.miamidadeclerk.gov/clerk/property-tax-deeds.page", "extra_urls": ["https://www.miamidadeclerk.gov/clerk/mortgage-foreclosures.page"]}, {"sale_type": "foreclosure", "adapter": "real_foreclose", "url": "https://www.miamidade.realforeclose.com/index.cfm"}, {"sale_type": "tax_deed", "adapter": "real_tdm", "url": "https://miamidade.realtdm.com/public/cases/List"}]
+    },
+    "monroe": {
+      "authority": "Clerk of Courts / RealTaxDeed",
+      "sources": [{"sale_type": "foreclosure", "adapter": "manual_review", "url": "https://monroe-clerk.com/faq/foreclosure-faqs", "status": "official page states in-person/publication process; no structured portal verified"}, {"sale_type": "tax_deed", "adapter": "real_tax_deed", "url": "https://monroe.realtaxdeed.com/"}]
+    },
+    "osceola": {
+      "authority": "Clerk of Courts / RealTaxDeed",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://osceolaclerk.com/tax-deeds/", "extra_urls": ["https://officialrecords.osceolaclerk.org/browserviewtd/"]}, {"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://osceolaclerk.com/foreclosure-sales/"}, {"sale_type": "tax_deed", "adapter": "real_tax_deed", "url": "https://www.osceola.realtaxdeed.com/"}]
+    },
     "okaloosa": {
       "authority": "Clerk of Courts / RealTaxDeed",
       "sources": [{"sale_type": "tax_deed", "adapter": "real_tax_deed", "url": "https://okaloosa.realtaxdeed.com/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://okaloosaclerk.com/board-services/tax-deed-sales/"}]
     },
+    "santa_rosa": {
+      "authority": "Clerk of Courts / RealTaxDeed / RealTDM",
+      "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://santarosaclerk.com/courts/foreclosures-tax-deeds/", "extra_urls": ["https://santarosa.realtdm.com/public/cases/list"]}, {"sale_type": "tax_deed", "adapter": "real_tax_deed", "url": "http://www.santarosa.realtaxdeed.com/"}]
+    },
+    "st_lucie": {
+      "authority": "Clerk of Courts / RealForeclose",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://stlucieclerk.gov/services/auctions/tax-deeds/", "extra_urls": ["https://acclaimweb.stlucieclerk.gov/TributeWeb/"]}, {"sale_type": "foreclosure", "adapter": "real_foreclose", "url": "https://stlucie.realforeclose.com/"}]
+    },
     "sumter": {
       "authority": "Clerk of Courts",
       "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://www.sumterclerk.com/public-records/tax-deeds/tax-deed-sales/"}]
+    },
+    "suwannee": {
+      "authority": "Clerk of Courts / RealTaxDeed",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://www.suwgov.org/tax-deed-sales/", "extra_urls": ["https://suwannee.realtaxdeed.com/"]}, {"sale_type": "tax_deed", "adapter": "real_tax_deed", "url": "https://suwannee.realtaxdeed.com/"}]
     },
     "taylor": {
       "authority": "Clerk of Courts",
