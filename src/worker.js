@@ -2510,6 +2510,8 @@ function withPublicShell(html, path) {
     publicNavLink(path, '/counties', 'Counties', '⌖', p => p === '/counties' || p.startsWith('/county/')),
     publicNavLink(path, '/buy-report', 'Reports', '▤', p => p === '/buy-report' || p.startsWith('/free-report') || p.startsWith('/report/')),
     publicNavLink(path, '/blog', 'Blog', '✦', p => p === '/blog' || p.startsWith('/blog/')),
+    // Projects (Claude.ai Projects parity, C3): the panel lives in the /chat drawer; the hash opens it.
+    publicNavLink(path, '/chat#projects', 'Projects', '▣', p => false),
   ].join('');
   const label = publicRouteLabel(path);
   const shell = `<aside class="bd-shell-sidebar" aria-label="Primary navigation"><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></aside><header class="bd-shell-topbar"><button class="bd-shell-menu" type="button" aria-label="Open navigation" aria-controls="bd-mobile-drawer" aria-expanded="false" data-menu-toggle>☰</button><span class="bd-shell-route">${label}</span><div class="bd-shell-top-actions"><button class="bd-shell-theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark mode">☾ 
@@ -6248,7 +6250,7 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 </header>
 
 <div class="chats-scrim" id="chats-scrim"></div>
-<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats and Projects">
+<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats and Projects"><script>(function(){function openProjects(){var b=document.getElementById('chats-open-btn');if(b){b.click();}setTimeout(function(){var h=document.getElementById('projects-hdr-title');if(h){h.scrollIntoView({block:'start'});}},80);}if(location.hash==='#projects'){window.addEventListener('DOMContentLoaded',openProjects);if(document.readyState!=='loading')openProjects();}window.addEventListener('hashchange',function(){if(location.hash==='#projects')openProjects();});})();</script>
   <div class="chats-hdr">
     <h3 id="projects-hdr-title">Projects</h3>
     <button class="chats-new" id="projects-new-btn" type="button">+ New</button>
