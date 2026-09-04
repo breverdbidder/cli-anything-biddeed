@@ -11,14 +11,14 @@
   --foreground: #1F1B16;
   --card: #FBFAF7;
   --card-foreground: #1F1B16;
-  --primary: #C15F3C;
+  --primary: #9F4D32;
   --primary-foreground: #F5F0E8;
   --secondary: #EDE3D7;
   --muted: #EDE3D7;
-  --muted-foreground: #766F67;
+  --muted-foreground: #6E655E;
   --border: #DDD5C9;
   --input: #DDD5C9;
-  --ring: #C15F3C;
+  --ring: #9F4D32;
   --amber: #F59E0B;
   --radius: 0.5rem;
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;

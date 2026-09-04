@@ -153,7 +153,16 @@ async function main() {
       const url = `${baseUrl}${routePath}`;
       let navError = null;
       try {
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 });
+        // 'networkidle' is too strict for pages that poll or hold a
+        // websocket open (e.g. /radar) -- they never go idle and the whole
+        // route falsely reports a navigation-timeout failure. 'load' + a
+        // fixed settle delay is the same signal every other route needs
+        // (DOM painted, fonts/images requested) without depending on the
+        // page going fully quiet. Confirmed via a scratch check against
+        // production: /radar's `load` event fires in ~300ms but it never
+        // reaches networkidle within 20s+.
+        await page.goto(url, { waitUntil: 'load', timeout: 20000 });
+        await page.waitForTimeout(1500);
       } catch (e) {
         navError = e.message;
       }
