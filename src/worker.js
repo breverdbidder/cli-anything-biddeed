@@ -1633,6 +1633,24 @@ function toDisplay(slug) {
 }
 
 // ── GET /free-report — lead capture form (email/phone/county/consent) ──────
+// Canonical CSS custom-property sets shared by every Worker-rendered
+// template's own :root block (issue #19828 PASS 4). Replaces ~20
+// independently hand-copied literal :root bodies that had drifted into 2
+// near-duplicate families (dark default, cream/terracotta light override)
+// plus one older legacy pair -- one JS source per family now, not N
+// hand-typed copies. Superset: each family lists every custom property any
+// member of that family used; templates that only reference a subset are
+// unaffected by the extra (unused) declarations. Values are the exact hex
+// already in use per family -- nothing re-picked, see docs/spec/19828.md.
+// NOTE: does not attempt to also merge the (separate, distinct-naming)
+// COUNTY_PAGE_TEMPLATE cream/terracotta block or the two dead-code
+// buildHomepageHtml() :root blocks -- see docs/spec/19828.md for why.
+const ROOT_TOKEN_SETS = {
+  dark: "--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b;--green:#10b981",
+  light: "--navy:#f5f0e8;--navy2:#fbfaf7;--navy3:#ede3d7;--orange:#9f4d32;--orange2:#823f29;--text:#1f1b16;--muted:#6e655e;--dim:#6e655e;--border:#ddd5c9;--green:#2f7a4b",
+  legacy: "--navy:#1E3A5F;--void:#020617;--orange:#F59E0B;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b;--green:#10B981",
+};
+
 function buildFreeReportFormHtml(prefillEmail, counties, prev) {
   prev = prev || {};
   const options = (counties || []).map(c =>
@@ -1646,7 +1664,7 @@ function buildFreeReportFormHtml(prefillEmail, counties, prev) {
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#1E3A5F;--void:#020617;--orange:#F59E0B;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.legacy}}
 body{background:var(--void);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:2.5rem;max-width:480px;width:100%}
 .badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}
@@ -1726,7 +1744,7 @@ function buildFreeReportDeliveryHtml(email, county, auctions, countyMeta, consen
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#1E3A5F;--void:#020617;--orange:#F59E0B;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b;--green:#10B981}
+:root{${ROOT_TOKEN_SETS.legacy}}
 body{background:var(--void);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;padding:2.5rem 1.5rem}
 .wrap{max-width:640px;margin:0 auto}
 .thanks{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:6px;padding:1rem 1.25rem;margin-bottom:2rem;font-size:.9rem;color:var(--muted)}
@@ -4125,7 +4143,7 @@ ${jsonLdBlocks}
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;font-size:17px;line-height:1.75}
 .wrap{max-width:760px;margin:0 auto;padding:3rem 1.5rem}
 h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.7rem,4vw,2.4rem);color:white;margin-bottom:1.25rem;line-height:1.25}
@@ -4949,7 +4967,7 @@ function buildPioneersPage() {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+:root{${ROOT_TOKEN_SETS.dark}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
 nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
 .nav-inner{max-width:700px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
@@ -5068,7 +5086,7 @@ function buildBlogIndex() {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
 nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
 .nav-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
@@ -5085,7 +5103,7 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
 footer a{color:var(--muted);text-decoration:none}
 /* WinnerDataAI child-brand light mode — default for Worker-owned public pages. */
-:root{--navy:#f5f0e8;--navy2:#fbfaf7;--orange:#9f4d32;--orange2:#823f29;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9}
+:root{${ROOT_TOKEN_SETS.light}}
 .logo,h1,.post-title{color:var(--text)}
 </style>
 </head>
@@ -5129,7 +5147,7 @@ function buildBlogPost(post) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;font-size:17px;line-height:1.75}
 nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
 .nav-inner{max-width:760px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
@@ -5160,7 +5178,7 @@ footer a{color:var(--muted);text-decoration:none}
 .lead-msg.ok{color:#34d399;display:block}
 .lead-msg.err{color:#f87171;display:block}
 /* WinnerDataAI child-brand light mode — default for Worker-owned public pages. */
-:root{--navy:#f5f0e8;--navy2:#fbfaf7;--orange:#9f4d32;--orange2:#823f29;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9}
+:root{${ROOT_TOKEN_SETS.light}}
 .logo,h1,.lead-box h3{color:var(--text)}
 .lead-form input{background:var(--navy2);color:var(--text)}
 </style>
@@ -5234,7 +5252,7 @@ function buildCountiesIndex(rtConfig) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+:root{${ROOT_TOKEN_SETS.dark}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
 nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
 .nav-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
@@ -5256,7 +5274,7 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
 footer a{color:var(--muted);text-decoration:none}
 /* WinnerDataAI child-brand light mode — default for Worker-owned county pages. */
-:root{--navy:#f5f0e8;--navy2:#fbfaf7;--navy3:#ede3d7;--orange:#9f4d32;--orange2:#823f29;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9;--green:#2f7a4b}
+:root{${ROOT_TOKEN_SETS.light}}
 body{background:var(--navy);color:var(--text)}
 nav{background:rgba(245,240,232,.96);border-bottom-color:var(--border)}
 .ln,h1{color:var(--text)}
@@ -5312,7 +5330,7 @@ function buildChatPage(county, hook, ref) {
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+:root{${ROOT_TOKEN_SETS.dark}}
 html{height:100%;height:-webkit-fill-available}
 body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;height:-webkit-fill-available;height:var(--vvh,100vh);overflow:hidden;position:fixed;width:100%}
 
@@ -6759,7 +6777,7 @@ const SUCCESS_HTML = `<!DOCTYPE html><html lang="en"><head>
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+:root{${ROOT_TOKEN_SETS.dark}}
 body{background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:520px;width:100%;text-align:center}
 .icon{font-size:3rem;margin-bottom:1rem}
@@ -6807,7 +6825,7 @@ const BUY_REPORT_HTML = `<!DOCTYPE html><html lang="en"><head>
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 body{background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:520px;width:100%}
 .badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}.s5-overview{margin:1.25rem 0 1.5rem;padding:1.1rem 1.15rem;border:1px solid rgba(159,77,50,.28);border-radius:14px;background:rgba(245,240,232,.72)}.s5-overview h2{font-size:1.05rem;color:#1F1B16;margin-bottom:.35rem}.s5-overview p{font-size:.8rem;line-height:1.45;color:#6e655e;margin-bottom:.8rem}.s5-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem .75rem;list-style:none}.s5-grid li{display:flex;gap:.45rem;align-items:flex-start;font-size:.73rem;line-height:1.25;color:#1F1B16}.s5-grid b{color:#9f4d32;font-size:.68rem;min-width:1.35rem}.s5-overlays{margin-top:.75rem;padding-top:.65rem;border-top:1px solid rgba(159,77,50,.2);font-size:.72rem;color:#6e655e}.s5-overlays strong{color:#9f4d32}@media(max-width:560px){.s5-grid{grid-template-columns:1fr}.s5-overview{padding:.95rem}.s5-grid li{font-size:.76rem}}
@@ -6840,7 +6858,7 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
 /* WinnerDataAI house-brand light mode for the complete S5 purchase flow. */
 html[data-theme=light] body{background:#F5F0E8;color:#1F1B16}
 html[data-theme=light] .card{background:#FBFAF7;border-color:rgba(159,77,50,.35);box-shadow:0 18px 50px rgba(31,27,22,.10)}
-html[data-theme=light] :root{--navy:#F5F0E8;--orange:#9f4d32;--orange2:#823f29;--text:#1F1B16;--muted:#6e655e;--dim:#6e655e;--border:#DDD5C9}
+html[data-theme=light] :root{${ROOT_TOKEN_SETS.light}}
 html[data-theme=light] h1{color:#1F1B16}
 html[data-theme=light] p,html[data-theme=light] label,html[data-theme=light] .consent,html[data-theme=light] .meta,html[data-theme=light] .empty,html[data-theme=light] .spin{color:#6e655e}
 html[data-theme=light] select,html[data-theme=light] input[type=email]{background:#F5F0E8;color:#1F1B16;border-color:#B5A9A0}
@@ -7094,7 +7112,7 @@ const REPORT_SUCCESS_HTML = `<!DOCTYPE html><html lang="en"><head>
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 body{background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#0f172a;border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2.5rem;max-width:520px;width:100%;text-align:center}
 .icon{font-size:3rem;margin-bottom:1rem}
@@ -8856,7 +8874,7 @@ const TERMS_HTML = `<!doctype html><html lang="en"><head>
 <meta name="description" content="Terms of Service for BidDeed.AI, Florida foreclosure and tax deed auction intelligence from Everest Capital USA.">
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -8894,7 +8912,7 @@ const PRIVACY_HTML = `<!doctype html><html lang="en"><head>
 <meta name="description" content="Privacy Policy for BidDeed.AI — how Everest Capital USA collects, uses, and protects your information.">
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -8934,7 +8952,7 @@ const DISCLAIMER_HTML = `<!doctype html><html lang="en"><head>
 <meta name="description" content="BidDeed.AI is an information and analytics platform, not legal, financial, or investment advice — read the full disclaimer before bidding.">
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -8963,7 +8981,7 @@ const DATA_RETENTION_HTML = `<!doctype html><html lang="en"><head>
 <title>Data Retention Policy — BidDeed.AI</title>
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -9020,7 +9038,7 @@ const SECURITY_HTML = `<!doctype html><html lang="en"><head>
 <meta name="description" content="How BidDeed.AI protects your data — encryption, access controls, and payment security via Stripe.">
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${ROOT_TOKEN_SETS.dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
