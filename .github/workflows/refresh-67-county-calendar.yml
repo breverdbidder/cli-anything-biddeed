@@ -53,10 +53,26 @@ jobs:
           if [ -n "$COUNTY_SLUG" ]; then args+=(--county "$COUNTY_SLUG"); fi
           python scripts/refresh_67_county_calendar.py "${args[@]}" | tee refresh-67-county-calendar.json
 
+      - name: Run verified Clerk extraction contracts
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/run_clerk_contracts.py --start-date "$(date -u +%F)" --days-ahead "$DAYS_AHEAD" --apply | tee clerk-contracts.json
+
+      - name: Record certified amount fallback evidence
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/backfill_amount_fallbacks.py --start-date "$(date -u +%F)" --days-ahead "$DAYS_AHEAD" --apply | tee amount-fallbacks.json
+
       - name: Upload refresh evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: refresh-67-county-calendar-${{ github.run_id }}
-          path: refresh-67-county-calendar.json
+          path: |
+            refresh-67-county-calendar.json
+            clerk-contracts.json
+            amount-fallbacks.json
           if-no-files-found: warn
