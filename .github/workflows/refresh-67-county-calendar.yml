@@ -8,7 +8,7 @@ on:
       days_ahead:
         description: 'Days ahead to refresh'
         required: false
-        default: '60'
+        default: '14'
       county:
         description: 'Optional county slug; blank means all 67 counties'
         required: false
@@ -28,7 +28,7 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      DAYS_AHEAD: ${{ inputs.days_ahead || '60' }}
+      DAYS_AHEAD: ${{ inputs.days_ahead || '14' }}
       COUNTY_SLUG: ${{ inputs.county || '' }}
     steps:
       - name: Checkout
