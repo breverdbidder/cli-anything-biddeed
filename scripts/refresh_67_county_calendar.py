@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import subprocess
@@ -63,13 +64,14 @@ def main() -> int:
     parser.add_argument("--start-date", default=dt.date.today().isoformat())
     parser.add_argument("--county", action="append", help="limit to a county slug; repeatable")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
     start = dt.date.fromisoformat(args.start_date)
     dates = [(start + dt.timedelta(days=i)).strftime("%m/%d/%Y") for i in range(args.days_ahead + 1)]
     wanted = {c.lower() for c in args.county} if args.county else None
     counties = get_counties()
-    report = {"started_at": dt.datetime.now(dt.timezone.utc).isoformat(), "days_ahead": args.days_ahead, "processed": [], "gaps": [], "errors": []}
-
+    report = {"started_at": dt.datetime.now(dt.timezone.utc).isoformat(), "days_ahead": args.days_ahead, "workers": args.workers, "processed": [], "gaps": [], "errors": []}
+    tasks: list[tuple[str, str, str, str]] = []
     for county in counties:
         slug = str(county["county_slug"]).lower()
         if wanted and slug not in wanted:
@@ -83,19 +85,25 @@ def main() -> int:
             report["gaps"].append({"county": slug, "reason": "no_supported_public_adapter"})
             continue
         for sale_type, (subdomain, platform) in sources:
-            cmd = [sys.executable, str(HARVESTER), subdomain, platform, slug, *dates]
-            env = os.environ.copy()
+            tasks.append((slug, sale_type, subdomain, platform))
+
+    def run_task(task: tuple[str, str, str, str]) -> dict:
+        slug, sale_type, subdomain, platform = task
+        cmd = [sys.executable, str(HARVESTER), subdomain, platform, slug, *dates]
+        completed = subprocess.run(cmd, cwd=ROOT, env=os.environ.copy(), text=True, capture_output=True, timeout=900)
+        return {"county": slug, "sale_type": sale_type, "platform": platform, "returncode": completed.returncode, "tail": (completed.stdout + completed.stderr)[-2000:]}
+
+    with ThreadPoolExecutor(max_workers=max(1, min(args.workers, 8))) as pool:
+        futures = [pool.submit(run_task, task) for task in tasks]
+        for future in as_completed(futures):
             try:
-                completed = subprocess.run(cmd, cwd=ROOT, env=env, text=True, capture_output=True, timeout=900)
-                entry = {"county": slug, "sale_type": sale_type, "platform": platform, "returncode": completed.returncode, "tail": (completed.stdout + completed.stderr)[-2000:]}
-                if completed.returncode == 0:
+                entry = future.result()
+                if entry["returncode"] == 0:
                     report["processed"].append(entry)
                 else:
                     report["errors"].append(entry)
-                    if not args.continue_on_error:
-                        raise RuntimeError(f"harvest failed for {slug}/{sale_type}")
             except Exception as exc:
-                report["errors"].append({"county": slug, "sale_type": sale_type, "platform": platform, "error": str(exc)})
+                report["errors"].append({"error": str(exc)})
                 if not args.continue_on_error:
                     raise
 

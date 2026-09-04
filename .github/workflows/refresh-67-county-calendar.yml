@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          args=(--days-ahead "$DAYS_AHEAD" --continue-on-error)
+          args=(--days-ahead "$DAYS_AHEAD" --workers 4 --continue-on-error)
           if [ -n "$COUNTY_SLUG" ]; then args+=(--county "$COUNTY_SLUG"); fi
           python scripts/refresh_67_county_calendar.py "${args[@]}" | tee refresh-67-county-calendar.json
 
