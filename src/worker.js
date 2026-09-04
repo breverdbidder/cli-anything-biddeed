@@ -1024,6 +1024,72 @@ async function fetchRuntimeConfig() {
   }
 }
 
+// ── Answer-asset renderer tokens (SPR-02, issue #19830) ──────────────────────
+// {{state.upcoming}} / {{county.upcoming}} / {{county.next_auction_date}}
+// resolved from auctions_summary_ssot() at request time. Deliberately NOT
+// reusing fetchRuntimeConfig()'s cached config: that function's own catch
+// block falls back to a hardcoded auctionsCount (72000) on RPC failure,
+// which is exactly the "stand-in number" A5/P5 forbid for a static body.
+// This fetch has no such fallback -- failure always yields null -> em-dash.
+function emDashOr(v) { return (v === null || v === undefined || v === '') ? '—' : String(v); }
+
+async function fetchAnswerTokens(countySlug) {
+  let stateUpcoming = null, countyUpcoming = null, countyNextDate = null;
+  // CONTENT_SOP.md §2.2 link contract: a statewide answer asset links the 3
+  // counties with the most `upcoming` "at render time (RPC, never static)".
+  // Populated from the same auctions_summary_ssot() call below -- never a
+  // hardcoded county list.
+  let topCounties = [];
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    let res;
+    try {
+      res = await fetch(SUPABASE_URL + '/rest/v1/rpc/auctions_summary_ssot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+        body: '{}',
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (res.ok) {
+      const ssot = await res.json();
+      stateUpcoming = Number.isFinite(ssot.upcoming) ? ssot.upcoming : null;
+      if (Array.isArray(ssot.counties_detail)) {
+        if (countySlug) {
+          const row = ssot.counties_detail.find(r => r && r.county === countySlug);
+          if (row) {
+            countyUpcoming = Number.isFinite(row.upcoming) ? row.upcoming : null;
+            countyNextDate = row.next_auction_date || null;
+          }
+        }
+        topCounties = ssot.counties_detail
+          .filter(r => r && r.county && Number.isFinite(r.upcoming))
+          .sort((a, b) => b.upcoming - a.upcoming)
+          .slice(0, 3)
+          .map(r => ({ slug: r.county, upcoming: r.upcoming }));
+      }
+    }
+  } catch (_) { /* leave everything empty/null -> em-dash below, no county links */ }
+  return {
+    tokenMap: {
+      '{{state.upcoming}}': emDashOr(stateUpcoming),
+      '{{county.upcoming}}': emDashOr(countyUpcoming),
+      '{{county.next_auction_date}}': emDashOr(countyNextDate),
+    },
+    topCounties,
+  };
+}
+
+function renderTokens(text, tokenMap) {
+  if (typeof text !== 'string') return text;
+  let out = text;
+  for (const token in tokenMap) out = out.split(token).join(tokenMap[token]);
+  return out;
+}
+
 // ── County lots fetch ─────────────────────────────────────────────────────────
 async function fetchCountyLots(county) {
   try {
@@ -1685,6 +1751,7 @@ function publicRouteLabel(path) {
   if (path === '/subscribe') return 'Plans & pricing';
   if (path === '/chat' || path.startsWith('/chat')) return 'Deed';
   if (path === '/blog' || path.startsWith('/blog/')) return 'Blog';
+  if (path.startsWith('/answers/')) return 'Answers';
   if (path === '/pioneers') return 'Pioneers';
   if (path.startsWith('/proof/')) return 'Proof';
   return 'BidDeed.AI';
@@ -2413,6 +2480,34 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=120' } });
       }
 
+      // ── /answers/:slug — answer-asset renderer (SPR-02, issue #19830) ────
+      // Reads site.site_content via public.get_published_content (the
+      // schema itself isn't PostgREST-exposed -- see the migration's own
+      // header comment). Ships dark: a slug with no published row 404s, so
+      // this route is safe to deploy before any content exists.
+      if (path.startsWith('/answers/')) {
+        const slug = path.slice('/answers/'.length).replace(/\/$/, '');
+        if (!slug || slug.includes('/')) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        let row = null;
+        try {
+          const res = await fetch(SUPABASE_URL + '/rest/v1/rpc/get_published_content', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+            body: JSON.stringify({ p_slug: slug }),
+          });
+          if (res.ok) row = await res.json();
+          else await logErr(env, '/answers', 'get_published_content non-2xx', await res.text(), res.status);
+        } catch (e) {
+          await logErr(env, '/answers', 'get_published_content failed', String(e), 500);
+        }
+        if (!row) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        const scope = row.body_jsonb && row.body_jsonb.scope;
+        const countySlug = (scope && scope !== 'statewide') ? scope : null;
+        const tokens = await fetchAnswerTokens(countySlug);
+        const html = injectChatwootWidget(withPublicShell(buildAnswerPage(row, tokens), path), env);
+        return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=120' } });
+      }
+
       // ── /counties — all counties index ───────────────────────────────────
       if (path === '/counties') {
         const ciConfig = await fetchRuntimeConfig();
@@ -2430,10 +2525,27 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/blog', '/pioneers', '/terms', '/privacy', '/disclaimer', '/security'];
         const countySlugs = Object.keys(COUNTY_DISPLAY).sort();
         const blogSlugs = BLOG_POSTS.map(p => p.slug);
+        // SPR-02 (issue #19830): published-only, via public.list_published_content_slugs()
+        // -- same schema-bridge RPC pattern as get_published_content. Fails
+        // open to an empty list (never breaks the rest of the sitemap) if
+        // Supabase doesn't answer.
+        let answerSlugs = [];
+        try {
+          const ansRes = await fetch(SUPABASE_URL + '/rest/v1/rpc/list_published_content_slugs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+            body: '{}',
+          });
+          if (ansRes.ok) {
+            const rows = await ansRes.json();
+            answerSlugs = Array.isArray(rows) ? rows.map(r => r.slug).filter(Boolean) : [];
+          }
+        } catch (_) { /* answerSlugs stays [] */ }
         const urlEntries = [
           ...staticUrls.map(p => `  <url><loc>${base}${p}</loc><changefreq>daily</changefreq></url>`),
           ...countySlugs.map(slug => `  <url><loc>${base}/county/${slug.replace(/_/g,'-')}</loc><changefreq>daily</changefreq></url>`),
-          ...blogSlugs.map(slug => `  <url><loc>${base}/blog/${slug}</loc><changefreq>weekly</changefreq></url>`)
+          ...blogSlugs.map(slug => `  <url><loc>${base}/blog/${slug}</loc><changefreq>weekly</changefreq></url>`),
+          ...answerSlugs.map(slug => `  <url><loc>${base}/answers/${slug}</loc><changefreq>weekly</changefreq></url>`)
         ].join('\n');
         const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urlEntries}\n</urlset>`;
         return new Response(xml, { headers: { 'Content-Type': 'application/xml;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
@@ -3413,6 +3525,151 @@ function buildCountyPage(slug, d, lots, rtConfig) {
     .replace(/COUNTY_CERT_BADGE_TEXT/g, isGold ? '⭐ Gold Standard certified' : '⚠️ Data under review')
     .replace('COUNTY_TITLE Auctions', name + ' County Auctions')
     .replace('COUNTY_TITLE auctions', name + ' County auctions');
+}
+
+// ── Answer-asset page (SPR-02, issue #19830, CONTENT_SOP.md SS5.1) ───────────
+// Renders a `site.site_content` row (fetched via public.get_published_content,
+// see supabase/migrations/20260904a_spr02_site_content_rpc.sql) inside the
+// SAME withPublicShell() every other public Worker page uses -- so the
+// #19828 token/contrast fix, whenever it lands on that shared function,
+// applies here automatically without a second patch.
+function buildAnswerPage(row, resolved) {
+  const tokens = resolved.tokenMap;
+  const topCounties = resolved.topCounties || [];
+  const body = row.body_jsonb || {};
+  const question = String(body.question || row.title || '');
+  const metaDesc = renderTokens(escHtml(String(body.meta_description || '')), tokens);
+  const answerFirst = renderTokens(escHtml(String(body.answer_first || '')), tokens);
+  const bodyHtml = renderTokens(String(body.body_html || ''), tokens);
+  const canonicalUrl = 'https://biddeed.ai/answers/' + row.slug;
+  const faq = Array.isArray(body.faq) ? body.faq : [];
+  const links = body.links || {};
+  const howtoSteps = Array.isArray(body.howto) ? body.howto : [];
+
+  const faqJsonLd = faq.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faq.map(f => ({
+      '@type': 'Question',
+      name: String(f.q || ''),
+      acceptedAnswer: { '@type': 'Answer', text: String(f.a || '') },
+    })),
+  } : null;
+
+  const breadcrumbJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'BidDeed.AI', item: 'https://biddeed.ai/' },
+      { '@type': 'ListItem', position: 2, name: 'Answers', item: 'https://biddeed.ai/answers' },
+      { '@type': 'ListItem', position: 3, name: question, item: canonicalUrl },
+    ],
+  };
+
+  // Person + Organization schema per M7 founder carve-out
+  // (unified_context key m7_founder_carveout_sep3): Ariel Shapira only,
+  // sameAs the two public properties this canon names.
+  const personJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Person',
+    name: 'Ariel Shapira',
+    jobTitle: 'Founder',
+    sameAs: ['https://everestcapitalusa.com', 'https://zonewise.ai'],
+  };
+
+  const orgJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'BidDeed.AI',
+    url: 'https://biddeed.ai',
+    sameAs: ['https://twitter.com/biddeedai'],
+  };
+
+  const howtoJsonLd = howtoSteps.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'HowTo',
+    name: question,
+    step: howtoSteps.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, text: String(s) })),
+  } : null;
+
+  const jsonLdBlocks = [faqJsonLd, breadcrumbJsonLd, personJsonLd, orgJsonLd, howtoJsonLd]
+    .filter(Boolean)
+    .map(obj => `<script type="application/ld+json">${JSON.stringify(obj).replace(/</g, '\\u003c')}</script>`)
+    .join('\n');
+
+  // CONTENT_SOP.md §2.2: a statewide asset (links.top_counties: true in
+  // frontmatter) links /counties plus the 3 counties with the most
+  // `upcoming` at render time — resolved live in fetchAnswerTokens(),
+  // never a fixed list.
+  const topCountiesHtml = (links.top_counties && topCounties.length)
+    ? topCounties.map(c => `<a href="/county/${escHtml(c.slug.replace(/_/g,'-'))}">${escHtml(toDisplay(c.slug))} County — ${c.upcoming} upcoming &rarr;</a>`).join('\n    ')
+    : '';
+  const linksHtml = `<div class="answer-links">
+    ${links.county ? `<a href="${escHtml(links.county)}">See this county's live calendar &rarr;</a>` : ''}
+    ${links.top_counties ? `<a href="/counties">Browse all Florida counties &rarr;</a>\n    ${topCountiesHtml}` : ''}
+    ${links.radar ? `<a href="${escHtml(links.radar)}">Full auction calendar &rarr;</a>` : ''}
+    ${links.report ? `<a href="${escHtml(links.report)}">Get a SIGNAL$ Property Report &rarr;</a>` : ''}
+  </div>`;
+
+  const faqHtml = faq.length
+    ? `<div class="faq"><h2>Frequently asked</h2>${faq.map(f => `<h3>${escHtml(String(f.q || ''))}</h3><p>${escHtml(String(f.a || ''))}</p>`).join('')}</div>`
+    : '';
+
+  // A4 (issue #19830): the statute text itself is fetched from
+  // leg.state.fl.us and quoted here verbatim (not through renderTokens --
+  // a statutory percentage/day-count is a fixed point of law, not a live
+  // business metric, so it sits outside the A5 body-number ban, which is
+  // enforced upstream on body_md before this ever reaches body_html).
+  const statutes = Array.isArray(body.statutes) ? body.statutes : [];
+  const statutesHtml = statutes.length
+    ? `<div class="sources"><h2>Sources</h2>${statutes.map(s => `<p><strong>Fla. Stat. &sect;${escHtml(String(s.code || ''))}</strong> — <a href="${escHtml(String(s.url || ''))}">official text</a><br><em>"${escHtml(String(s.sentence || ''))}"</em></p>`).join('')}</div>`
+    : '';
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${escHtml(row.title)}</title>
+<meta name="description" content="${escHtml(metaDesc)}">
+<link rel="canonical" href="${escHtml(canonicalUrl)}">
+${jsonLdBlocks}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;font-size:17px;line-height:1.75}
+.wrap{max-width:760px;margin:0 auto;padding:3rem 1.5rem}
+h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.7rem,4vw,2.4rem);color:white;margin-bottom:1.25rem;line-height:1.25}
+h2{color:var(--orange);font-size:1.2rem;margin:2rem 0 .75rem}
+p{margin-bottom:1.1rem;color:var(--text)}
+.answer-first{font-size:1.05rem;color:#fff;border-left:3px solid var(--orange);padding-left:1rem;margin-bottom:2rem}
+ul,ol{margin:0 0 1.1rem 1.5rem;color:var(--text)}
+li{margin-bottom:.4rem}
+.answer-links{display:flex;flex-direction:column;gap:.5rem;margin:2rem 0;padding:1.25rem;border:1px solid var(--border);border-radius:12px;background:var(--navy2)}
+.answer-links a{color:var(--orange);text-decoration:none;font-weight:600}
+.answer-links a:hover{text-decoration:underline}
+.faq h3{color:#fff;font-size:1rem;margin:1.25rem 0 .4rem}
+.cta-box{background:var(--navy2);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:1.5rem;margin:2.5rem 0;text-align:center}
+.cta-box a{display:inline-block;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:12px 28px;border-radius:10px;font-weight:700;text-decoration:none;margin-top:.75rem}
+.disclaimer{font-size:.8rem;color:var(--muted);border-top:1px solid var(--border);margin-top:2.5rem;padding-top:1.5rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>${escHtml(question)}</h1>
+  <p class="answer-first">${answerFirst}</p>
+  ${bodyHtml}
+  ${statutesHtml}
+  ${linksHtml}
+  ${faqHtml}
+  <div class="cta-box">
+    <div>Get your own max bid number before you show up.</div>
+    <a href="/buy-report">Get a SIGNAL$ Property Report &mdash; $25 &rarr;</a>
+  </div>
+  <p class="disclaimer">This is general educational information, not legal, financial, or investment advice. Auction data and value estimates should always be independently verified. Consult a licensed Florida attorney and title professional before bidding on any property.</p>
+</div>
+</body></html>`;
 }
 
 // ── Blog — added Aug 10 2026 for organic content marketing ──────────────────

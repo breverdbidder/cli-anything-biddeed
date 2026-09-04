@@ -1,0 +1,82 @@
+name: Content sync — publish answer assets
+
+# SPR-02 (issue #19830, CONTENT_SOP.md §3.2). Push to main touching
+# content/** -> upsert into site.site_content (published=true) via
+# public.upsert_site_content() -> gate.py --check-url on every published
+# slug. This IS the publish step -- content/** only reaches main through a
+# PR that Ariel merges (M8), so this workflow itself carries no click gate.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'content/answers/**.md'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Diff content/answers/** against previous commit
+        id: diff
+        run: |
+          set -euo pipefail
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            ADDED=$(git ls-files 'content/answers/*.md')
+            DELETED=""
+          else
+            ADDED=$(git diff --diff-filter=ACMR --name-only "$BEFORE" HEAD -- 'content/answers/*.md' || true)
+            DELETED=$(git diff --diff-filter=D --name-only "$BEFORE" HEAD -- 'content/answers/*.md' || true)
+          fi
+          echo "added<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$ADDED" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          DELETED_SLUGS=$(echo "$DELETED" | sed -E 's#.*/([^/]+)\.md$#\1#' | tr '\n' ' ')
+          echo "deleted_slugs=$DELETED_SLUGS" >> "$GITHUB_OUTPUT"
+          echo "-- added/changed --"; echo "$ADDED"
+          echo "-- deleted slugs --"; echo "$DELETED_SLUGS"
+
+      - name: Publish added/changed answer assets
+        if: steps.diff.outputs.added != ''
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          FILES="${{ steps.diff.outputs.added }}"
+          node scripts/content_sync_publish.mjs $FILES
+
+      - name: Unpublish removed answer assets
+        if: steps.diff.outputs.deleted_slugs != ''
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/content_sync_publish.mjs --unpublish-slugs ${{ steps.diff.outputs.deleted_slugs }}
+
+      - name: gate.py --check-url on every published slug
+        if: steps.diff.outputs.added != ''
+        run: |
+          set -uo pipefail
+          FAIL=0
+          for f in ${{ steps.diff.outputs.added }}; do
+            slug=$(basename "$f" .md)
+            echo "=== $slug ==="
+            python3 factory/gtm/gate.py --paths "$f" --check-url "https://biddeed.ai/answers/$slug"
+            if [ $? -ne 0 ]; then FAIL=1; fi
+          done
+          exit $FAIL
