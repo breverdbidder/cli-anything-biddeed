@@ -17,7 +17,7 @@
     { "q": "Who is allowed to redeem a foreclosure?", "a": "The borrower being foreclosed, or the holder of a lien junior to the one being foreclosed." },
     { "q": "Does a Florida tax deed sale have the same redemption right?", "a": "No — the statutory right of redemption described here applies to foreclosure sales, not tax deed sales." }
   ],
-  "links": { "county": "/counties/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
+  "links": { "county": "/county/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
   "author": "ariel-shapira",
   "howto": [],
   "version": 1,

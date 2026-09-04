@@ -22,7 +22,7 @@
     { "q": "How does someone claim surplus funds?", "a": "By filing a timely claim with the clerk of court; unclaimed funds don't automatically get mailed out." },
     { "q": "Is there a surplus process for tax deed sales too?", "a": "Yes — Florida law has a parallel surplus process for tax deed sales, distributing any excess after governmental liens are paid." }
   ],
-  "links": { "county": "/counties/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
+  "links": { "county": "/county/brevard", "radar": "/radar?county=brevard", "report": "/buy-report?county=brevard", "top_counties": true },
   "author": "ariel-shapira",
   "howto": [],
   "version": 1,
