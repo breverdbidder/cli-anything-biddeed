@@ -1,0 +1,39 @@
+name: UI parity audit (Chromium, both viewports)
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: base URL to audit
+        default: https://biddeed.ai
+  workflow_run:
+    workflows: ["Deploy Cloudflare Worker"]
+    types: [completed]
+  schedule:
+    - cron: '7 22 * * 0'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install --quiet playwright && python -m playwright install --with-deps chromium
+      - name: Run the eight-gate audit
+        env:
+          SAMPLE_REPORT_KEY: ${{ vars.SAMPLE_REPORT_KEY }}
+        run: python3 scripts/ui-audit/audit.py --base "${{ inputs.base || 'https://biddeed.ai' }}" --routes scripts/ui-audit/routes.json --out ui-audit.md --fail-on-red
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: ui-audit, path: ui-audit.md }
+      - if: always()
+        name: Post the table on the parity tracking issue
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          body="$(printf '## UI parity audit — %s\n\n' "$(date -u +'%Y-%m-%d %H:%M UTC')"; cat ui-audit.md)"
+          gh issue comment 19829 --body "$body" || true
