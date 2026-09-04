@@ -182,7 +182,13 @@ def upsert_reel(row: dict, dry_run: bool) -> None:
     lib.run_sql(f"""
         insert into winnerdata.biddeed_reels ({col_list}, updated_at)
         values ({val_list}, now())
-        on conflict (case_number, county) do update set {set_clause}, updated_at = now();
+        -- 2026-09-03 fix: the unique index is (case_number, county, phase) since the presale
+        -- migration (#19761); a 2-column ON CONFLICT target no longer matches it, and every
+        -- write was failing with "no unique or exclusion constraint matching the ON CONFLICT
+        -- specification" (surfaced as HTTP 400 on the Management API). phase is not in the
+        -- insert list here, so the column default ('postsale') is used for both the new row
+        -- and the conflict check -- correct for this post-sale pipeline.
+        on conflict (case_number, county, phase) do update set {set_clause}, updated_at = now();
     """)
 
 
