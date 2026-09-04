@@ -3795,55 +3795,31 @@ ${DISCLAIMER_SHORT}`;
               }),
             });
           } else {
-            // Route through claude-router (manages Gemini/DeepSeek/Claude cascade via vault)
+            // Route through claude-router (manages Gemini/DeepSeek/Claude cascade
+            // via vault). Real token-by-token SSE streaming (issue #19828 PASS 4):
+            // claude-router now supports stream:true natively, re-emitting a
+            // normalized `{text: <delta>}` SSE shape per provider (Gemini/
+            // DeepSeek/Claude) -- the exact same shape the useGemini branch
+            // above already produces, so the shared parsing loop below needs
+            // no changes. Tier fallback (Gemini -> DeepSeek -> Claude) still
+            // happens inside claude-router, before any bytes are forwarded to
+            // us; a mid-stream failure on the committed tier ends the stream
+            // early rather than falling back (accepted tradeoff of streaming +
+            // fallback, documented in claude-router/index.ts).
             // max_tokens raised 1024 -> 4096 (issue #19828 / #19820 SS B.1): 1024
-            // was truncating mid-table on multi-row answers -- callClaude/
-            // callDeepSeek in claude-router/index.ts pass this value straight
-            // through with no floor (unlike the OpenRouter path, which forces
-            // >=1500), so a low value here caps the real model output.
-            // NOTE: claude-router has no streaming support at all (grep confirms
-            // zero "stream" references in its source) -- `stream: false` here is
-            // inert. This path buffers the full completion then wraps it as a
-            // single SSE event; only the Gemini fallback above streams token by
-            // token. Real incremental streaming requires adding stream support
-            // to claude-router itself, a separate change to that shared,
-            // revenue-critical edge function -- out of scope for this pass.
+            // was truncating mid-table on multi-row answers.
             const routerBody = JSON.stringify({
               messages: messages.map(m => ({ role: m.role, content: String(m.content) })),
               system: systemPrompt,
               max_tokens: 4096,
-              stream: false,
+              stream: true,
               source: 'biddeed-chat',
             });
-            const routerResp = await fetch(`${SUPABASE_URL}/functions/v1/claude-router`, {
+            upstreamRes = await fetch(`${SUPABASE_URL}/functions/v1/claude-router`, {
               method: 'POST',
-              headers: { 'X-Router-Key': routerProxyKey, 'Content-Type': 'application/json' },
+              headers: { 'X-Router-Key': routerProxyKey, 'Content-Type': 'application/json', 'x-traffic-source': 'biddeed-chat' },
               body: routerBody,
             });
-            let aiText = '';
-            if (!routerResp.ok) {
-              const errText = await routerResp.text();
-              await logErr(env, '/chat/api', 'claude-router non-200 — falling back to Gemini', errText, routerResp.status);
-              // Fallback: call Gemini directly when claude-router is down
-              // claude-router is the only LLM path — no Worker-side key fallback
-              return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again in a moment.' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-            } else {
-              const routerData = await routerResp.json();
-              aiText = routerData.text || '';
-            }
-            // Stream the response as SSE
-            const { readable, writable } = new TransformStream();
-            const writer = writable.getWriter();
-            const encoder = new TextEncoder();
-            (async () => {
-              if (aiText) {
-                const sseData = 'data: ' + JSON.stringify({ text: aiText }) + '\n\n';
-                await writer.write(encoder.encode(sseData));
-              }
-              await writer.write(encoder.encode('data: [DONE]\n\n'));
-              await writer.close();
-            })();
-            upstreamRes = new Response(readable, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
           }
         } catch(e) {
           await logErr(env, '/chat/api', (useGemini ? 'Gemini' : 'anthropic-proxy') + ' fetch failed', String(e), 502);
