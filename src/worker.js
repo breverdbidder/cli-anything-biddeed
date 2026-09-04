@@ -2849,8 +2849,8 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // description rather than removed silently.
       if (path.startsWith('/county/')) {
         const slug = path.replace('/county/', '').toLowerCase().replace(/_/g,'-').replace(/\/.*$/,'');
-        if (!slug) return Response.redirect('/counties', 301);
-        return Response.redirect('/counties/' + slug, 301);
+        if (!slug) return Response.redirect(url.origin + '/counties' + url.search, 301);
+        return Response.redirect(url.origin + '/counties/' + slug + url.search, 301);
       }
 
       // ── /answers/:slug — answer-asset renderer (SPR-02, issue #19830) ────
