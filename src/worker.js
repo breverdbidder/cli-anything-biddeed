@@ -1831,7 +1831,7 @@ select,input[type=email],input[type=tel]{width:100%;padding:12px 14px;border-rad
 .consent input{margin-top:3px}
 .btn{display:block;width:100%;background:var(--orange);color:var(--void);padding:10px 20px;min-height:44px;border:none;border-radius:6px;font-weight:600;font-size:.95rem;cursor:pointer;margin-top:.5rem}
 .btn:hover{background:#D97706}
-.err{color:#f87171;font-size:.85rem;margin-bottom:1rem;display:none}
+.err{color:#b42318;font-size:.85rem;margin-bottom:1rem;display:none}
 .upl{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--dim);line-height:1.6}
 .upl a{color:var(--orange)}
 </style></head><body>
@@ -5282,7 +5282,7 @@ form button{width:100%;background:linear-gradient(135deg,var(--orange),var(--ora
 form button:disabled{opacity:.6;cursor:default}
 .msg{margin-top:1rem;font-size:.85rem}
 .msg.ok{color:var(--green)}
-.msg.err{color:#f87171}
+.msg.err{color:#b42318}
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
 footer a{color:var(--muted);text-decoration:none}
 </style>
@@ -5468,7 +5468,7 @@ footer a{color:var(--muted);text-decoration:none}
 .lead-form button:disabled{opacity:.6;cursor:default}
 .lead-msg{font-size:.82rem;margin-top:.6rem;display:none}
 .lead-msg.ok{color:#34d399;display:block}
-.lead-msg.err{color:#f87171;display:block}
+.lead-msg.err{color:#b42318;display:block}
 /* WinnerDataAI child-brand light mode — default for Worker-owned public pages. */
 :root{--navy:#f5f0e8;--navy2:#fbfaf7;--orange:#9f4d32;--orange2:#823f29;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9}
 .logo,h1,.lead-box h3{color:var(--text)}
@@ -5766,7 +5766,7 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .veg input{flex:1;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:14px;outline:none;font-family:inherit;min-width:0;-webkit-appearance:none}
 .veg input:focus{border-color:var(--orange)}
 .veg button{background:linear-gradient(135deg,var(--orange),#f97316);color:var(--navy);border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;-webkit-tap-highlight-color:transparent}
-.veg-err{font-size:10.5px;color:#f87171;margin-top:4px;display:none}
+.veg-err{font-size:10.5px;color:#b42318;margin-top:4px;display:none}
 .veg-err.show{display:block}
 .attach-btn{display:none;align-items:center;gap:5px;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;cursor:pointer;color:var(--muted);font-size:11.5px;font-weight:500;font-family:inherit;transition:all .15s;-webkit-tap-highlight-color:transparent}
 .attach-btn.visible{display:flex}
@@ -5780,7 +5780,7 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .attach-progress.show{display:block}
 .attach-progress.uploading{color:var(--orange);background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15)}
 .attach-progress.ok{color:var(--green);background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2)}
-.attach-progress.err{color:#f87171;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2)}
+.attach-progress.err{color:#b42318;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2)}
 
 /* Composer "+" menu (issue #19829 P1) */
 .plus-wrap{position:relative;flex-shrink:0}
@@ -5838,14 +5838,14 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .models-ping{background:var(--navy3);color:var(--text);border:1px solid var(--border)!important}
 .models-status{font-size:11px;margin-top:8px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .models-status.ok{color:var(--green)}
-.models-status.err{color:#f87171}
+.models-status.err{color:#b42318}
 .models-saved{border-top:1px solid var(--border);margin-top:14px;padding-top:12px}
 .models-saved h4{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px}
 .models-saved-item{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:11.5px;color:var(--text);border-bottom:1px solid var(--border)}
 .models-saved-item:last-child{border-bottom:none}
 .models-saved-item .msi-active{color:var(--orange);font-weight:700;font-size:10px}
 .models-saved-item .msi-del{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px}
-.models-saved-item .msi-del:hover{color:#f87171}
+.models-saved-item .msi-del:hover{color:#b42318}
 
 /* Message actions row (issue #19829 P1) */
 .msg-actions{display:flex;gap:4px;margin:4px 0 0 40px;flex-wrap:wrap}
@@ -5881,7 +5881,7 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .pc-parity{font-size:10.5px;font-weight:600;margin-bottom:10px}
 .pc-parity.ok{color:var(--green)}
 .pc-parity.warn{color:var(--orange)}
-.pc-parity.bad{color:#f87171}
+.pc-parity.bad{color:#b42318}
 .pc-clerk-parity{font-size:10px;font-weight:600;color:var(--green);margin-bottom:10px}
 .pc-actions{display:flex;flex-direction:column;gap:8px}
 .pc-buy{text-align:center;background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);border-radius:8px;padding:9px 10px;font-size:11.5px;font-weight:700;text-decoration:none;white-space:nowrap}
@@ -7218,7 +7218,7 @@ input[type=email]:focus{border-color:#f59e0b}
 .save-badge{display:inline-block;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.4);color:#10b981;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;margin-left:6px}
 button.cta{width:100%;background:linear-gradient(135deg,#f59e0b,#f97316);color:#020617;border:none;padding:14px;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer}
 button.cta:disabled{opacity:.6;cursor:default}
-.err{color:#f87171;font-size:.85rem;margin-top:.75rem;display:none}
+.err{color:#b42318;font-size:.85rem;margin-top:.75rem;display:none}
 </style></head><body>
 <div class="card">
   <h1>BidDeed.AI TIER_LABEL_PLACEHOLDER</h1>
@@ -7339,7 +7339,7 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
 .btn:disabled{opacity:.6;cursor:not-allowed}
 .back{background:none;border:none;color:var(--dim);font-size:.85rem;cursor:pointer;margin-bottom:1rem;padding:0}
 .back:hover{color:var(--orange)}
-.err{color:#f87171;font-size:.85rem;margin-top:.75rem;display:none}
+.err{color:#b42318;font-size:.85rem;margin-top:.75rem;display:none}
 .upl{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--dim);line-height:1.6}
 .upl a{color:var(--orange)}
 .auctions{max-height:340px;overflow-y:auto;margin-bottom:1rem;display:flex;flex-direction:column;gap:.6rem}
@@ -8478,13 +8478,13 @@ function app() {
         btn.textContent = 'Sent ✓';
       } else {
         msg.textContent = (r.data.error || 'Something went wrong. Please try again.');
-        msg.style.color = '#f87171'; msg.style.display = 'block';
+        msg.style.color = '#b42318'; msg.style.display = 'block';
         btn.disabled = false; btn.textContent = 'Send Free List';
       }
     })
     .catch(function(){
       msg.textContent = 'Network error. Please try again.';
-      msg.style.color = '#f87171'; msg.style.display = 'block';
+      msg.style.color = '#b42318'; msg.style.display = 'block';
       btn.disabled = false; btn.textContent = 'Send Free List';
     });
   });
