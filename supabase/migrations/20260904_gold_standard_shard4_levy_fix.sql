@@ -1,0 +1,97 @@
+-- Gold Standard shard-4 (2026-09-04), county=levy, letter=I (only failing letter).
+--
+-- BASELINE (live, pencil_dod_evaluate_county('levy'), fresh this session,
+-- 2026-09-04):
+--   A PASS  fc=1 td=44
+--   B PASS  verified=28 closed_sold=28 (100.0%)
+--   C PASS  matched_clean=44 (97.8%)
+--   D PASS  matched_any=44 (97.8%)
+--   E PASS  parcel_linked=45 (100.0%)
+--   F PASS  tier1_sold=28 closed_sold=28 (100.0%)
+--   G PASS  density=100.0 far=100.0 (100.0%)
+--   H PASS  hours since last_seen = 2.5 (SLA 48h)
+--   I FAIL  card_complete=40 of 45 (88.9%, threshold >=95%)
+--   J PASS  deal_complete=45 (100.0%)
+--   auctions_total=45
+--
+-- Only letter I fails, unchanged from the 20260831 shard-3 and 20260901
+-- shard-1 sessions (both also closed at 40/45, no denominator drift:
+-- auctions_total was 45 in both prior sessions and remains 45 now).
+--
+-- ============================================================================
+-- PRIOR SESSIONS ON THIS EXACT GAP (read before starting, per protocol):
+--   20260831_gold_standard_shard3_levy_i_10row_zoning_addr_fix.sql
+--     Fixed 5 of 10 originally-failing rows: added property_address/lat/lon/
+--     assessed_value for 5 unincorporated parcels (FL GIO CO_NO=48) plus real
+--     zone_code/zone_standards/parcel_zones rows from Levy's live ArcGIS
+--     zoning layer 2025_08_07_ZON_FLU.
+--   20260901_gold_standard_shard1_f7cf6ec7_levy_i_5row_municipal_blocker_reconfirm.sql
+--     Re-verified live; fixed property_address for the 1 remaining
+--     recoverable row (00881-000-00). Confirmed the other 4 + this 1 (zone
+--     code dimension) are blocked: all 5 remaining gap parcels sit inside
+--     incorporated municipalities (Williston, Cedar Key, Bronson x2,
+--     Chiefland) where Levy's own zoning GIS layer returns only a placeholder
+--     "Muni, ROW" polygon (one per municipality, area = full MSD boundary)
+--     instead of a real per-parcel zone. The only per-parcel zoning source
+--     for these municipalities, qpublic.net/fl/levy
+--     (qpublic.schneidercorp.com AppID=930), is Cloudflare-gated (KYC-blocked
+--     residential access).
+--
+-- ============================================================================
+-- FRESH LIVE RE-VERIFICATION THIS SESSION (2026-09-04), before accepting the
+-- prior sessions' conclusion rather than trusting it blind:
+--
+-- 1. curl -o /dev/null -w '%{http_code}' https://qpublic.net/fl/levy/
+--      -> HTTP 403 (Cloudflare "Just a moment..." challenge page).
+--    Still no working access path to the only per-parcel municipal zoning
+--    lookup for Williston/Cedar Key/Bronson/Chiefland.
+--
+-- 2. curl https://services.arcgis.com/UqEiJNEITE8ox8CF/arcgis/rest/services?f=json
+--      -> service list: ['2025_08_07_ZON_FLU',
+--         '2026_ACPS_Potential_Rezoning_Scenarios_WFL1',
+--         'ACPS_RezoningScenariosUpdate_20260225',
+--         'survey123_7bf7b695e05d416688b8d39f6f292260_form',
+--         'ACPS_Rezoning_WebApUpdate_20260304']
+--    Still only the single countywide zoning layer (which returns the
+--    municipal placeholder polygon for these 5 parcels, per the 20260901
+--    session's point-in-polygon query) -- no city-specific zoning
+--    FeatureServer/MapServer has appeared for Williston, Cedar Key, Bronson,
+--    or Chiefland.
+--
+-- Gap rows (identical case_numbers/parcel_ids to both prior sessions -- no
+-- new gap rows, no rows dropped out of the gap set):
+--   05775-000-00  case 2025000075CAAXMX  Williston
+--   17660-000-00  case 2026-4164TD       Cedar Key
+--   03467-002-0A  case 2026-4169TD       Bronson
+--   03427-002-00  case 2026-4170TD       Bronson
+--   00881-000-00  case 2026-4176TD       Chiefland MSD
+--
+-- All 5 already have real property_address/lat/lon/assessed_value from prior
+-- sessions (confirmed matching FL GIO's own centroid/JV). The sole remaining
+-- blocker for all 5 is zone_code linkage via v_zoning_gold_standard_card
+-- (parcel_zones -> jurisdictions -> zoning_districts/zone_standards), which
+-- requires either (a) a KYC-passable path to qpublic.net/fl/levy, or (b) a
+-- municipality-specific zoning GIS endpoint for Williston, Cedar Key, or
+-- Bronson that does not exist in any publicly searched source as of this
+-- session.
+--
+-- CONCLUSION: genuine, cross-session-reconfirmed structural ceiling.
+-- NO WRITE THIS SESSION -- no fixable row exists without fabricating a
+-- zone_code, address, coordinate, or value (explicitly prohibited by
+-- NEVER-LIE). This migration is documentation-only, consolidating the
+-- diagnosis and this session's live reconfirmation into the migration
+-- history for county=levy.
+--
+-- VERIFICATION (pencil_dod_evaluate_county('levy'), live, this session):
+--   BEFORE: I FAIL card_complete=40 of 45 (88.9%); A/B/C/D/E/F/G/H/J PASS.
+--   AFTER (no write made): expected UNCHANGED, I FAIL card_complete=40 of 45
+--     (88.9%) -- re-run after apply to confirm no drift occurred mid-session.
+--
+-- Residual for a future session: unchanged from 20260901 -- closing I
+-- requires either (a) KYC-passable tooling for qpublic.schneidercorp.com
+-- (interactive browser session, brightdata KYC enrollment, or restored
+-- Firecrawl credit balance), or (b) discovery of a municipality-specific
+-- zoning GIS endpoint for Williston, Cedar Key, or Bronson that has not
+-- surfaced across three independent sessions' search passes (20260831,
+-- 20260901, 20260904).
+SELECT 1;
