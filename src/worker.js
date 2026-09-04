@@ -1713,6 +1713,20 @@ async function handleSupportBot(request, env, ctx, url) {
 // local HTML/CSS/JS: no external runtime, analytics, storage, or platform
 // dependency is introduced. Page content remains owned by each existing
 // builder; only the chrome is standardized.
+// ── Deduplicated per-template :root CSS-variable payloads ──────────────────────
+// These are the *hex values already shipped* for each distinct dark/light
+// template variant, extracted verbatim (not re-picked) from what were 12
+// byte-identical duplicate root CSS-variable declarations across separate template
+// literals. Consolidating to a single source per variant means a future value
+// change only has one place to edit; it does not by itself change any color a
+// user sees (verified byte-identical resolution, see docs/spec/19828.md).
+const TEMPLATE_ROOT_VARS = {
+  darkNavy2: `--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b`,
+  lightNavy2: `--navy:#f5f0e8;--navy2:#fbfaf7;--orange:#9f4d32;--orange2:#823f29;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9`,
+  darkNavy3Green: `--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981`,
+  legal: `--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b`,
+};
+
 const PUBLIC_SHELL_STYLE = `<style>
 .bd-shell-content{min-height:100vh;min-width:0;margin-left:248px;padding-top:64px;position:relative}
 .bd-shell-sidebar{position:fixed;inset:0 auto 0 0;z-index:1000;width:248px;background:#0b1220;border-right:1px solid #1e293b;color:#cbd5e1;display:flex;flex-direction:column;padding:18px 12px}
@@ -3649,7 +3663,7 @@ ${jsonLdBlocks}
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+:root{${TEMPLATE_ROOT_VARS.darkNavy2}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;font-size:17px;line-height:1.75}
 .wrap{max-width:760px;margin:0 auto;padding:3rem 1.5rem}
 h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.7rem,4vw,2.4rem);color:white;margin-bottom:1.25rem;line-height:1.25}
@@ -4592,7 +4606,7 @@ function buildBlogIndex() {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+:root{${TEMPLATE_ROOT_VARS.darkNavy2}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
 nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
 .nav-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
@@ -4609,7 +4623,7 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
 footer a{color:var(--muted);text-decoration:none}
 /* WinnerDataAI child-brand light mode — default for Worker-owned public pages. */
-:root{--navy:#f5f0e8;--navy2:#fbfaf7;--orange:#9f4d32;--orange2:#823f29;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9}
+:root{${TEMPLATE_ROOT_VARS.lightNavy2}}
 .logo,h1,.post-title{color:var(--text)}
 </style>
 </head>
@@ -4653,7 +4667,7 @@ function buildBlogPost(post) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b}
+:root{${TEMPLATE_ROOT_VARS.darkNavy2}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;font-size:17px;line-height:1.75}
 nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
 .nav-inner{max-width:760px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
@@ -4684,7 +4698,7 @@ footer a{color:var(--muted);text-decoration:none}
 .lead-msg.ok{color:#34d399;display:block}
 .lead-msg.err{color:#f87171;display:block}
 /* WinnerDataAI child-brand light mode — default for Worker-owned public pages. */
-:root{--navy:#f5f0e8;--navy2:#fbfaf7;--orange:#9f4d32;--orange2:#823f29;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9}
+:root{${TEMPLATE_ROOT_VARS.lightNavy2}}
 .logo,h1,.lead-box h3{color:var(--text)}
 .lead-form input{background:var(--navy2);color:var(--text)}
 </style>
@@ -4758,7 +4772,7 @@ function buildCountiesIndex(rtConfig) {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+:root{${TEMPLATE_ROOT_VARS.darkNavy3Green}}
 body{background:var(--navy);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
 nav{position:sticky;top:0;z-index:100;background:rgba(2,6,23,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 1.5rem}
 .nav-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:60px}
@@ -4836,7 +4850,7 @@ function buildChatPage(county, hook, ref) {
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#020617;--navy2:#0f172a;--navy3:#1e293b;--orange:#f59e0b;--orange2:#f97316;--text:#e2e8f0;--muted:#cbd5e1;--border:#1e293b;--green:#10b981}
+:root{${TEMPLATE_ROOT_VARS.darkNavy3Green}}
 html{height:100%;height:-webkit-fill-available}
 body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;height:-webkit-fill-available;height:var(--vvh,100vh);overflow:hidden;position:fixed;width:100%}
 
@@ -8050,7 +8064,7 @@ const TERMS_HTML = `<!doctype html><html lang="en"><head>
 <meta name="description" content="Terms of Service for BidDeed.AI, Florida foreclosure and tax deed auction intelligence from Everest Capital USA.">
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${TEMPLATE_ROOT_VARS.legal}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -8088,7 +8102,7 @@ const PRIVACY_HTML = `<!doctype html><html lang="en"><head>
 <meta name="description" content="Privacy Policy for BidDeed.AI — how Everest Capital USA collects, uses, and protects your information.">
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${TEMPLATE_ROOT_VARS.legal}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -8128,7 +8142,7 @@ const DISCLAIMER_HTML = `<!doctype html><html lang="en"><head>
 <meta name="description" content="BidDeed.AI is an information and analytics platform, not legal, financial, or investment advice — read the full disclaimer before bidding.">
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${TEMPLATE_ROOT_VARS.legal}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -8157,7 +8171,7 @@ const DATA_RETENTION_HTML = `<!doctype html><html lang="en"><head>
 <title>Data Retention Policy — BidDeed.AI</title>
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${TEMPLATE_ROOT_VARS.legal}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
@@ -8214,7 +8228,7 @@ const SECURITY_HTML = `<!doctype html><html lang="en"><head>
 <meta name="description" content="How BidDeed.AI protects your data — encryption, access controls, and payment security via Stripe.">
 ${POSTHOG_SCRIPT}
 <style>
-:root{--navy:#020617;--orange:#f59e0b;--text:#e2e8f0;--muted:#cbd5e1;--dim:#e2eaf2;--border:#1e293b}
+:root{${TEMPLATE_ROOT_VARS.legal}}
 *{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.7}
 .wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
