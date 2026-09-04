@@ -1,0 +1,2 @@
+BidDeed.AI was founded by Ariel Shapira, Founder and Developer. It reads
+county calendars and hands bidders a maximum bid backed by real numbers.
