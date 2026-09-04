@@ -1,0 +1,112 @@
+## Odoo 18 Community — self-hosted accounting engine behind "Projects" (Deed Projects, C10).
+## LGPL-3 upstream (odoo:18 official image + our own infra/odoo/addons/, no Enterprise apps,
+## no Elastic-licensed code). Never shown to customers by name or logo — human-facing surfaces
+## call this "Projects", never "Odoo". Runs on its own Postgres container; never the Supabase
+## moat database (public.multi_county_auctions etc. are untouched by anything in this file).
+##
+## Deployed by .github/workflows/deploy-odoo.yml (rsync + `docker compose up -d` over SSH).
+## All secret values below come from a runtime .env written by that workflow on the box —
+## nothing here is a literal secret, and this file is safe to commit.
+
+services:
+  odoo-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${ODOO_DB_USER:?set in .env}
+      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD:?set in .env}
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    networks: [odoo-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ODOO_DB_USER:-odoo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  odoo:
+    image: odoo:18
+    restart: unless-stopped
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    environment:
+      HOST: odoo-db
+      PORT: "5432"
+      USER: ${ODOO_DB_USER:?set in .env}
+      PASSWORD: ${ODOO_DB_PASSWORD:?set in .env}
+    volumes:
+      - odoo-web-data:/var/lib/odoo
+      - ./odoo.local.conf:/etc/odoo/odoo.conf:ro
+      - ./addons:/mnt/extra-addons:ro
+    networks: [odoo-internal, odoo-edge]
+    expose:
+      - "8069"
+      - "8072"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8069/web/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [odoo]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ODOO_PUBLIC_HOST: ${ODOO_PUBLIC_HOST:?set in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [odoo-edge]
+
+  odoo-backup:
+    image: postgres:16
+    restart: unless-stopped
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    environment:
+      PGHOST: odoo-db
+      PGUSER: ${ODOO_DB_USER:?set in .env}
+      PGPASSWORD: ${ODOO_DB_PASSWORD:?set in .env}
+      ODOO_DB_NAME: ${ODOO_DB_NAME:?set in .env}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-biddeed-odoo-backups}
+      RETENTION_DAYS: "30"
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - odoo-backup-tmp:/backup
+    networks: [odoo-internal]
+    entrypoint: ["/bin/bash", "-c"]
+    # Debian base (matches odoo-db's postgres:16 pg_dump version exactly). Installs
+    # awscli + cron once, then runs backup.sh nightly at 03:00 box-local time via cron -f
+    # (PID 1 stays alive so `restart: unless-stopped` behaves correctly).
+    command: >
+      "chmod +x /backup.sh &&
+       (apt-get update -qq && apt-get install -y -qq awscli cron) >/tmp/backup-setup.log 2>&1 &&
+       echo '0 3 * * * root /backup.sh >> /var/log/odoo-backup.log 2>&1' > /etc/cron.d/odoo-backup &&
+       chmod 0644 /etc/cron.d/odoo-backup &&
+       touch /var/log/odoo-backup.log &&
+       cron -f"
+
+volumes:
+  odoo-db-data:
+  odoo-web-data:
+  caddy-data:
+  caddy-config:
+  odoo-backup-tmp:
+
+networks:
+  odoo-internal:
+    internal: true
+  odoo-edge:

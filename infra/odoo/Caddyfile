@@ -1,0 +1,17 @@
+{$ODOO_PUBLIC_HOST} {
+	encode gzip
+
+	# Odoo's bus/longpolling (chatter, notifications) runs on a separate port when
+	# workers > 0 (see odoo.conf). Route it before the general handler.
+	@longpolling path /longpolling/* /websocket
+	handle @longpolling {
+		reverse_proxy odoo:8072
+	}
+
+	handle {
+		reverse_proxy odoo:8069 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+}
