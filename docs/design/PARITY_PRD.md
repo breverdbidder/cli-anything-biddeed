@@ -92,3 +92,28 @@ Verified = live URL, Chromium, both viewports, harness row green, function proof
 - **Sat Sep 5 21:00–23:00 ET (W2):** merge batch → Chat, Projects, Skills, Providers live.
 - **Sun Sep 6 (W3):** content T-0 per CONTENT_SOP §3 stands on its own; parity rows C4, C5, C8, C2b, A, B3/B4 will NOT all be green by 21:00 ET.
 - **Wed Sep 9:** earliest credible D12 — all five layers verified — if the runner delivers one clean PR per phase per day. Anything later than that is reported as slip, not hidden.
+
+
+## 8. Typography and contrast parity (Ariel, 2026-09-04: identical reading experience to Claude.ai)
+Claude.ai reads the way it does because of four things we can copy exactly, and one we cannot. What we cannot copy: Anthropic's licensed typefaces. What we copy exactly: the size ramp, the line-height rhythm, the weight discipline, and the contrast policy. One token file (packages/tokens, #19845) carries these for both repos; the harness enforces them (G-TYPE).
+
+| Role | Desktop | Phone | Weight / line-height | Colour (light) | Min contrast |
+|---|---|---|---|---|---|
+| Message / body text | 16 px | 16 px (never below - avoids iOS zoom and matches Claude) | 400 / 1.6 | ink #1f1b16 on cream | 7:1 (AAA) |
+| Secondary text (sidebar rows, chat list, meta) | 14 px | 14 px | 400-500 / 1.5 | muted #6e655e | 4.5:1 |
+| Labels, eyebrows, timestamps, footnotes | 12-13 px, uppercase eyebrows tracked | 12-13 px | 500-600 / 1.4 | muted | 4.5:1 |
+| Composer input | 16 px | 16 px | 400 / 1.5 | ink | 7:1 |
+| H1 / greeting (serif display) | 40-48 px | 30-34 px | 500 / 1.1 | ink | 7:1 |
+| H2 (serif display) | 28-32 px | 24-26 px | 500 / 1.15 | ink | 7:1 |
+| H3 / card titles (sans) | 18-20 px | 17-18 px | 600 / 1.3 | ink | 7:1 |
+| Numbers (stats, prices) | 24-32 px | 20-24 px, never wrap | 600, tabular-nums | ink or terracotta #9f4d32 | 4.5:1 |
+| Buttons | 14-15 px | 15 px | 600 / 1 | cream on terracotta / ink on cream | 4.5:1, hit area >= 44 px on phones |
+
+Rules
+- Two families only: the UI sans (Inter today) and the serif display - the same pairing Claude uses (sans UI, serif headline). No third family, no per-page font-size literals; every size is a token step (--fs-1 ... --fs-8).
+- The lighter accent (#d97757 and the Tailwind amber/orange family) is decoration only: never text under 24 px.
+- Line length 60-75 characters on desktop (max-w-prose on message bodies), full width on phones with 16 px side gutters.
+- Dark mode inherits the same ramp; only colours change (tokens), never sizes.
+- Harness gate G-TYPE: on every route, body/message text >= 16 px on phones and >= 15 px on desktop, secondary >= 14 px, nothing under 12 px; font-family set == {sans, serif, mono}; contrast per the table. A route with any literal font-size outside the token steps fails.
+
+Measured 2026-09-04 (Chromium 390): /buy-report has 29 text elements under 14 px, /counties 25, the sample report 11, /chat 8 - see #19943 M1.
