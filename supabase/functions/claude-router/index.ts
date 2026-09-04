@@ -1,6 +1,18 @@
-// supabase/functions/claude-router/index.ts — v10 (T10: OpenRouter vision cascade)
+// supabase/functions/claude-router/index.ts — v11 (C6: free tier)
 //
-// NEW vs v9:
+// NEW vs v10:
+//   - issue #19925 (C6): force_tier: "free" is now a closed cascade -- text
+//     requests only, OpenRouter ":free"-suffixed routes
+//     (OPENROUTER_FREE_MODEL_CANDIDATES, first one confirmed live on
+//     /api/v1/models wins), zero fallback to any paid tier (T1/T1.5/T2 are
+//     never entered when force_tier === "free"). Uses the same
+//     openrouter_api_key vault secret the vision cascade already proved live
+//     (2026-09-02). src/worker.js's /chat/api applies its own hard per-IP
+//     daily cap (biddeed_free_tier_rate_check) before ever setting
+//     force_tier: "free" here -- this function does not rate-limit on its
+//     own, same as every other tier.
+//
+// NEW vs v9 (T10, unchanged this pass):
 //   - T10 (issue #19736, 2026-09-02 directive #3, supersedes directive #2's
 //     Gemini/direct-DeepSeek vision tiers): the vision cascade (`images` array
 //     present in body) now routes through OpenRouter instead of Gemini/direct
@@ -327,6 +339,55 @@ async function callClaudeVision(oauthBearer, messages, system, maxTokens, images
     outputTokens: usage.output_tokens ?? 0
   };
 }
+// ── Free tier (issue #19925 C6) ───────────────────────────────────────────────
+// force_tier: "free" -> OpenRouter's genuinely-free (":free" suffixed) text
+// routes only, no fallback to any paid tier. Ordered candidate list, not a
+// single hardcoded slug: OpenRouter's free lineup churns (the vision cascade
+// above already lost a ':free' GLM slug without notice -- same caution
+// applies here), so the first candidate confirmed live on
+// GET /api/v1/models wins. Callers see which model actually served the
+// request in the `model` field of the response.
+const OPENROUTER_FREE_MODEL_CANDIDATES = [
+  "z-ai/glm-5.2:free",
+  "minimax/minimax-m2.7:free",
+  "google/gemma-4-31b-it:free"
+];
+async function callOpenRouterText(apiKey, messages, system, maxTokens, model) {
+  const chatMessages = [
+    ...system ? [
+      {
+        role: "system",
+        content: system
+      }
+    ] : [],
+    ...messages
+  ];
+  const body = {
+    model,
+    messages: chatMessages,
+    max_tokens: Math.max(maxTokens, 512),
+    temperature: 0.7
+  };
+  const res = await fetch(OPENROUTER_CHAT_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`OpenRouter free ${model} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const usage = data.usage ?? {};
+  const text = data.choices?.[0]?.message?.content ?? "";
+  if (!text) throw new Error(`OpenRouter free ${model} returned empty content (finish_reason=${data.choices?.[0]?.finish_reason})`);
+  return {
+    text,
+    inputTokens: usage.prompt_tokens ?? 0,
+    outputTokens: usage.completion_tokens ?? 0,
+    costUsd: 0
+  };
+}
 // ── DeepSeek v3.2 ─────────────────────────────────────────────────────────────
 const DEEPSEEK_MODEL = "deepseek-chat";
 async function callDeepSeek(apiKey, messages, system, maxTokens) {
@@ -442,17 +503,19 @@ Deno.serve(async (req)=>{
     const base = {
       status: "ok",
       service: "claude-router",
-      version: "10-t10-openrouter-vision-cascade",
+      version: "11-c6-free-tier",
       features: [
         "cache",
         "tool-pruning",
         "context-trimmer",
-        "vision-cascade"
+        "vision-cascade",
+        "free-tier"
       ],
       tiers: [
         "T1_gemini_free",
         "T1.5_deepseek_cheap",
-        "T2_claude_oauth(last_resort_all_traffic)"
+        "T2_claude_oauth(last_resort_all_traffic)",
+        "T_free_openrouter(force_tier=free_only,no_fallback)"
       ],
       vision_tiers: [
         "T1_openrouter_vision(glm-5.3-flash)",
@@ -631,6 +694,27 @@ Deno.serve(async (req)=>{
       call: ()=>callClaudeVision(bearerVision, trimmedMessages, system, maxTokens, images),
       cost: ()=>0
     });
+  } else if (forceTier === "free") {
+    // issue #19925 C6 -- free tier is a closed cascade: OpenRouter free
+    // routes only, no fallback to any paid tier (T1/T1.5/T2 below). The
+    // Worker applies its own hard per-IP rate limit before ever reaching
+    // here (biddeed_free_tier_rate_check) -- this branch just picks
+    // whichever free candidate is actually live right now.
+    const orKeyFree = await getVaultSecret("openrouter_api_key");
+    if (orKeyFree) {
+      for (const candidate of OPENROUTER_FREE_MODEL_CANDIDATES){
+        if (await openRouterModelAvailable(orKeyFree, candidate)) {
+          tiers.push({
+            id: "T_free_openrouter",
+            provider: "openrouter",
+            model: candidate,
+            call: ()=>callOpenRouterText(orKeyFree, trimmedMessages, system, maxTokens, candidate),
+            cost: ()=>0
+          });
+          break;
+        }
+      }
+    }
   } else {
     // T1: Gemini — always first for all traffic
     if (!forceTier || forceTier === "gemini") {
