@@ -8,7 +8,9 @@
  *   GET  /chat                → Chatbot UI
  *   GET  /county/:name        → County deep-link landing page
  *   GET  /counties            → All counties index
- *   POST /chat/api            → Streaming SSE chat (via anthropic-proxy Smart Router — never api.anthropic.com directly)
+ *   POST /chat/api            → Streaming SSE chat (via anthropic-proxy Smart Router — never api.anthropic.com directly). Honors X-Chat-Provider: router|byok|ollama|free
+ *   GET/PUT/DELETE /chat/api/providers → Settings → Models: list/save/delete a BYOK or Ollama config (#19925 C6)
+ *   POST /chat/api/providers/test → "Ping" a BYOK/Ollama config, saved or in-flight (#19925 C6)
  *   POST /support/bot         → Chatwoot Agent Bot webhook (biddeed.ai + winnerdataai.com inboxes) — same Smart Router, AI-only, no human handoff
  *   POST /chat/lead           → Email capture → Supabase lead_profiles
  *   GET  /chat/county-data    → County card JSON
@@ -31,19 +33,6 @@
  *   GET  /disclaimer          → Disclaimer
  *   GET  /security            → Security overview
  *   GET  /data-retention      → Data Retention & Deletion Policy
- *
- *   -- issue #19847 C3: Projects + Reports (chat identity required, X-Chat-Token) --
- *   GET/POST/PATCH/DELETE /chat/api/projects[/:id]  → Projects CRUD (S1 greeting on GET :id)
- *   POST /chat/api/projects/:id/items         → attach a conversation/report/upload/parcel to a project
- *   GET/POST /chat/api/projects/:id/files     → list / upload a project file (versioned)
- *   PATCH/DELETE /chat/api/projects/:id/files/:fileId → rename / delete a project file
- *   GET  /chat/api/projects/:id/files/:fileId/download → 10-minute signed download URL
- *   GET  /chat/api/reports                    → list reports (?project=|conversation=)
- *   POST /chat/api/reports                    → generate report(s) from a conversation (json/pdf always, csv if a property table is present)
- *   GET  /chat/api/reports/:id/download       → 10-minute signed download URL (?format= must match the row)
- *   POST /chat/api/reports/:id/share          → create a public read-only /r/:token link
- *   POST /chat/api/reports/:id/share/revoke   → revoke all active share links for a report
- *   GET  /r/:token                            → public, server-rendered, no-JS-required share page
  */
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -322,38 +311,62 @@ async function getUploadOwned(env, ownerEmail, uploadId) {
   return rows[0] || null;
 }
 
-// ── Projects (issue #19847 C3, Claude.ai "Projects" parity — renamed from
-// "Deal Rooms" per the 2026-09-04 15:40 UTC scope update: a project is one
-// property/bid the user is working toward, carrying the 5 Sticky Layers
-// (docs/gtm/CTA_AND_STICKY_SPEC.md §"The 5 Sticky Layers"). ──────────────────
-const PROJECT_ITEM_KINDS = new Set(['conversation', 'report', 'upload', 'parcel']);
-async function createProject(env, ownerEmail, opts) {
-  const o = opts || {};
-  const res = await sbAdmin(env, '/rest/v1/biddeed_projects', {
-    method: 'POST',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({
-      owner_email: ownerEmail,
-      name: String(o.name || 'Untitled Project').slice(0, 120),
-      county: o.county ? String(o.county).slice(0, 60) : null,
-      case_number: o.caseNumber ? String(o.caseNumber).slice(0, 60) : null,
-      parcel_id: o.parcelId ? String(o.parcelId).slice(0, 60) : null,
-      sale_date: o.saleDate || null,
-      notes: o.firstNote ? String(o.firstNote).slice(0, 2000) : null,
-      // S5 memory — first-touch is write-once at creation (source_intent = a
-      // reel short-link ?intent= or a county-page hook; never overwritten).
-      first_touch: { source: o.source || 'chat', intent: o.intent || null, county: o.county || null, at: new Date().toISOString() },
-      last_viewed_at: new Date().toISOString(),
-    }),
-  });
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
+// ── Model providers — BYOK / Ollama (issue #19925 C6) ────────────────────────
+// public.biddeed_user_providers + its SECURITY DEFINER RPCs (see
+// supabase/migrations/20260904b_model_providers_19925.sql and the
+// 20260904c pgcrypto follow-up) are the ONLY way in or out of this table —
+// API keys are encrypted server-side (pgcrypto, Vault-held passphrase) and
+// decrypted only inside biddeed_provider_get_decrypted()/
+// get_active_decrypted(), called here and used in-memory for one request.
+// The raw key is never logged (logErr() is never passed it — see each call
+// site below) and never sent back to the browser (list/upsert responses
+// carry last4 only).
+const PROVIDER_ALLOWLIST = ['anthropic', 'openai', 'deepseek', 'gemini', 'openrouter', 'ollama'];
+async function providerRpc(env, fn, args) {
+  const res = await sbAdmin(env, `/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) });
+  if (!res) return { ok: false, status: 503, data: null };
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  return { ok: res.ok, status: res.status, data };
 }
-async function listProjects(env, ownerEmail) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_projects?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=updated_at.desc&select=id,name,county,case_number,sale_date,created_at,updated_at`);
-  if (!res || !res.ok) return [];
-  return res.json();
+async function providerUpsert(env, ownerEmail, provider, apiKey, baseUrl, model, capTokens) {
+  return providerRpc(env, 'biddeed_provider_upsert', {
+    p_owner_email: ownerEmail, p_provider: provider, p_api_key: apiKey || null,
+    p_base_url: baseUrl || null, p_model: model || null, p_cap_tokens: capTokens || null,
+  });
+}
+async function providerList(env, ownerEmail) { return providerRpc(env, 'biddeed_provider_list', { p_owner_email: ownerEmail }); }
+async function providerDelete(env, ownerEmail, provider) { return providerRpc(env, 'biddeed_provider_delete', { p_owner_email: ownerEmail, p_provider: provider }); }
+async function providerGetDecrypted(env, ownerEmail, provider) { return providerRpc(env, 'biddeed_provider_get_decrypted', { p_owner_email: ownerEmail, p_provider: provider }); }
+async function providerGetActiveDecrypted(env, ownerEmail) { return providerRpc(env, 'biddeed_provider_get_active_decrypted', { p_owner_email: ownerEmail }); }
+
+// ── BYOK direct provider calls — non-streaming (mirrors claude-router's own
+// buffer-then-wrap pattern below; only claude-router itself streams today).
+// Each throws with the provider's own truncated error text on failure —
+// never invents a reason, and the thrown message never contains the key
+// (only the HTTP status + the provider's response body).
+async function callByokAnthropic(apiKey, model, messages, system, maxTokens) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: model || 'claude-haiku-4-5-20251001', messages, system, max_tokens: maxTokens }),
+  });
+  if (!res.ok) throw new Error(`anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return { text: data.content?.[0]?.text || '' };
+}
+const OPENAI_COMPAT_BASE = { openai: 'https://api.openai.com/v1', deepseek: 'https://api.deepseek.com', openrouter: 'https://openrouter.ai/api/v1' };
+const OPENAI_COMPAT_DEFAULT_MODEL = { openai: 'gpt-4o-mini', deepseek: 'deepseek-chat', openrouter: 'openai/gpt-4o-mini' };
+async function callByokOpenAICompatible(baseUrl, apiKey, model, messages, system, maxTokens) {
+  const chatMessages = [{ role: 'system', content: system }, ...messages];
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages: chatMessages, max_tokens: maxTokens }),
+  });
+  if (!res.ok) throw new Error(`${baseUrl} ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return { text: data.choices?.[0]?.message?.content || '' };
 }
 async function getProjectOwned(env, ownerEmail, projectId) {
   const res = await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,name,county,case_number,parcel_id,sale_date,notes,conversation_id,first_touch,last_viewed_at`);
@@ -414,282 +427,97 @@ async function getProjectDetail(env, ownerEmail, projectId) {
   await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'PATCH', body: JSON.stringify(patch) });
   return { project, greeting, signal };
 }
-async function updateProject(env, ownerEmail, projectId, patch) {
-  const body = { updated_at: new Date().toISOString() };
-  if (patch.name !== undefined) body.name = String(patch.name).slice(0, 120);
-  if (patch.county !== undefined) body.county = patch.county ? String(patch.county).slice(0, 60) : null;
-  if (patch.case_number !== undefined) body.case_number = patch.case_number ? String(patch.case_number).slice(0, 60) : null;
-  if (patch.parcel_id !== undefined) body.parcel_id = patch.parcel_id ? String(patch.parcel_id).slice(0, 60) : null;
-  if (patch.sale_date !== undefined) body.sale_date = patch.sale_date || null;
-  if (patch.notes !== undefined) body.notes = patch.notes ? String(patch.notes).slice(0, 2000) : null;
-  if (patch.conversation_id !== undefined) body.conversation_id = patch.conversation_id || null;
-  const res = await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, {
-    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(body),
-  });
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
+async function callByokGemini(apiKey, model, messages, system, maxTokens) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.5-flash'}:generateContent?key=${apiKey}`;
+  const body = {
+    contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content) }] })),
+    generationConfig: { maxOutputTokens: maxTokens },
+  };
+  if (system) body.systemInstruction = { parts: [{ text: system }] };
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return { text: data.candidates?.[0]?.content?.parts?.[0]?.text || '' };
 }
-async function deleteProject(env, ownerEmail, projectId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'DELETE' });
-  return !!(res && res.ok);
+async function callByokProvider(provider, apiKey, model, messages, system, maxTokens) {
+  if (provider === 'anthropic') return callByokAnthropic(apiKey, model, messages, system, maxTokens);
+  if (provider === 'gemini') return callByokGemini(apiKey, model, messages, system, maxTokens);
+  if (OPENAI_COMPAT_BASE[provider]) return callByokOpenAICompatible(OPENAI_COMPAT_BASE[provider], apiKey, model || OPENAI_COMPAT_DEFAULT_MODEL[provider], messages, system, maxTokens);
+  throw new Error(`unsupported provider: ${provider}`);
 }
-async function addProjectItem(env, projectId, kind, refId) {
-  const res = await sbAdmin(env, '/rest/v1/biddeed_project_items', {
-    method: 'POST', headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ project_id: projectId, kind, ref_id: String(refId) }),
+async function callOllamaChat(baseUrl, model, messages, system, maxTokens) {
+  const chatMessages = [{ role: 'system', content: system }, ...messages];
+  const res = await fetch(`${String(baseUrl).replace(/\/+$/, '')}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model, messages: chatMessages, stream: false, options: { num_predict: maxTokens } }),
   });
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
+  if (!res.ok) throw new Error(`ollama ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return { text: data.message?.content || '' };
 }
 
-// ── Project Files (issue #19847 C3 scope update — upload/version/rename/
-// download of PDF/CSV/DOCX/XLSX/images inside a project; "download all as a
-// zip" is explicitly NOT built — Ariel: never zip. Individual files only.) ──
-async function nextFileVersion(env, ownerEmail, projectId, filename) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?project_id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&filename=eq.${encodeURIComponent(filename)}&select=version&order=version.desc&limit=1`);
-  if (!res || !res.ok) return 1;
-  const rows = await res.json();
-  return rows[0] ? rows[0].version + 1 : 1;
-}
-async function insertProjectFile(env, ownerEmail, projectId, meta) {
-  const res = await sbAdmin(env, '/rest/v1/biddeed_project_files', {
-    method: 'POST', headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({
-      project_id: projectId, owner_email: ownerEmail, storage_path: meta.storagePath, filename: meta.filename,
-      mime_type: meta.mimeType, version: meta.version, extracted_text: meta.extractedText || null, extraction_status: meta.extractionStatus,
-    }),
-  });
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
-}
-async function listProjectFiles(env, ownerEmail, projectId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?project_id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&order=filename.asc,version.desc&select=id,filename,mime_type,version,extraction_status,created_at`);
-  if (!res || !res.ok) return [];
-  return res.json();
-}
-// All non-obsolete versions of every file in the project, for S4 chat context
-// -- not just the latest version of each, so Deed can cite whichever version
-// actually contains the fact it's using.
-async function listProjectFilesForContext(env, ownerEmail, projectId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?project_id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&extraction_status=eq.ok&order=created_at.desc&limit=6&select=filename,version,extracted_text`);
-  if (!res || !res.ok) return [];
-  return res.json();
-}
-async function getProjectFileOwned(env, ownerEmail, fileId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?id=eq.${encodeURIComponent(fileId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,project_id,filename,mime_type,version,storage_path,extraction_status`);
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
-}
-async function renameProjectFile(env, ownerEmail, fileId, newFilename) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?id=eq.${encodeURIComponent(fileId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, {
-    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ filename: String(newFilename).slice(0, 200) }),
-  });
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
-}
-async function deleteProjectFile(env, ownerEmail, fileId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_project_files?id=eq.${encodeURIComponent(fileId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'DELETE' });
-  return !!(res && res.ok);
-}
-
-// ── Reports (issue #19847 C3, Claude.ai "Artifacts" parity) ──────────────────
-async function nextReportVersion(env, ownerEmail, conversationId, projectId) {
-  let q = `/rest/v1/biddeed_reports?owner_email=eq.${encodeURIComponent(ownerEmail)}&select=version&order=version.desc&limit=1`;
-  if (conversationId) q += `&conversation_id=eq.${encodeURIComponent(conversationId)}`;
-  else if (projectId) q += `&project_id=eq.${encodeURIComponent(projectId)}`;
-  const res = await sbAdmin(env, q);
-  if (!res || !res.ok) return 1;
-  const rows = await res.json();
-  return rows[0] ? rows[0].version + 1 : 1;
-}
-async function createReportRow(env, row) {
-  const res = await sbAdmin(env, '/rest/v1/biddeed_reports', {
-    method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(row),
-  });
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
-}
-async function listReports(env, ownerEmail, { project, conversation } = {}) {
-  let q = `/rest/v1/biddeed_reports?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=created_at.desc&select=id,title,version,format,project_id,conversation_id,created_at`;
-  if (project) q += `&project_id=eq.${encodeURIComponent(project)}`;
-  if (conversation) q += `&conversation_id=eq.${encodeURIComponent(conversation)}`;
-  const res = await sbAdmin(env, q);
-  if (!res || !res.ok) return [];
-  return res.json();
-}
-async function getReportOwned(env, ownerEmail, reportId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_reports?id=eq.${encodeURIComponent(reportId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,title,version,format,storage_path,project_id,conversation_id`);
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
-}
-
-// ── Share links (issue #19847 C3) — opaque random token, not a DB sequence or
-// the report's own uuid, so a leaked report id never doubles as a share link. ─
-function newShareToken() { return b64url(crypto.getRandomValues(new Uint8Array(24))); }
-async function createShareLink(env, token, reportId) {
-  const res = await sbAdmin(env, '/rest/v1/biddeed_share_links', {
-    method: 'POST', headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ token, report_id: reportId }),
-  });
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
-}
-async function getShareLink(env, token) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_share_links?token=eq.${encodeURIComponent(token)}&select=token,report_id,revoked_at`);
-  if (!res || !res.ok) return null;
-  const rows = await res.json();
-  return rows[0] || null;
-}
-async function revokeShareLinksForReport(env, reportId) {
-  const res = await sbAdmin(env, `/rest/v1/biddeed_share_links?report_id=eq.${encodeURIComponent(reportId)}&revoked_at=is.null`, {
-    method: 'PATCH', body: JSON.stringify({ revoked_at: new Date().toISOString() }),
-  });
-  return !!(res && res.ok);
-}
-
-// ── Report content builders (issue #19847 C3) ────────────────────────────────
-// Markdown-pipe-table detection over a conversation's own assistant messages
-// -- this is the only structured "property table" signal that exists in this
-// schema (chat messages are free text; there is no separate structured
-// property-row store attached to a conversation). Never synthesizes rows.
-function splitMdRow(line) {
-  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
-}
-function extractFirstMarkdownTable(messages) {
-  for (const m of messages) {
-    if (m.role !== 'assistant') continue;
-    const lines = String(m.content || '').split('\n');
-    for (let i = 0; i < lines.length - 1; i++) {
-      const headerLine = lines[i].trim();
-      const sepLine = lines[i + 1].trim().replace(/\s/g, '');
-      if (!/^\|.*\|$/.test(headerLine)) continue;
-      if (!/^\|?[-:|]+\|?$/.test(sepLine) || !/-/.test(sepLine)) continue;
-      const headers = splitMdRow(headerLine);
-      const rows = [];
-      let j = i + 2;
-      while (j < lines.length && /^\|.*\|$/.test(lines[j].trim())) { rows.push(splitMdRow(lines[j])); j++; }
-      if (rows.length) return { headers, rows };
+// ── POST /chat/api/providers/test — "Ping" (issue #19925 C6). Each
+// provider's real model-list endpoint doubles as a $0 auth check — an
+// invalid/expired key 401s here exactly like it would on a real completion
+// call. OpenRouter's /models is public (no auth required to list), so its
+// key is validated against /api/v1/key first — live-confirmed 2026-09-04
+// that an invalid OpenRouter key 401s there. Ollama has no key at all;
+// GET {base}/api/tags is Ollama's own model-list endpoint (live-confirmed
+// against https://ollama.com/api/tags this session, which happens to expose
+// the same {models:[{name,...}]} contract a self-hosted instance returns).
+async function pingProvider(provider, apiKey, baseUrl) {
+  try {
+    if (provider === 'ollama') {
+      const res = await fetch(`${String(baseUrl).replace(/\/+$/, '')}/api/tags`, { method: 'GET' });
+      if (!res.ok) return { ok: false, error: `${res.status}: ${(await res.text()).slice(0, 300)}` };
+      const data = await res.json();
+      return { ok: true, models: (data.models || []).map(m => m.name).slice(0, 25) };
     }
+    if (provider === 'anthropic') {
+      const res = await fetch('https://api.anthropic.com/v1/models', { headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' } });
+      if (!res.ok) return { ok: false, error: `${res.status}: ${(await res.text()).slice(0, 300)}` };
+      const data = await res.json();
+      return { ok: true, models: (data.data || []).map(m => m.id).slice(0, 25) };
+    }
+    if (provider === 'gemini') {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+      if (!res.ok) return { ok: false, error: `${res.status}: ${(await res.text()).slice(0, 300)}` };
+      const data = await res.json();
+      return { ok: true, models: (data.models || []).map(m => String(m.name || '').replace(/^models\//, '')).slice(0, 25) };
+    }
+    if (provider === 'openrouter') {
+      const keyRes = await fetch('https://openrouter.ai/api/v1/key', { headers: { authorization: `Bearer ${apiKey}` } });
+      if (!keyRes.ok) return { ok: false, error: `${keyRes.status}: ${(await keyRes.text()).slice(0, 300)}` };
+      const listRes = await fetch(`${OPENAI_COMPAT_BASE.openrouter}/models`);
+      const listData = listRes.ok ? await listRes.json() : { data: [] };
+      return { ok: true, models: (listData.data || []).map(m => m.id).slice(0, 25) };
+    }
+    if (OPENAI_COMPAT_BASE[provider]) {
+      const res = await fetch(`${OPENAI_COMPAT_BASE[provider]}/models`, { headers: { authorization: `Bearer ${apiKey}` } });
+      if (!res.ok) return { ok: false, error: `${res.status}: ${(await res.text()).slice(0, 300)}` };
+      const data = await res.json();
+      return { ok: true, models: (data.data || []).map(m => m.id).slice(0, 25) };
+    }
+    return { ok: false, error: `unsupported provider: ${provider}` };
+  } catch (e) {
+    return { ok: false, error: String(e) };
   }
-  return null;
-}
-function csvEscape(v) {
-  const s = String(v == null ? '' : v);
-  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-function tableToCsv(table) {
-  const lines = [table.headers.map(csvEscape).join(',')];
-  for (const row of table.rows) lines.push(row.map(csvEscape).join(','));
-  return lines.join('\r\n');
-}
-function parseCsvLine(line) {
-  const cells = []; let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQ) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += c; }
-    else if (c === '"') inQ = true;
-    else if (c === ',') { cells.push(cur); cur = ''; }
-    else cur += c;
-  }
-  cells.push(cur);
-  return cells;
-}
-// "PDF" via the existing report engine's own mechanism: the S5 report
-// (renderS5ReportHtml/s5Page below) ships a #dl-pdf button that just opens the
-// browser print dialog (window.print()) on a print-styled HTML page -- there
-// is no server-side PDF byte generator anywhere in this Worker, and none can
-// be added without an npm dependency, which `wrangler deploy --no-bundle`
-// (zero `import` statements, confirmed in docs/spec/19829-P1.md for the
-// identical DOCX/OCR constraint) rules out. This reuses that exact pattern: a
-// self-printing, print-styled HTML document. Opening it and choosing "Save as
-// PDF" in the browser's print dialog produces a real PDF.
-// Shared token definition for the two standalone documents below (each opens
-// in its own tab/window, outside the /chat shell's own :root) — the ONLY
-// place either document names a color; every rule below reads var(--...).
-// Values are the canon light palette (docs/spec/19878 Chromium sweep).
-const REPORT_DOC_TOKENS = ':root{--cream-1:#fbfaf7;--cream-2:#f5f0e8;--cream-3:#ede3d7;--ink:#1f1b16;--muted:#6e655e;--border:#ddd5c9;--terracotta:#9f4d32}';
-function buildConversationReportHtml(title, messages) {
-  const body = messages.map(m => `<div class="rpt-msg rpt-${escHtml(m.role)}"><div class="rpt-role">${m.role === 'user' ? 'You' : 'Deed'}</div><div class="rpt-content">${escHtml(m.content).replace(/\n/g, '<br>')}</div></div>`).join('\n');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title>
-<style>
-${REPORT_DOC_TOKENS}
-body{font-family:Inter,Arial,sans-serif;background:var(--cream-1);color:var(--ink);margin:0;padding:32px}
-.rpt-wrap{max-width:760px;margin:0 auto}
-.rpt-hdr{border-bottom:2px solid var(--terracotta);padding-bottom:16px;margin-bottom:24px}
-.rpt-hdr h1{color:var(--terracotta);font-size:20px;margin:0 0 4px}
-.rpt-msg{margin-bottom:16px;padding:12px 16px;border-radius:8px}
-.rpt-user{background:var(--cream-3)}
-.rpt-assistant{background:var(--cream-2);border:1px solid var(--border)}
-.rpt-role{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
-</style></head><body><div class="rpt-wrap">
-<div class="rpt-hdr"><h1>${escHtml(title)}</h1><div style="font-size:12px;color:var(--muted)">BidDeed.AI &middot; Generated ${escHtml(new Date().toISOString())}</div></div>
-${body}
-</div>
-<script>setTimeout(function(){window.print();},400);</script>
-</body></html>`;
-}
-// Static, no-JS-required shell for the public /r/:token share page.
-function shareLinkPageShell(title, inner) {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)} — BidDeed.AI</title>
-<style>
-${REPORT_DOC_TOKENS}
-body{font-family:Inter,Arial,sans-serif;background:var(--cream-1);color:var(--ink);margin:0;padding:32px}
-.wrap{max-width:820px;margin:0 auto}
-h1{color:var(--terracotta);font-size:20px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{border:1px solid var(--border);padding:8px 10px;text-align:left}
-th{background:var(--cream-3)}
-pre{white-space:pre-wrap;word-break:break-word;background:var(--cream-2);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:12px}
-.foot{margin-top:24px;font-size:11px;color:var(--muted)}
-</style></head><body><div class="wrap"><h1>${escHtml(title)}</h1>${inner}<div class="foot">BidDeed.AI &middot; Read-only shared report</div></div></body></html>`;
 }
 
-// ── Supabase Storage (chat-uploads + artifacts buckets, both private) ────────
+// ── Supabase Storage (chat-uploads bucket, private) ──────────────────────────
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB raw file cap
-async function storagePutObject(env, bucket, path, bytes, contentType) {
+async function storagePutObject(env, path, bytes, contentType) {
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) return false;
   try {
-    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/chat-uploads/${path}`, {
       method: 'POST',
       headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': contentType || 'application/octet-stream', 'x-upsert': 'true' },
       body: bytes,
     });
     return res.ok;
   } catch (_) { return false; }
-}
-async function storageGetObject(env, bucket, path) {
-  const key = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) return null;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
-    });
-    return res.ok ? res : null;
-  } catch (_) { return null; }
-}
-// 10-minute signed URL for a private object (issue #19847 C3 — report downloads).
-async function storageSignUrl(env, bucket, path, expiresInSeconds) {
-  const key = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) return null;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
-      method: 'POST',
-      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expiresIn: expiresInSeconds }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data && data.signedURL ? `${SUPABASE_URL}/storage/v1${data.signedURL}` : null;
-  } catch (_) { return null; }
 }
 
 // ── Upload text extraction — no npm deps (deploy is `wrangler deploy
@@ -1661,6 +1489,42 @@ function rateLimitReason(rl) {
   if (rl.hour_hits > rl.hour_limit) return `Hourly limit reached (${rl.hour_limit} messages/hour) — try again later`;
   if (rl.day_hits > rl.day_limit) return `Daily limit reached (${rl.day_limit} messages/day) — try again tomorrow`;
   return 'Weekly limit reached — upgrade to Investor for unlimited access';
+}
+
+// Free tier (issue #19925 C6) — separate, much tighter bucket than
+// chat_rate_check_v2 above; tightening/loosening it never touches the
+// existing paid-tier limits. IP is hashed (never stored raw) before it
+// leaves this function. Fails OPEN on any RPC error, same convention as
+// checkRateLimitV2, so a Supabase hiccup never hard-blocks anonymous chat.
+async function checkFreeTierRateLimit(ip) {
+  try {
+    const ipHash = await sha256Hex('free-tier-v1:' + ip);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/biddeed_free_tier_rate_check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ p_ip_hash: ipHash, p_max_per_day: 8 }),
+    });
+    if (!res.ok) return { allowed: true, hits: 0, limit: 8 };
+    const data = await res.json();
+    if (data && typeof data === 'object') return data;
+    return { allowed: true, hits: 0, limit: 8 };
+  } catch (_) { return { allowed: true, hits: 0, limit: 8 }; }
+}
+
+// Wraps a single completed text into the same one-shot SSE shape the router
+// branch below builds inline (data: {text} then [DONE]) -- used by the
+// BYOK/Ollama/free branches, all of which call a non-streaming upstream and
+// need to feed the same downstream SSE-parsing loop.
+function buildSingleEventSSEResponse(text) {
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+  (async () => {
+    if (text) await writer.write(encoder.encode('data: ' + JSON.stringify({ text }) + '\n\n'));
+    await writer.write(encoder.encode('data: [DONE]\n\n'));
+    await writer.close();
+  })();
+  return new Response(readable, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
 }
 
 // ── County data fetch ─────────────────────────────────────────────────────────
@@ -3174,8 +3038,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         // ── Sample report bypass — no auth, no billing, publicly accessible ──
         if (mcaId === MARION_SAMPLE_MCA_ID && apiKey === SAMPLE_REPORT_KEY) {
           const html = withPublicShell(renderS5ReportHtml(SAMPLE_STATIC_REPORT, { mcaId, keyLast8: apiKey.slice(-8), isSample: true }), path);
-          // 5 min, not 60: a restyle must not sit in visitors' browsers for an hour (2026-09-04).
-          return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+          return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
         }
 
         let access;
@@ -3960,7 +3823,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         }
         const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
         const storagePath = `${await sha256Hex(ownerEmail)}/${crypto.randomUUID()}-${safeName}`;
-        const stored = await storagePutObject(env, 'chat-uploads', storagePath, bytes, mime_type);
+        const stored = await storagePutObject(env, storagePath, bytes, mime_type);
         if (!stored) return new Response(JSON.stringify({ error: 'Storage upload failed' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const extraction = await extractUploadText(mime_type, filename, bytes);
         const row = await insertUpload(env, ownerEmail, conversation_id || null, { storagePath, filename, mimeType: mime_type, extractedText: extraction.text, extractionStatus: extraction.status });
@@ -3968,269 +3831,70 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         return new Response(JSON.stringify({ id: row.id, filename: row.filename, extraction_status: row.extraction_status, extracted_text_preview: (row.extracted_text || '').slice(0, 300) }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
-      // ══ Projects + Reports (issue #19847 C3 — Claude.ai Projects/Artifacts
-      // parity, renamed from "Deal Rooms" per the 2026-09-04 15:40 UTC scope
-      // update). All routes below build on the exact #19829 P1 chat identity
-      // (X-Chat-Token → verifyChatToken → owner_email) -- no new auth. ══════
-
-      // ── GET/POST /chat/api/projects ────────────────────────────────────────
-      if (path === '/chat/api/projects' && (method === 'GET' || method === 'POST')) {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      // ── GET/PUT/DELETE /chat/api/providers — Settings → Models (issue
+      // #19925 C6). Requires a verified chat session (same X-Chat-Token
+      // gate as /chat/api/conversations) — there is no anonymous BYOK/Ollama
+      // config, matching this app's existing identity model. ────────────
+      if (path === '/chat/api/providers' && (method === 'GET' || method === 'PUT' || method === 'DELETE')) {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Model providers not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const ownerEmail = await verifyChatToken(env, extractChatToken(request));
         if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+
         if (method === 'GET') {
-          const rows = await listProjects(env, ownerEmail);
-          return new Response(JSON.stringify({ projects: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
-        let rbody = {};
-        try { rbody = await request.json(); } catch (_) {}
-        const project = await createProject(env, ownerEmail, {
-          name: rbody.name, county: rbody.county, caseNumber: rbody.case_number, parcelId: rbody.parcel_id,
-          saleDate: rbody.sale_date, firstNote: rbody.first_note, source: rbody.source, intent: rbody.intent,
-        });
-        if (!project) return new Response(JSON.stringify({ error: 'Failed to create project' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ project }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── GET/PATCH/DELETE /chat/api/projects/:id — GET returns the S1
-      // "since you were here" greeting and advances last_viewed_at. ─────────
-      if (/^\/chat\/api\/projects\/[^/]+$/.test(path) && (method === 'GET' || method === 'PATCH' || method === 'DELETE')) {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const projectId = path.split('/')[4];
-        if (method === 'GET') {
-          const detail = await getProjectDetail(env, ownerEmail, projectId);
-          if (!detail) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-          return new Response(JSON.stringify(detail), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
-        const owned = await getProjectOwned(env, ownerEmail, projectId);
-        if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        if (method === 'DELETE') {
-          const ok = await deleteProject(env, ownerEmail, projectId);
-          return new Response(JSON.stringify({ ok }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
-        let pbody = {};
-        try { pbody = await request.json(); } catch (_) {}
-        const project = await updateProject(env, ownerEmail, projectId, pbody);
-        if (!project) return new Response(JSON.stringify({ error: 'Update failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ project }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── POST /chat/api/projects/:id/items — "Add to Project" ──────────────
-      if (/^\/chat\/api\/projects\/[^/]+\/items$/.test(path) && method === 'POST') {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const projectId = path.split('/')[4];
-        const owned = await getProjectOwned(env, ownerEmail, projectId);
-        if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        let ibody2 = {};
-        try { ibody2 = await request.json(); } catch (_) {}
-        const { kind, ref_id } = ibody2;
-        if (!PROJECT_ITEM_KINDS.has(kind) || !ref_id) return new Response(JSON.stringify({ error: 'kind (conversation|report|upload|parcel) and ref_id required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        if (kind === 'conversation' && !(await getConversationOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'conversation not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        if (kind === 'report' && !(await getReportOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'report not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        if (kind === 'upload' && !(await getUploadOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'upload not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const item = await addProjectItem(env, projectId, kind, ref_id);
-        if (!item) return new Response(JSON.stringify({ error: 'Failed to add item' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ item }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── GET/POST /chat/api/projects/:id/files — S1 "Files" (attachment +
-      // download abilities): upload/list, versioned by filename. ───────────
-      if (/^\/chat\/api\/projects\/[^/]+\/files$/.test(path) && (method === 'GET' || method === 'POST')) {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const projectId = path.split('/')[4];
-        const owned = await getProjectOwned(env, ownerEmail, projectId);
-        if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        if (method === 'GET') {
-          const files = await listProjectFiles(env, ownerEmail, projectId);
-          return new Response(JSON.stringify({ files }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
-        const clf = parseInt(request.headers.get('Content-Length') || '0', 10);
-        if (clf > MAX_UPLOAD_BYTES * 1.4) return new Response(JSON.stringify({ error: 'File too large (8MB max)' }), { status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        let fbody = {};
-        try { fbody = await request.json(); } catch (_) {
-          return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
-        const { filename, mime_type, data_base64 } = fbody;
-        if (!filename || !data_base64) return new Response(JSON.stringify({ error: 'filename and data_base64 required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        let fbytes;
-        try { fbytes = b64urlToBytesStd(data_base64); } catch (_) {
-          return new Response(JSON.stringify({ error: 'Invalid base64' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
-        if (fbytes.length > MAX_UPLOAD_BYTES) return new Response(JSON.stringify({ error: 'File too large (8MB max)' }), { status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const safeFname = String(filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
-        const version = await nextFileVersion(env, ownerEmail, projectId, safeFname);
-        const storagePath = `${projectId}/${safeFname}.v${version}`;
-        const stored = await storagePutObject(env, 'artifacts', storagePath, fbytes, mime_type);
-        if (!stored) return new Response(JSON.stringify({ error: 'Storage upload failed' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const extraction = await extractUploadText(mime_type, filename, fbytes);
-        const row = await insertProjectFile(env, ownerEmail, projectId, { storagePath, filename: safeFname, mimeType: mime_type, version, extractedText: extraction.text, extractionStatus: extraction.status });
-        if (!row) return new Response(JSON.stringify({ error: 'Failed to record file' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ file: row }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── PATCH (rename) / DELETE /chat/api/projects/:id/files/:fileId ───────
-      if (/^\/chat\/api\/projects\/[^/]+\/files\/[^/]+$/.test(path) && (method === 'PATCH' || method === 'DELETE')) {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const fileId = path.split('/')[6];
-        const file = await getProjectFileOwned(env, ownerEmail, fileId);
-        if (!file) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        if (method === 'DELETE') {
-          const ok = await deleteProjectFile(env, ownerEmail, fileId);
-          return new Response(JSON.stringify({ ok }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        }
-        let rnbody = {};
-        try { rnbody = await request.json(); } catch (_) {}
-        if (!rnbody.filename) return new Response(JSON.stringify({ error: 'filename required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const renamed = await renameProjectFile(env, ownerEmail, fileId, rnbody.filename);
-        if (!renamed) return new Response(JSON.stringify({ error: 'Rename failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ file: renamed }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── GET /chat/api/projects/:id/files/:fileId/download — 10-min signed URL ──
-      if (/^\/chat\/api\/projects\/[^/]+\/files\/[^/]+\/download$/.test(path) && method === 'GET') {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Projects not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const fileId = path.split('/')[6];
-        const file = await getProjectFileOwned(env, ownerEmail, fileId);
-        if (!file) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const signedUrl = await storageSignUrl(env, 'artifacts', file.storage_path, 600);
-        if (!signedUrl) return new Response(JSON.stringify({ error: 'Failed to sign URL' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ url: signedUrl, filename: file.filename, expires_in: 600 }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── GET /chat/api/reports?project=|conversation= ──────────────────────
-      if (path === '/chat/api/reports' && method === 'GET') {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const rows = await listReports(env, ownerEmail, { project: url.searchParams.get('project'), conversation: url.searchParams.get('conversation') });
-        return new Response(JSON.stringify({ reports: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── POST /chat/api/reports — generate from a conversation ─────────────
-      // JSON is always produced; PDF is always produced via the existing
-      // report engine's print-to-PDF mechanism (see buildConversationReportHtml);
-      // CSV is produced only when the conversation actually contains a
-      // markdown property table (see extractFirstMarkdownTable) -- never
-      // fabricated.
-      if (path === '/chat/api/reports' && method === 'POST') {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        let gbody = {};
-        try { gbody = await request.json(); } catch (_) {}
-        const { conversation_id, project_id, title } = gbody;
-        if (!conversation_id) return new Response(JSON.stringify({ error: 'conversation_id required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const messages = await getConversationMessages(env, ownerEmail, conversation_id);
-        if (messages === null) return new Response(JSON.stringify({ error: 'conversation not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        if (project_id && !(await getProjectOwned(env, ownerEmail, project_id))) return new Response(JSON.stringify({ error: 'project not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const reportTitle = String(title || 'Deed conversation report').slice(0, 160);
-        const version = await nextReportVersion(env, ownerEmail, conversation_id, project_id);
-        const ownerHash = await sha256Hex(ownerEmail);
-        const basePath = `${ownerHash}/${conversation_id}/v${version}`;
-        const created = [];
-
-        const jsonBytes = new TextEncoder().encode(JSON.stringify({ conversation_id, title: reportTitle, generated_at: new Date().toISOString(), messages }, null, 2));
-        if (await storagePutObject(env, 'artifacts', `${basePath}/report.json`, jsonBytes, 'application/json')) {
-          const row = await createReportRow(env, { owner_email: ownerEmail, project_id: project_id || null, conversation_id, title: reportTitle, version, format: 'json', storage_path: `${basePath}/report.json` });
-          if (row) created.push(row);
+          const { ok, data } = await providerList(env, ownerEmail);
+          if (!ok) return new Response(JSON.stringify({ error: 'Failed to load providers' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          return new Response(JSON.stringify({ providers: data || [] }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
-        const htmlBytes = new TextEncoder().encode(buildConversationReportHtml(reportTitle, messages));
-        if (await storagePutObject(env, 'artifacts', `${basePath}/report.html`, htmlBytes, 'text/html')) {
-          const row = await createReportRow(env, { owner_email: ownerEmail, project_id: project_id || null, conversation_id, title: reportTitle, version, format: 'pdf', storage_path: `${basePath}/report.html` });
-          if (row) created.push(row);
-        }
-
-        const table = extractFirstMarkdownTable(messages);
-        if (table) {
-          const csvBytes = new TextEncoder().encode(tableToCsv(table));
-          if (await storagePutObject(env, 'artifacts', `${basePath}/report.csv`, csvBytes, 'text/csv')) {
-            const row = await createReportRow(env, { owner_email: ownerEmail, project_id: project_id || null, conversation_id, title: reportTitle, version, format: 'csv', storage_path: `${basePath}/report.csv` });
-            if (row) created.push(row);
+        if (method === 'PUT') {
+          let pbody = {};
+          try { pbody = await request.json(); } catch (_) {
+            return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
           }
+          const { provider, api_key, base_url, model, cap_tokens } = pbody;
+          if (!PROVIDER_ALLOWLIST.includes(provider)) return new Response(JSON.stringify({ error: 'Invalid provider' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          const { ok, status, data } = await providerUpsert(env, ownerEmail, provider, api_key, base_url, model, cap_tokens);
+          if (!ok) {
+            // pgcrypto/RPC errors (e.g. "a valid api_key is required for X") are
+            // safe to surface verbatim — they never include the key itself,
+            // only validation messages (see biddeed_provider_upsert's
+            // RAISE EXCEPTION text in the migration).
+            return new Response(JSON.stringify({ error: (data && data.message) || 'Failed to save provider' }), { status: status === 400 ? 400 : 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          }
+          return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
-        if (!created.length) return new Response(JSON.stringify({ error: 'Report generation failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ reports: created }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        // DELETE
+        const delProvider = url.searchParams.get('provider');
+        if (!PROVIDER_ALLOWLIST.includes(delProvider)) return new Response(JSON.stringify({ error: 'Invalid provider' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const { ok: delOk, data: delData } = await providerDelete(env, ownerEmail, delProvider);
+        if (!delOk) return new Response(JSON.stringify({ error: 'Failed to delete provider' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ deleted: !!delData }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
-      // ── GET /chat/api/reports/:id/download?format= — 10-minute signed URL ──
-      if (/^\/chat\/api\/reports\/[^/]+\/download$/.test(path) && method === 'GET') {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      // ── POST /chat/api/providers/test — "Ping" (issue #19925 C6). Tests
+      // either the just-saved provider (no api_key/base_url in the body —
+      // decrypts the stored one) or an in-flight, not-yet-saved value (key
+      // present in the body — never persisted by this route). Either way the
+      // key is only ever held in this request's memory. ──────────────────
+      if (path === '/chat/api/providers/test' && method === 'POST') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Model providers not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const ownerEmail = await verifyChatToken(env, extractChatToken(request));
         if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const reportId = path.split('/')[4];
-        const report = await getReportOwned(env, ownerEmail, reportId);
-        if (!report) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const wantFormat = url.searchParams.get('format');
-        if (wantFormat && wantFormat !== report.format) return new Response(JSON.stringify({ error: `This report is format=${report.format}, not ${wantFormat}` }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const signedUrl = await storageSignUrl(env, 'artifacts', report.storage_path, 600);
-        if (!signedUrl) return new Response(JSON.stringify({ error: 'Failed to sign URL' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ url: signedUrl, format: report.format, expires_in: 600 }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── POST /chat/api/reports/:id/share — create a public /r/:token link ──
-      if (/^\/chat\/api\/reports\/[^/]+\/share$/.test(path) && method === 'POST') {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const reportId = path.split('/')[4];
-        const report = await getReportOwned(env, ownerEmail, reportId);
-        if (!report) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const token = newShareToken();
-        const link = await createShareLink(env, token, reportId);
-        if (!link) return new Response(JSON.stringify({ error: 'Failed to create share link' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        return new Response(JSON.stringify({ token, url: `https://biddeed.ai/r/${token}` }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── POST /chat/api/reports/:id/share/revoke ────────────────────────────
-      if (/^\/chat\/api\/reports\/[^/]+\/share\/revoke$/.test(path) && method === 'POST') {
-        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
-        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const reportId = path.split('/')[4];
-        const report = await getReportOwned(env, ownerEmail, reportId);
-        if (!report) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-        const ok = await revokeShareLinksForReport(env, reportId);
-        return new Response(JSON.stringify({ ok }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
-      }
-
-      // ── GET /r/:token — public, read-only, server-rendered share page. No
-      // auth, no client JS required to view content (a small print script is
-      // present only inside a stored 'pdf'-format HTML report itself, as
-      // progressive enhancement -- the content renders and is readable
-      // without it). ──────────────────────────────────────────────────────
-      if (/^\/r\/[^/]+$/.test(path) && method === 'GET') {
-        const token = path.split('/')[2];
-        const link = await getShareLink(env, token);
-        if (!link || link.revoked_at) return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
-        const reportRes = await sbAdmin(env, `/rest/v1/biddeed_reports?id=eq.${encodeURIComponent(link.report_id)}&select=id,title,format,storage_path`);
-        const reportRows = reportRes && reportRes.ok ? await reportRes.json() : [];
-        const report = reportRows[0];
-        if (!report) return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
-        const obj = await storageGetObject(env, 'artifacts', report.storage_path);
-        if (!obj) return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
-        if (report.format === 'pdf') {
-          return new Response(await obj.text(), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        let tbody = {};
+        try { tbody = await request.json(); } catch (_) {}
+        const { provider } = tbody;
+        if (!PROVIDER_ALLOWLIST.includes(provider)) return new Response(JSON.stringify({ error: 'Invalid provider' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let apiKey = tbody.api_key || null;
+        let baseUrl = tbody.base_url || null;
+        if (!apiKey && !baseUrl) {
+          const { ok, data } = await providerGetDecrypted(env, ownerEmail, provider);
+          if (!ok || !data) return new Response(JSON.stringify({ error: 'No saved config for this provider — enter a key/URL first' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+          apiKey = data.api_key || null;
+          baseUrl = data.base_url || null;
         }
-        if (report.format === 'csv') {
-          const rows = (await obj.text()).split(/\r?\n/).filter(Boolean).map(parseCsvLine);
-          const [head, ...body2] = rows;
-          const tableHtml = '<table><tr>' + head.map(h => `<th>${escHtml(h)}</th>`).join('') + '</tr>' + body2.map(r => '<tr>' + r.map(c => `<td>${escHtml(c)}</td>`).join('') + '</tr>').join('') + '</table>';
-          return new Response(shareLinkPageShell(report.title || 'Report', tableHtml), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-        }
-        const jsonText = await obj.text();
-        return new Response(shareLinkPageShell(report.title || 'Report', `<pre>${escHtml(jsonText)}</pre>`), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        const result = await pingProvider(provider, apiKey, baseUrl);
+        return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
       // ── POST /chat/api — Streaming SSE ───────────────────────────────────
@@ -4249,7 +3913,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
-        const { messages, county, hook, conversation_id, upload_id, public_records, project_id } = body;
+        const { messages, county, hook, conversation_id, upload_id, public_records } = body;
         if (!Array.isArray(messages) || messages.length === 0)
           return new Response(JSON.stringify({ error: 'messages required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (messages.length > 20)
@@ -4258,19 +3922,20 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         // ── Persisted chat (#19829 P1) — only active for identified users
         // (X-Chat-Token verified) and never blocks/degrades anonymous chat.
         const chatOwnerEmail = hasServiceRole(env) ? await verifyChatToken(env, extractChatToken(request)) : null;
+
+        // ── Model provider selection (issue #19925 C6). X-Chat-Provider ∈
+        // router|byok|ollama|free; anything else/missing falls back to the
+        // architecture-decided default: signed-in users get the Smart
+        // Router, anonymous visitors get the free tier.
+        const requestedProviderHeader = (request.headers.get('X-Chat-Provider') || '').toLowerCase().trim();
+        const effectiveProvider = ['router', 'byok', 'ollama', 'free'].includes(requestedProviderHeader)
+          ? requestedProviderHeader
+          : (chatOwnerEmail ? 'router' : 'free');
+
         let activeConversationId = null;
         let attachmentCtx = '';
         if (chatOwnerEmail) {
-          // S4 project-scoped chat — a project's conversation is created once
-          // and reused on every subsequent turn (composer defaults to the
-          // project's own thread; it is never re-created per message).
-          let activeProject = null;
-          if (project_id) activeProject = await getProjectOwned(env, chatOwnerEmail, project_id);
-          if (activeProject && activeProject.conversation_id && !conversation_id) {
-            const owned = await getConversationOwned(env, chatOwnerEmail, activeProject.conversation_id);
-            if (owned) activeConversationId = activeProject.conversation_id;
-          }
-          if (!activeConversationId && conversation_id) {
+          if (conversation_id) {
             const owned = await getConversationOwned(env, chatOwnerEmail, conversation_id);
             activeConversationId = owned ? conversation_id : null;
           }
@@ -4278,9 +3943,6 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
             const firstUserMsg = messages.find(m => m.role === 'user');
             const created = await createConversation(env, chatOwnerEmail, String(firstUserMsg?.content || 'New chat').slice(0, 60));
             activeConversationId = created?.id || null;
-            if (activeProject && activeConversationId && !activeProject.conversation_id) {
-              await updateProject(env, chatOwnerEmail, activeProject.id, { conversation_id: activeConversationId });
-            }
           }
           if (upload_id) {
             const upload = await getUploadOwned(env, chatOwnerEmail, upload_id);
@@ -4288,13 +3950,6 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
               attachmentCtx = `\n\nATTACHMENT — the user uploaded a file named "${upload.filename}". Extracted text follows; cite this filename when you reference facts from it, and do not invent content beyond what's shown:\n"""\n${upload.extracted_text.slice(0, 6000)}\n"""`;
             } else if (upload && upload.extraction_status !== 'ok') {
               attachmentCtx = `\n\nATTACHMENT — the user uploaded a file named "${upload.filename}" but automatic text extraction was not available for this file type. Ask the user to paste or describe the key details if you need them.`;
-            }
-          }
-          if (activeProject) {
-            const projectFiles = await listProjectFilesForContext(env, chatOwnerEmail, activeProject.id);
-            if (projectFiles.length) {
-              const fileBlocks = projectFiles.map(f => `--- FILE: "${f.filename}" (v${f.version}) ---\n${String(f.extracted_text || '').slice(0, 3000)}`).join('\n\n');
-              attachmentCtx += `\n\nPROJECT FILES — this project ("${activeProject.name}") has the following uploaded files. Cite the exact filename in quotes when you use a fact from one of them, and never invent content beyond what's shown:\n${fileBlocks}`;
             }
           }
         }
@@ -4428,14 +4083,75 @@ ${DISCLAIMER_SHORT}`;
         const useGemini = false;  // always use claude-router
 
         const routerProxyKey = env.ROUTER_PROXY_KEY;
-        if (!useGemini && !routerProxyKey) {
+        if (effectiveProvider === 'router' && !useGemini && !routerProxyKey) {
           await logErr(env, '/chat/api', 'Missing ROUTER_PROXY_KEY binding', '', 500);
           return new Response(JSON.stringify({ error: 'Service configuration error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
 
         let upstreamRes;
         try {
-          if (useGemini) {
+          if (effectiveProvider === 'byok' || effectiveProvider === 'ollama') {
+            // ── BYOK / Ollama (issue #19925 C6) — Smart Router is fully
+            // bypassed for this user's chats only; everyone else is
+            // unaffected. Requires a verified chat session (same identity
+            // model as Settings → Models itself). ──────────────────────
+            if (!chatOwnerEmail) {
+              return new Response(JSON.stringify({ error: 'Sign in to use your own key or Ollama' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            const { ok: provOk, data: provData } = await providerGetActiveDecrypted(env, chatOwnerEmail);
+            if (!provOk || !provData) {
+              return new Response(JSON.stringify({ error: 'No model provider configured — add one in Settings → Models' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            const byokMessages = messages.map(m => ({ role: m.role, content: String(m.content) }));
+            let providerText = '';
+            try {
+              const result = provData.provider === 'ollama'
+                ? await callOllamaChat(provData.base_url, provData.model, byokMessages, systemPrompt, 4096)
+                : await callByokProvider(provData.provider, provData.api_key, provData.model, byokMessages, systemPrompt, 4096);
+              providerText = result.text;
+            } catch (e) {
+              // Never log e's message alongside the key -- it can't contain the
+              // key (callByok*/callOllamaChat only throw status+response-body
+              // text, see their definitions above), but callers still log
+              // provider name only, never provData itself.
+              await logErr(env, '/chat/api', `${provData.provider} call failed`, String(e), 502);
+              return new Response(JSON.stringify({ error: `Your ${provData.provider} connection failed — check Settings → Models. (${String(e).slice(0, 200)})` }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            upstreamRes = buildSingleEventSSEResponse(providerText);
+          } else if (effectiveProvider === 'free') {
+            // ── Free tier (issue #19925 C6) — hard per-IP daily cap, own
+            // rate-limit bucket (never touches chat_rate_check_v2's limits),
+            // then a closed OpenRouter-free-only cascade inside claude-router
+            // (force_tier: 'free', see supabase/functions/claude-router).
+            const freeRl = await checkFreeTierRateLimit(ip);
+            if (!freeRl.allowed) {
+              return new Response(JSON.stringify({ error: `Free tier limit reached for today (${freeRl.hits}/${freeRl.limit}). Sign in for Smart Router access.` }), { status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            if (!routerProxyKey) {
+              await logErr(env, '/chat/api', 'Missing ROUTER_PROXY_KEY binding (free tier)', '', 500);
+              return new Response(JSON.stringify({ error: 'Service configuration error' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            const freeRouterResp = await fetch(`${SUPABASE_URL}/functions/v1/claude-router`, {
+              method: 'POST',
+              headers: { 'X-Router-Key': routerProxyKey, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                messages: messages.map(m => ({ role: m.role, content: String(m.content) })),
+                system: systemPrompt,
+                max_tokens: 4096,
+                stream: false,
+                source: 'biddeed-chat-free',
+                force_tier: 'free',
+              }),
+            });
+            if (!freeRouterResp.ok) {
+              const errText = await freeRouterResp.text();
+              await logErr(env, '/chat/api', 'claude-router free tier non-200', errText, freeRouterResp.status);
+              return new Response(JSON.stringify({ error: 'Free tier temporarily unavailable. Please try again in a moment, or sign in for Smart Router access.' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+            }
+            const freeRouterData = await freeRouterResp.json();
+            const freeNote = '_Free tier: slower, rate-limited._\n\n';
+            upstreamRes = buildSingleEventSSEResponse(freeNote + (freeRouterData.text || ''));
+          } else if (useGemini) {
             upstreamRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${geminiKey}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -6178,9 +5894,6 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .chats-search{padding:8px 12px;border-bottom:1px solid var(--border)}
 .chats-search input{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--text);font-size:12px;font-family:inherit;outline:none}
 .chats-list{flex:1;overflow-y:auto;padding:6px}
-#projects-list.chats-list{flex:0 1 auto;max-height:180px}
-.project-banner{margin:8px 14px 0;padding:8px 12px;border-radius:8px;background:var(--navy2);border:1px solid rgba(245,158,11,.3);color:var(--muted);font-size:11.5px;line-height:1.5}
-.project-banner strong{color:var(--text)}
 .chats-empty{color:var(--muted);font-size:11.5px;text-align:center;padding:24px 12px}
 .chat-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:9px 10px;cursor:pointer;font-family:inherit}
 .chat-item:hover{background:var(--navy3)}
@@ -6189,6 +5902,33 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .chats-signin{padding:14px 12px;font-size:11.5px;color:var(--muted)}
 .chats-signin input{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--text);font-size:12px;font-family:inherit;outline:none;margin:8px 0}
 .chats-signin button{width:100%;background:var(--orange);color:var(--navy);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+
+/* Settings → Models (issue #19925 C6) */
+.models-scrim{position:fixed;inset:0;background:rgba(251,250,247,.6);z-index:2099;display:none}
+.models-scrim.open{display:block}
+.models-modal{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(92vw,440px);max-height:86vh;overflow-y:auto;background:var(--navy2);border:1px solid var(--border);border-radius:14px;z-index:2100;padding:16px}
+.models-modal.open{display:block}
+.models-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.models-hdr h3{font-size:13.5px;color:var(--text);flex:1}
+.models-close{background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer}
+.models-note{font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+.models-row{margin-bottom:10px}
+.models-row label{display:block;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px}
+.models-row select,.models-row input{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:8px 9px;color:var(--text);font-size:12.5px;font-family:inherit;outline:none}
+.models-btns{display:flex;gap:8px;margin-top:12px}
+.models-btns button{flex:1;border-radius:8px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;border:none}
+.models-save{background:var(--orange);color:var(--navy)}
+.models-ping{background:var(--navy3);color:var(--text);border:1px solid var(--border)!important}
+.models-status{font-size:11px;margin-top:8px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.models-status.ok{color:var(--green)}
+.models-status.err{color:#b42318}
+.models-saved{border-top:1px solid var(--border);margin-top:14px;padding-top:12px}
+.models-saved h4{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px}
+.models-saved-item{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:11.5px;color:var(--text);border-bottom:1px solid var(--border)}
+.models-saved-item:last-child{border-bottom:none}
+.models-saved-item .msi-active{color:var(--orange);font-weight:700;font-size:10px}
+.models-saved-item .msi-del{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px}
+.models-saved-item .msi-del:hover{color:#b42318}
 
 /* Message actions row (issue #19829 P1) */
 .msg-actions{display:flex;gap:4px;margin:4px 0 0 40px;flex-wrap:wrap}
@@ -6260,15 +6000,63 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
   <div class="chats-hdr">
     <h3>Recent chats</h3>
     <button class="chats-new" id="chats-new-btn" type="button">+ New</button>
+    <button class="chats-close" id="chats-close-btn" type="button" aria-label="Close">✕</button>
   </div>
   <div class="chats-search"><input type="text" id="chats-search-input" placeholder="Search your chats..."></div>
   <div class="chats-list" id="chats-list"><div class="chats-empty">Loading…</div></div>
 </aside>
 
+<div class="models-scrim" id="models-scrim"></div>
+<aside class="models-modal" id="models-modal" aria-label="Model providers">
+  <div class="models-hdr"><h3>Model providers</h3><button class="models-close" id="models-close-btn" type="button" aria-label="Close">✕</button></div>
+  <div class="models-note">By default Deed runs on our Smart Router — nothing to configure. Bring your own key to call a provider directly with your own account, or point Deed at your own Ollama server. Only one is active at a time; switching back to the Smart Router just means removing or not selecting a saved provider.</div>
+  <div id="models-signed-out" class="chats-signin" style="display:none">
+    Sign in (same email as Recent chats) to configure a provider.
+    <input type="email" id="models-signin-email" placeholder="your@email.com" autocomplete="email">
+    <button id="models-signin-btn" type="button">Sign in</button>
+  </div>
+  <div id="models-signed-in" style="display:none">
+    <div class="models-row">
+      <label>Type</label>
+      <select id="models-kind">
+        <option value="byok">My key (bring your own API key)</option>
+        <option value="ollama">Ollama (self-hosted, public URL)</option>
+      </select>
+    </div>
+    <div id="models-byok-fields">
+      <div class="models-row">
+        <label>Provider</label>
+        <select id="models-provider">
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="gemini">Gemini</option>
+          <option value="openrouter">OpenRouter</option>
+        </select>
+      </div>
+      <div class="models-row"><label>API key</label><input type="password" id="models-api-key" placeholder="sk-..." autocomplete="off"></div>
+      <div class="models-row"><label>Model (optional)</label><input type="text" id="models-model" placeholder="e.g. claude-haiku-4-5-20251001"></div>
+      <div class="models-row"><label>Monthly token cap (optional)</label><input type="number" id="models-cap" placeholder="e.g. 500000" min="0"></div>
+    </div>
+    <div id="models-ollama-fields" style="display:none">
+      <div class="models-row"><label>Base URL (must be internet-reachable — tunnel or public host)</label><input type="text" id="models-base-url" placeholder="https://your-ollama-host.example.com"></div>
+      <div class="models-row"><label>Model</label><input type="text" id="models-ollama-model" placeholder="e.g. llama3.1"></div>
+    </div>
+    <div class="models-btns">
+      <button class="models-save" id="models-save-btn" type="button">Save</button>
+      <button class="models-ping" id="models-ping-btn" type="button">Ping</button>
+    </div>
+    <div class="models-status" id="models-status"></div>
+    <div class="models-saved">
+      <h4>Saved providers</h4>
+      <div id="models-saved-list"><div class="chats-empty">None yet</div></div>
+    </div>
+  </div>
+</aside>
+
 <div class="split">
   <div class="chat-col">
-<div class="chat-toolbar"><button class="chats-btn" id="report-open-btn" type="button" title="Report">📄 Report</button><button class="chats-btn" id="chats-open-btn" type="button" title="Projects and Recent chats">🕘 Chats</button></div>
-<div class="project-banner" id="project-banner" style="display:none"></div>
+<div class="chat-toolbar"><button class="chats-btn" id="chats-open-btn" type="button" title="Recent chats">🕘 Chats</button></div>
 ${countyBar}
 
 <div class="msgs" id="msgs">
@@ -6340,6 +6128,7 @@ ${countyBar}
         <button class="plus-item" id="plus-screenshot" type="button">🖼️ Paste screenshot</button>
         <button class="plus-item" id="plus-records" type="button">🔎 Public-records search</button>
         <button class="plus-item" id="plus-research" type="button">🔬 Deep Research → SIGNAL$</button>
+        <button class="plus-item" id="plus-models" type="button">⚙️ Model providers</button>
       </div>
       <input type="file" id="plus-file-input" accept=".pdf,.csv,.txt,.md,application/pdf,text/csv,text/plain,text/markdown" style="display:none">
     </div>
@@ -6393,8 +6182,8 @@ let H = [], busy = false, emailDone = false, s5Shown = false, msgCount = 0, retr
 // Chat identity + persistence state (issue #19829 P1) — populated once the
 // user has an email on file (reuses the existing email-capture flow) and a
 // chat_token has been issued; null token = anonymous chat, unaffected.
-var chatState={token:null,email:null,conversationId:null,projectId:null,projectCounty:null,projectSignal:null,pendingUploadId:null,pendingUploadName:null,publicRecords:false};
-try{chatState.token=localStorage.getItem('bd_chat_token')||null;chatState.email=localStorage.getItem('bd_chat_email')||null;}catch(e){}
+var chatState={token:null,email:null,conversationId:null,projectId:null,projectCounty:null,projectSignal:null,pendingUploadId:null,pendingUploadName:null,publicRecords:false,provider:null};
+try{chatState.token=localStorage.getItem('bd_chat_token')||null;chatState.email=localStorage.getItem('bd_chat_email')||null;chatState.provider=localStorage.getItem('bd_chat_provider')||null;}catch(e){}
 const MAX_RETRIES = 3;
 
 // County bar
@@ -6622,7 +6411,7 @@ function scrollBottom(){const m=document.getElementById('msgs');if(m){m.scrollTo
 
 function actionsHtml(role){
   if(role==='assistant'){
-    return '<div class="msg-actions" data-role="assistant"><button data-action="copy" title="Copy">⧉</button><button data-action="retry" title="Retry">↻</button><button data-action="thumbsup" title="Good response">👍</button><button data-action="thumbsdown" title="Bad response">👎</button><button data-action="addproject" title="Add this chat to a Project">➕ Project</button><button data-action="setalert" disabled title="Coming in P3 - Alerts and Watches">🔔 Alert</button></div>';
+    return '<div class="msg-actions" data-role="assistant"><button data-action="copy" title="Copy">⧉</button><button data-action="retry" title="Retry">↻</button><button data-action="thumbsup" title="Good response">👍</button><button data-action="thumbsdown" title="Bad response">👎</button><button data-action="addroom" disabled title="Coming in P2 - Deal Rooms">➕ Room</button><button data-action="setalert" disabled title="Coming in P3 - Alerts and Watches">🔔 Alert</button></div>';
   }
   return '<div class="msg-actions" data-role="user"><button data-action="edit" title="Edit">✎ Edit</button></div>';
 }
@@ -6686,9 +6475,9 @@ async function attemptStream(){
   try{
     const reqHeaders={'Content-Type':'application/json'};
     if(chatState.token)reqHeaders['X-Chat-Token']=chatState.token;
+    if(chatState.provider)reqHeaders['X-Chat-Provider']=chatState.provider;
     const reqBody={messages:H,county:COUNTY,hook:HOOK};
     if(chatState.conversationId)reqBody.conversation_id=chatState.conversationId;
-    if(chatState.projectId)reqBody.project_id=chatState.projectId;
     if(chatState.pendingUploadId)reqBody.upload_id=chatState.pendingUploadId;
     if(chatState.publicRecords)reqBody.public_records=true;
     const res=await fetch('/chat/api',{method:'POST',headers:reqHeaders,body:JSON.stringify(reqBody),signal:controller.signal});
@@ -7231,9 +7020,8 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   if(closeBtn)closeBtn.addEventListener('click',closeDrawer);
   if(scrim)scrim.addEventListener('click',closeDrawer);
   if(newBtn)newBtn.addEventListener('click',function(){
-    chatState.conversationId=null;chatState.projectId=null;H=[];
+    chatState.conversationId=null;H=[];
     document.getElementById('msgs').innerHTML='';
-    var pb=document.getElementById('project-banner');if(pb)pb.style.display='none';
     closeDrawer();
   });
   var searchTimer=null;
@@ -7361,10 +7149,9 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     }else if(action==='edit'&&bbl){
       document.getElementById('inp').value=bbl.textContent||'';
       document.getElementById('inp').focus();
-    }else if(action==='addproject'){
-      if(typeof window.bdAddCurrentChatToProject==='function')window.bdAddCurrentChatToProject();
     }
   });
+})();
 
   // ── Projects (issue #19847 C3, Claude.ai "Projects" parity — one
   // property/bid the user is working toward; carries the 5 Sticky Layers,
@@ -7633,6 +7420,135 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   if(reportOpenBtn)reportOpenBtn.addEventListener('click',function(){
     requireIdentityThen(function(){loadReportsPanel();});
   });
+
+  // ── Settings → Models: BYOK / Ollama (issue #19925 C6) ──────────────────────
+  // Smart Router stays the default for everyone — this panel only sets
+  // chatState.provider, sent as X-Chat-Provider on /chat/api. Anonymous
+  // visitors default to the free tier server-side (src/worker.js's
+  // effectiveProvider logic) with no UI here at all — signing in is required
+  // to configure BYOK/Ollama, matching Settings → Models' own auth gate.
+  (function(){
+    var plusModels=document.getElementById('plus-models');
+    var scrim=document.getElementById('models-scrim');
+    var modal=document.getElementById('models-modal');
+    var closeBtn=document.getElementById('models-close-btn');
+    var signedOut=document.getElementById('models-signed-out');
+    var signedIn=document.getElementById('models-signed-in');
+    var signinEmail=document.getElementById('models-signin-email');
+    var signinBtn=document.getElementById('models-signin-btn');
+    var kindSel=document.getElementById('models-kind');
+    var byokFields=document.getElementById('models-byok-fields');
+    var ollamaFields=document.getElementById('models-ollama-fields');
+    var providerSel=document.getElementById('models-provider');
+    var apiKeyInp=document.getElementById('models-api-key');
+    var modelInp=document.getElementById('models-model');
+    var capInp=document.getElementById('models-cap');
+    var baseUrlInp=document.getElementById('models-base-url');
+    var ollamaModelInp=document.getElementById('models-ollama-model');
+    var saveBtn=document.getElementById('models-save-btn');
+    var pingBtn=document.getElementById('models-ping-btn');
+    var statusEl=document.getElementById('models-status');
+    var savedList=document.getElementById('models-saved-list');
+    if(!modal)return;
+  
+    function esc3(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  
+    function closePlusMenuIfOpen(){
+      var pm=document.getElementById('plus-menu'),pb=document.getElementById('plus-btn');
+      if(pm&&pm.classList.contains('open')){pm.classList.remove('open');if(pb)pb.setAttribute('aria-expanded','false');}
+    }
+    function showModal(){
+      scrim.classList.add('open');modal.classList.add('open');
+      if(chatState.token){signedOut.style.display='none';signedIn.style.display='block';loadSaved();}
+      else{signedOut.style.display='block';signedIn.style.display='none';}
+    }
+    function hideModal(){scrim.classList.remove('open');modal.classList.remove('open');}
+    if(plusModels)plusModels.addEventListener('click',function(){closePlusMenuIfOpen();showModal();});
+    if(closeBtn)closeBtn.addEventListener('click',hideModal);
+    if(scrim)scrim.addEventListener('click',hideModal);
+  
+    if(signinBtn)signinBtn.addEventListener('click',function(){
+      var email=(signinEmail.value||'').trim();
+      if(!email||email.indexOf('@')===-1)return;
+      signinBtn.textContent='...';
+      ensureChatIdentity(email).then(function(token){
+        signinBtn.textContent='Sign in';
+        if(token){signedOut.style.display='none';signedIn.style.display='block';loadSaved();}
+      });
+    });
+  
+    function syncKind(){
+      var kind=kindSel.value;
+      byokFields.style.display=kind==='byok'?'block':'none';
+      ollamaFields.style.display=kind==='ollama'?'block':'none';
+    }
+    if(kindSel)kindSel.addEventListener('change',syncKind);
+    syncKind();
+  
+    function setStatus(text,cls){statusEl.textContent=text;statusEl.className='models-status'+(cls?' '+cls:'');}
+  
+    function currentPayload(forTest){
+      if(kindSel.value==='ollama')return{provider:'ollama',base_url:(baseUrlInp.value||'').trim(),model:(ollamaModelInp.value||'').trim()};
+      var p={provider:providerSel.value};
+      var m=(modelInp.value||'').trim();if(m)p.model=m;
+      var key=(apiKeyInp.value||'').trim();if(key)p.api_key=key;
+      if(!forTest){var cap=parseInt(capInp.value,10);if(!isNaN(cap)&&cap>0)p.cap_tokens=cap;}
+      return p;
+    }
+  
+    if(saveBtn)saveBtn.addEventListener('click',function(){
+      if(!chatState.token)return;
+      var payload=currentPayload(false);
+      if(payload.provider!=='ollama'&&!payload.api_key){setStatus('Enter an API key first.','err');return;}
+      if(payload.provider==='ollama'&&!payload.base_url){setStatus('Enter a base URL first.','err');return;}
+      setStatus('Saving…');
+      fetch('/chat/api/providers',{method:'PUT',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify(payload)})
+        .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+        .then(function(res){
+          if(!res.ok){setStatus('Save failed: '+((res.d&&res.d.error)||'unknown error'),'err');return;}
+          apiKeyInp.value='';
+          setStatus('Saved. Deed will use this provider next (last 4: '+(res.d.last4||'—')+').','ok');
+          loadSaved();
+        }).catch(function(){setStatus('Save failed — network error.','err');});
+    });
+  
+    if(pingBtn)pingBtn.addEventListener('click',function(){
+      if(!chatState.token)return;
+      setStatus('Pinging…');
+      fetch('/chat/api/providers/test',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify(currentPayload(true))})
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d&&d.ok)setStatus('✓ Reachable. Models: '+((d.models||[]).slice(0,5).join(', ')||'(none listed)'),'ok');
+          else setStatus('✗ '+((d&&d.error)||'ping failed'),'err');
+        }).catch(function(){setStatus('Ping failed — network error.','err');});
+    });
+  
+    function loadSaved(){
+      if(!chatState.token)return;
+      fetch('/chat/api/providers',{headers:{'X-Chat-Token':chatState.token}})
+        .then(function(r){return r.ok?r.json():{providers:[]};})
+        .then(function(d){
+          var items=d.providers||[];
+          var active=items.find(function(p){return p.is_active;});
+          chatState.provider=active?(active.provider==='ollama'?'ollama':'byok'):null;
+          try{if(chatState.provider)localStorage.setItem('bd_chat_provider',chatState.provider);else localStorage.removeItem('bd_chat_provider');}catch(e){}
+          if(!items.length){savedList.innerHTML='<div class="chats-empty">None yet</div>';return;}
+          savedList.innerHTML=items.map(function(p){
+            var label=p.provider==='ollama'?('Ollama — '+esc3(p.model||'')):(esc3(p.provider)+' — •••'+esc3(p.last4||'')+(p.model?' — '+esc3(p.model):''));
+            return '<div class="models-saved-item">'+(p.is_active?'<span class="msi-active">ACTIVE</span> ':'')+'<span>'+label+'</span><button class="msi-del" data-provider="'+esc3(p.provider)+'" type="button">Remove</button></div>';
+          }).join('');
+          savedList.querySelectorAll('.msi-del').forEach(function(btn){
+            btn.addEventListener('click',function(){
+              fetch('/chat/api/providers?provider='+encodeURIComponent(btn.getAttribute('data-provider')),{method:'DELETE',headers:{'X-Chat-Token':chatState.token}})
+                .then(function(){loadSaved();}).catch(function(){});
+            });
+          });
+        }).catch(function(){savedList.innerHTML='<div class="chats-empty">Could not load providers.</div>';});
+    }
+  
+    if(chatState.token)loadSaved();
+  })();
+
 })();
 </script>
 </body>
@@ -8385,9 +8301,6 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
 <button @click="openChat()" class="fixed right-4 z-30 bg-gradient-to-br from-amber-500 to-amber-400 text-slate-900 font-bold rounded-full shadow-2xl shadow-amber-500/40 px-5 py-3.5 flex items-center gap-2" style="bottom:calc(20px + var(--safe-bottom))">
   <span class="text-lg">✨</span><span>Build with AI</span>
 </button>
-<a href="/chat?new_project_county=COUNTY_SLUG_PLACEHOLDER" class="fixed right-4 z-30 bg-slate-800 border border-slate-700 text-amber-400 font-bold rounded-full shadow-xl px-5 py-3.5 flex items-center gap-2" style="bottom:calc(84px + var(--safe-bottom))">
-  <span class="text-lg">📁</span><span>New Project</span>
-</a>
 
 <!-- OWNER PICKER SHEET (unchanged from v5) -->
 <div x-show="showOwnerPicker" class="fixed inset-0 z-40" x-cloak>
