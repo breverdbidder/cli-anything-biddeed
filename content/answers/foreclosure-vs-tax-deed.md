@@ -8,12 +8,12 @@
   "statutes": [
     {
       "code": "197.552",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.552.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.552.html",
       "sentence": "Except as specifically provided in this chapter, no right, interest, restriction, or other covenant shall survive the issuance of a tax deed, except that a lien of record held by a municipal or county governmental unit, special district, or community development district, when such lien is not satisfied as of the disbursement of proceeds of sale under the provisions of s. 197.582, shall survive the issuance of a tax deed."
     },
     {
       "code": "197.122",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.122.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.122.html",
       "sentence": "All taxes imposed pursuant to the State Constitution and laws of this state shall be a first lien, superior to all other liens, on any property against which the taxes have been assessed and shall continue in full force from January 1 of the year the taxes were levied until discharged by payment or until barred under chapter 95."
     }
   ],

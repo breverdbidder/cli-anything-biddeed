@@ -8,7 +8,7 @@
   "statutes": [
     {
       "code": "45.0315",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0045/Sections/0045.0315.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0045/Sections/0045.0315.html",
       "sentence": "At any time before the later of the filing of a certificate of sale by the clerk of the court or the time specified in the judgment, order, or decree of foreclosure, the mortgagor or the holder of any subordinate interest may cure the mortgagor's indebtedness and prevent a foreclosure sale by paying the amount of moneys specified in the judgment, order, or decree of foreclosure, or if no judgment, order, or decree of foreclosure has been rendered, by tendering the performance due under the security agreement, including any amounts due because of the exercise of a right to accelerate, plus the reasonable expenses of proceeding to foreclosure incurred to the time of tender, including reasonable attorney's fees of the creditor. Otherwise, there is no right of redemption."
     }
   ],

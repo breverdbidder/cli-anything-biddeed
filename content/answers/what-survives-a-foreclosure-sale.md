@@ -8,7 +8,7 @@
   "statutes": [
     {
       "code": "197.122",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.122.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.122.html",
       "sentence": "All taxes imposed pursuant to the State Constitution and laws of this state shall be a first lien, superior to all other liens, on any property against which the taxes have been assessed and shall continue in full force from January 1 of the year the taxes were levied until discharged by payment or until barred under chapter 95."
     }
   ],

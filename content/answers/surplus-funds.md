@@ -8,12 +8,12 @@
   "statutes": [
     {
       "code": "45.032",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0045/Sections/0045.032.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0045/Sections/0045.032.html",
       "sentence": "\"Surplus funds\" or \"surplus\" means the funds remaining after payment of all disbursements required by the final judgment of foreclosure and shown on the certificate of disbursements."
     },
     {
       "code": "197.582",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.582.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.582.html",
       "sentence": "If the property is purchased for an amount in excess of the statutory bid of the certificateholder, the surplus must be paid over and disbursed by the clerk as set forth in subsections (3), (5), and (6)."
     }
   ],
