@@ -969,7 +969,42 @@ async function fetchRuntimeConfig() {
     const auctionsRange = auctionsRes.headers.get('content-range');
     const auctionsCount = auctionsRange ? (parseInt(auctionsRange.split('/')[1], 10) || 0) : 0;
 
-    const config = { goldCounties, confirmedCounties, s5Counties, auctionsCount };
+    // Per-county upcoming/next_auction_date, SSOT-sourced (SPR-07, issue #19826,
+    // CONTENT_SOP.md K2/K1) -- county pages previously derived their displayed
+    // "upcoming" count from fetchCountyLots' 35-day/300-row window, which
+    // silently undercounted every county with auctions further out (confirmed
+    // live: 53/67 counties mismatched auctions_summary_ssot() at the same
+    // minute). buildCountyPage() now prefers this SSOT number when present.
+    // Bounded with a timeout -- this RPC has a documented cold-aggregation
+    // cost (docs/spec/19813.md: 17.3s observed once, then 8s/5s/3s/2s on
+    // immediate retries). A slow/cold hit must degrade to the pre-SPR-07
+    // lots-window fallback, never block this 5-min-cached config fetch.
+    let countiesDetail = null;
+    try {
+      const ssotController = new AbortController();
+      const ssotTimeout = setTimeout(() => ssotController.abort(), 8000);
+      let ssotRes;
+      try {
+        ssotRes = await fetch(SUPABASE_URL + '/rest/v1/rpc/auctions_summary_ssot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY },
+          body: '{}',
+          signal: ssotController.signal,
+        });
+      } finally {
+        clearTimeout(ssotTimeout);
+      }
+      if (ssotRes.ok) {
+        const ssot = await ssotRes.json();
+        const rows = Array.isArray(ssot && ssot.counties_detail) ? ssot.counties_detail : [];
+        countiesDetail = {};
+        for (const row of rows) {
+          if (row && row.county) countiesDetail[row.county] = { upcoming: Number(row.upcoming) || 0, next_auction_date: row.next_auction_date || null };
+        }
+      }
+    } catch (_) { countiesDetail = null; }
+
+    const config = { goldCounties, confirmedCounties, s5Counties, auctionsCount, countiesDetail };
 
     // Cache at edge for 5 minutes
     const resp = new Response(JSON.stringify(config), {
@@ -3333,16 +3368,23 @@ function buildCountyPage(slug, d, lots, rtConfig) {
     .replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const escJs = (v) => JSON.stringify(String(v == null ? '' : v)).slice(1, -1);
   const lotRows   = Array.isArray(lots) ? lots : [];
-  const lotCount  = lotRows.length;
-  const lotTd     = lotRows.filter(x => x && x.sale_type === 'tax_deed').length;
-  const lotFc     = lotRows.filter(x => x && x.sale_type === 'foreclosure').length;
   const lotDates  = lotRows.map(x => x && x.auction_date).filter(Boolean).sort();
-  const nextDate  = lotDates.length ? lotDates[0] : null;
+  // SPR-07 (issue #19826, CONTENT_SOP.md K2): prefer the SSOT RPC's per-county
+  // upcoming/next_auction_date over counting fetchCountyLots' 35-day/300-row
+  // window -- that window undercounted 53/67 counties against
+  // auctions_summary_ssot() (live check, same minute). Falls back to the lots
+  // window only if the SSOT config fetch failed (Supabase down), same
+  // fail-open pattern as the rest of fetchRuntimeConfig().
+  const ssotRow   = (rtConfig && rtConfig.countiesDetail && rtConfig.countiesDetail[slug]) || null;
+  const lotCount  = ssotRow ? ssotRow.upcoming : lotRows.length;
+  const nextDate  = ssotRow ? ssotRow.next_auction_date : (lotDates.length ? lotDates[0] : null);
+  // Kept short on purpose (<=155 chars, P11) -- the prior template ("X
+  // upcoming ... auctions — Y tax deed and Z foreclosure sales, next on
+  // DATE. Opening bids...") ran 164-172 chars on 52/67 counties, over the
+  // meta-description limit (found live during this same SPR-07 pass).
   const metaDesc  = lotCount
-    ? lotCount + ' upcoming ' + name + ' County, Florida auctions — ' + lotTd
-      + ' tax deed and ' + lotFc + ' foreclosure sales'
-      + (nextDate ? ', next on ' + nextDate : '')
-      + '. Opening bids, assessed values and direct links to every listing.'
+    ? lotCount + ' upcoming ' + name + ' County, Florida foreclosure and tax deed auctions'
+      + (nextDate ? ', next on ' + nextDate : '') + '.'
     : name + ' County, Florida tax deed and foreclosure auction listings. '
       + 'No sales are scheduled in the current window — the calendar refills every month.';
   const jsonLd = JSON.stringify({
