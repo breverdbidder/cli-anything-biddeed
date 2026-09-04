@@ -1,0 +1,18 @@
+[
+  { "path": "/", "label": "home" },
+  { "path": "/blog", "label": "blog-index" },
+  { "path": "/blog/florida-foreclosure-max-bid-guide", "label": "blog-post" },
+  { "path": "/chat", "label": "chat" },
+  { "path": "/counties", "label": "counties-index" },
+  { "path": "/county/brevard", "label": "county-page" },
+  { "path": "/reels", "label": "reels-gallery" },
+  { "path": "/radar", "label": "radar" },
+  { "path": "/subscribe", "label": "subscribe" },
+  { "path": "/buy-report", "label": "buy-report" },
+  { "path": "/pioneers", "label": "pioneers" },
+  { "path": "/terms", "label": "terms" },
+  { "path": "/privacy", "label": "privacy" },
+  { "path": "/disclaimer", "label": "disclaimer" },
+  { "path": "/security", "label": "security" },
+  { "path": "/data-retention", "label": "data-retention" }
+]
