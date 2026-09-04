@@ -91,7 +91,12 @@ def main() -> int:
         slug, sale_type, subdomain, platform = task
         cmd = [sys.executable, str(HARVESTER), subdomain, platform, slug, *dates]
         completed = subprocess.run(cmd, cwd=ROOT, env=os.environ.copy(), text=True, capture_output=True, timeout=900)
-        return {"county": slug, "sale_type": sale_type, "platform": platform, "returncode": completed.returncode, "tail": (completed.stdout + completed.stderr)[-2000:]}
+        tail = (completed.stdout + completed.stderr)[-2000:]
+        # Existing rows are valid on a daily idempotent refresh. The legacy adapter
+        # returns exit 1 when it parsed rows but found nothing new to merge.
+        if completed.returncode == 1 and "Silent failure: parsed>0 inserted=0" in tail:
+            return {"county": slug, "sale_type": sale_type, "platform": platform, "returncode": 0, "state": "no_change_existing_rows", "tail": tail}
+        return {"county": slug, "sale_type": sale_type, "platform": platform, "returncode": completed.returncode, "state": "updated" if completed.returncode == 0 else "adapter_error", "tail": tail}
 
     with ThreadPoolExecutor(max_workers=max(1, min(args.workers, 8))) as pool:
         futures = [pool.submit(run_task, task) for task in tasks]
