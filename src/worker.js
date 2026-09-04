@@ -2791,7 +2791,8 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         // ── Sample report bypass — no auth, no billing, publicly accessible ──
         if (mcaId === MARION_SAMPLE_MCA_ID && apiKey === SAMPLE_REPORT_KEY) {
           const html = withPublicShell(renderS5ReportHtml(SAMPLE_STATIC_REPORT, { mcaId, keyLast8: apiKey.slice(-8), isSample: true }), path);
-          return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+          // 5 min, not 60: a restyle must not sit in visitors' browsers for an hour (2026-09-04).
+          return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
         }
 
         let access;
