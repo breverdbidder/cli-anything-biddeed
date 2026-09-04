@@ -759,7 +759,7 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
       cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer,
       banner: internal ? INTERNAL_PREVIEW_BANNER : '',
       body: `
-        <div class="bidcard" style="border-color:#b8cfe0">
+        <div class="bidcard" style="border-color:#6e655e">
           <div class="verdict" style="color:#e2eaf2">SKIP — UNLOCATABLE</div>
           <p class="refusal">${escHtml(report.refusal || 'An estimate here would be fabrication.')}</p>
         </div>
@@ -944,7 +944,7 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
           ${s5Row('Value Midpoint', dispVal(s5Money(opp.value_midpoint)))}
           ${s5Row('Walk Away Above', dispVal(s5Money(maxBidVal), 'Hidden'))}
         </div>
-        <div style="color:#b8cfe0;font-size:12px;margin-top:14px;font-style:italic">${s5CalibrationFootnote(cover.shapira_max_bid, cover.county)}</div>
+        <div style="color:#6e655e;font-size:12px;margin-top:14px;font-style:italic">${s5CalibrationFootnote(cover.shapira_max_bid, cover.county)}</div>
       </div>
     </div>`;
 
@@ -1124,10 +1124,10 @@ a{color:#9f4d32;text-decoration:none}a:hover{color:#823f29;text-decoration:under
 .sec-title{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;line-height:1.35;flex:1;min-width:0;order:2}
 .sec-pill{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1f1b16;border:1px solid #b5a9a0;border-radius:999px;padding:5px 12px;white-space:nowrap;background:#fbfaf7;flex-shrink:0;order:3;margin-left:auto}
 .sec-tag{font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0;order:4;flex-basis:100%;margin-left:calc(11px + 2*7px + 8px + 4px)}
-.sec-tag.verified{background:rgba(31,122,63,.12);color:#1f7a3f}
+.sec-tag.verified{background:rgba(20,83,45,.10);color:#14532d}
 .sec-tag.gold{background:rgba(130,63,41,.12);color:#823f29}
 .sec-tag.conf{background:rgba(159,77,50,.12);color:#823f29}
-.sec-tag.comps{background:rgba(31,122,63,.12);color:#1f7a3f}
+.sec-tag.comps{background:rgba(20,83,45,.10);color:#14532d}
 .sec-body{padding:18px 22px 22px}
 /* ── Rows ── */
 .row{display:grid;grid-template-columns:1fr auto;gap:16px;padding:9px 0;border-bottom:1px solid #ddd5c9;font-size:13px}
@@ -7205,7 +7205,7 @@ body { font-family:'Inter','SF Pro Text',system-ui,-apple-system,sans-serif; bac
 .grade-B { background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; }
 .grade-C { background:linear-gradient(135deg,#eab308,#ca8a04); color:#1f2937; }
 .grade-D { background:linear-gradient(135deg,#f97316,#ea580c); color:#fff; }
-.grade-E,.grade-X,.grade-Z { background:#b8cfe0; color:#cbd5e1; }
+.grade-E,.grade-X,.grade-Z { background:#6e655e; color:#cbd5e1; }
 [x-cloak] { display:none !important; }
 .scroll-h::-webkit-scrollbar { display:none; } .scroll-h { -ms-overflow-style:none; scrollbar-width:none; }
 .sheet { transform:translateY(100%); transition:transform .28s cubic-bezier(.32,.72,0,1); }
@@ -8113,7 +8113,7 @@ ${POSTHOG_SCRIPT}
 *{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 :root{
   --navy:#0B1929;--navy-band:#0E2136;--header-strip:#12283F;--charcoal:#1E293B;
-  --orange:#F97316;--orange-hover:#FDBA74;--slate:#e2eaf2;--slate-dim:#b8cfe0;
+  --orange:#F97316;--orange-hover:#FDBA74;--slate:#e2eaf2;--slate-dim:#6e655e;
   --body-text:#f0f4f8;--green:#22C55E;--amber:#F59E0B;--red:#EF4444;
   --divider:rgba(148,163,184,0.12);--gold:#F5C518;
 }
