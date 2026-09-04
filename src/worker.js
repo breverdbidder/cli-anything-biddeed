@@ -1807,7 +1807,15 @@ async function handleRequest(request, env, ctx) {
         // P1 Discovery is a Next/Vercel surface proxied through the canonical Worker host.
         path === '/discover' || path.startsWith('/discover/') ||
         // Authenticated Alerts UI is a Vercel surface; its API remains Clerk-protected.
-        path === '/alerts' || path.startsWith('/alerts/')
+        path === '/alerts' || path.startsWith('/alerts/') ||
+        // CMO Factory CP-C2 (#19821): programmatic county SEO pages
+        // (/counties/:slug and /counties/:slug/:saleType) are server-rendered
+        // Next.js routes in biddeed-web, not this Worker's hardcoded HTML.
+        // Scoped to sub-paths only (startsWith('/counties/'), trailing
+        // slash) so the exact '/counties' index below -- this Worker's own
+        // all-counties listing, linking to the existing /county/:slug pages
+        // -- is untouched.
+        path.startsWith('/counties/')
       ) {
         return proxyToRadar(request, url);
       }
@@ -2395,9 +2403,16 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/blog', '/pioneers', '/terms', '/privacy', '/disclaimer', '/security'];
         const countySlugs = Object.keys(COUNTY_DISPLAY).sort();
         const blogSlugs = BLOG_POSTS.map(p => p.slug);
+        // CMO Factory CP-C2 (#19821): the new /counties/:slug overview + the
+        // /counties/:slug/{foreclosure,tax-deed} sub-pages, additive to the
+        // pre-existing /county/:slug entries above (different path, same
+        // slug list) so nothing already indexed is removed from this file.
         const urlEntries = [
           ...staticUrls.map(p => `  <url><loc>${base}${p}</loc><changefreq>daily</changefreq></url>`),
           ...countySlugs.map(slug => `  <url><loc>${base}/county/${slug.replace(/_/g,'-')}</loc><changefreq>daily</changefreq></url>`),
+          ...countySlugs.map(slug => `  <url><loc>${base}/counties/${slug.replace(/_/g,'-')}</loc><changefreq>daily</changefreq></url>`),
+          ...countySlugs.flatMap(slug => ['foreclosure', 'tax-deed'].map(saleType =>
+            `  <url><loc>${base}/counties/${slug.replace(/_/g,'-')}/${saleType}</loc><changefreq>daily</changefreq></url>`)),
           ...blogSlugs.map(slug => `  <url><loc>${base}/blog/${slug}</loc><changefreq>weekly</changefreq></url>`)
         ].join('\n');
         const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urlEntries}\n</urlset>`;
