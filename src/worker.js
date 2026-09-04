@@ -7161,7 +7161,6 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
       document.getElementById('inp').focus();
     }
   });
-})();
 
   // ── Projects (issue #19847 C3, Claude.ai "Projects" parity — one
   // property/bid the user is working toward; carries the 5 Sticky Layers,
