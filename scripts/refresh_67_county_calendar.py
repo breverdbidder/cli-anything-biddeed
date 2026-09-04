@@ -23,6 +23,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 ROOT = Path(__file__).resolve().parents[1]
 HARVESTER = ROOT / "scripts" / "realforeclose_aids_paginated_harvest.py"
+OVERRIDES_PATH = ROOT / "config" / "county_source_overrides.json"
 ALLOWED_HOST_SUFFIXES = ("realforeclose.com", "realtaxdeed.com")
 
 
@@ -43,6 +44,12 @@ def get_counties() -> list[dict]:
     if len(rows) != 67:
         raise RuntimeError(f"county registry returned {len(rows)} rows; expected 67")
     return rows
+
+
+def load_overrides() -> dict:
+    if not OVERRIDES_PATH.exists():
+        return {}
+    return json.loads(OVERRIDES_PATH.read_text())
 
 
 def source_parts(url: str | None, county_slug: str) -> tuple[str, str] | None:
@@ -70,6 +77,7 @@ def main() -> int:
     dates = [(start + dt.timedelta(days=i)).strftime("%m/%d/%Y") for i in range(args.days_ahead + 1)]
     wanted = {c.lower() for c in args.county} if args.county else None
     counties = get_counties()
+    overrides = load_overrides().get("counties", {})
     report = {"started_at": dt.datetime.now(dt.timezone.utc).isoformat(), "days_ahead": args.days_ahead, "workers": args.workers, "processed": [], "gaps": [], "errors": []}
     tasks: list[tuple[str, str, str, str]] = []
     for county in counties:
@@ -80,12 +88,28 @@ def main() -> int:
         for sale_type, key in (("foreclosure", "fc_url"), ("tax_deed", "td_url")):
             parts = source_parts(county.get(key), slug)
             if parts:
-                sources.append((sale_type, parts))
+                sources.append((sale_type, "harvest", parts))
+        for override in overrides.get(slug, {}).get("sources", []):
+            sale_types = ["foreclosure", "tax_deed"] if override.get("sale_type") == "both" else [override.get("sale_type")]
+            for sale_type in sale_types:
+                adapter = override.get("adapter")
+                if adapter == "real_tax_deed":
+                    parts = source_parts(override.get("url"), slug)
+                    if parts:
+                        sources.append((sale_type, "harvest", parts))
+                elif adapter == "clerk_html_discovery":
+                    sources.append((sale_type, "discovery", override.get("url")))
+                else:
+                    report["gaps"].append({"county": slug, "sale_type": sale_type, "reason": "manual_review", "authority": overrides.get(slug, {}).get("authority")})
         if not sources:
             report["gaps"].append({"county": slug, "reason": "no_supported_public_adapter"})
             continue
-        for sale_type, (subdomain, platform) in sources:
-            tasks.append((slug, sale_type, subdomain, platform))
+        for sale_type, mode, source in sources:
+            if mode == "harvest":
+                subdomain, platform = source
+                tasks.append((slug, sale_type, subdomain, platform))
+            else:
+                report["gaps"].append({"county": slug, "sale_type": sale_type, "reason": "clerk_discovery_requires_extraction_contract", "source_url": source})
 
     def run_task(task: tuple[str, str, str, str]) -> dict:
         slug, sale_type, subdomain, platform = task

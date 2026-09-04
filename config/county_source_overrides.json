@@ -1,0 +1,62 @@
+{
+  "version": "2026-09-04",
+  "publication_ssot": ["RealAuction", "RealForeclose", "RealTDM", "Clerk of Courts", "Property Appraiser"],
+  "counties": {
+    "desoto": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "both", "adapter": "manual_review", "url": "https://www.desotoclerk.com/", "status": "official_root_verified; public-sales path returned 404"}]
+    },
+    "dixie": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://dixieclerk.com/departments-services/court-services/property-sales/"}]
+    },
+    "franklin": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://www.franklinclerk.com/courts/property-sales/"}]
+    },
+    "gadsden": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "both", "adapter": "manual_review", "url": null, "status": "official endpoint not verified"}]
+    },
+    "glades": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/foreclosures/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/tax-deeds/"}]
+    },
+    "hamilton": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://hamiltonclerk.com/foreclosures/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://hamiltoncountyfl.com/tax-deeds/"}]
+    },
+    "holmes": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://holmesclerk.com/courts/foreclosures-tax-deeds/"}]
+    },
+    "jefferson": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://www.jeffersonclerk.com/clerk-services/property-sales/"}]
+    },
+    "lafayette": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://www.lafayetteclerk.com/departments-services/clerk-services/tax-deeds/"}]
+    },
+    "levy": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://levyclerk.com/departments-services/administration/tax-deed-sales/"}]
+    },
+    "liberty": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://libertyclerk.com/courts/tax-deeds/"}]
+    },
+    "okaloosa": {
+      "authority": "Clerk of Courts / RealTaxDeed",
+      "sources": [{"sale_type": "tax_deed", "adapter": "real_tax_deed", "url": "https://okaloosa.realtaxdeed.com/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://okaloosaclerk.com/board-services/tax-deed-sales/"}]
+    },
+    "sumter": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://www.sumterclerk.com/public-records/tax-deeds/tax-deed-sales/"}]
+    },
+    "taylor": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://taylorclerk.com/departments/property-sales/"}]
+    }
+  }
+}
