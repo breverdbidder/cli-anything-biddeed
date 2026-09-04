@@ -5991,7 +5991,7 @@ ${POSTHOG_SCRIPT}
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#fbfaf7;--navy2:#fbfaf7;--navy3:#f5f0e8;--orange:#9f4d32;--orange2:#9f4d32;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9;--green:#1f7a3f}
 html{height:100%;height:-webkit-fill-available}
-body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;height:-webkit-fill-available;height:var(--vvh,100vh);overflow:hidden;position:fixed;width:100%}
+body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;height:-webkit-fill-available;height:var(--vvh,100vh);height:100dvh;overflow:hidden;position:fixed;width:100%}
 
 /* HEADER */
 .hdr{display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:52px;background:rgba(251,250,247,.98);border-bottom:1px solid var(--border);flex-shrink:0;min-height:52px}
@@ -6168,7 +6168,7 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .chats-btn{background:var(--navy2);border:1px solid var(--border);border-radius:7px;color:var(--muted);font-size:11px;font-weight:600;padding:7px 11px;cursor:pointer;font-family:inherit;margin-right:6px;flex-shrink:0}
 .chats-btn:hover{border-color:var(--orange);color:var(--text)}
 .chats-drawer{position:fixed;inset:0 auto 0 0;width:280px;max-width:82vw;background:var(--navy2);border-right:1px solid var(--border);z-index:2000;transform:translateX(-100%);transition:transform .18s ease;display:flex;flex-direction:column}
-.chats-drawer.open{transform:translateX(0)}
+@media (max-width:640px){.voice-dock{padding:8px 12px!important}.voice-dock-sub{display:none!important}.voice-btn{padding:10px 14px!important;font-size:15px!important;min-height:44px}.chat-composer,.composer,.composer-wrap{padding-bottom:calc(8px + env(safe-area-inset-bottom))!important}}.chats-drawer.open{transform:translateX(0)}
 .chats-scrim{position:fixed;inset:0;background:rgba(251,250,247,.55);z-index:1999;display:none}
 .chats-scrim.open{display:block}
 .chats-hdr{display:flex;align-items:center;gap:8px;padding:12px;border-bottom:1px solid var(--border)}
@@ -6250,7 +6250,7 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 </header>
 
 <div class="chats-scrim" id="chats-scrim"></div>
-<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats and Projects"><script>(function(){function openProjects(){var b=document.getElementById('chats-open-btn');if(b){b.click();}setTimeout(function(){var h=document.getElementById('projects-hdr-title');if(h){h.scrollIntoView({block:'start'});}},80);}if(location.hash==='#projects'){window.addEventListener('DOMContentLoaded',openProjects);if(document.readyState!=='loading')openProjects();}window.addEventListener('hashchange',function(){if(location.hash==='#projects')openProjects();});})();</script>
+<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats and Projects"><script>(function(){function openProjects(){var tries=0;(function tick(){var d=document.getElementById('chats-drawer');if(d&&d.classList.contains('open')){var h=document.getElementById('projects-hdr-title');if(h){h.scrollIntoView({block:'start'});}return;}var b=document.getElementById('chats-open-btn');if(b){b.click();}if(++tries<30){setTimeout(tick,150);}})();}if(location.hash==='#projects'){window.addEventListener('DOMContentLoaded',openProjects);if(document.readyState!=='loading')openProjects();}window.addEventListener('hashchange',function(){if(location.hash==='#projects')openProjects();});})();</script>
   <div class="chats-hdr">
     <h3 id="projects-hdr-title">Projects</h3>
     <button class="chats-new" id="projects-new-btn" type="button">+ New</button>
