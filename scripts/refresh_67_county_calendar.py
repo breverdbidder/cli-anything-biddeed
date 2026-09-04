@@ -30,15 +30,13 @@ def get_counties() -> list[dict]:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
     params = urllib.parse.urlencode(
         {
-            "select": "county_slug,county_name,foreclosure_url,taxdeed_url,pipeline_status,pipeline_health",
-            "state": "eq.FL",
+            "select": "county_slug,county_name,fc_url,td_url",
             "order": "county_slug.asc",
         }
     )
-    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/counties?{params}")
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/county_auction_config?{params}")
     req.add_header("apikey", SUPABASE_KEY)
     req.add_header("Authorization", f"Bearer {SUPABASE_KEY}")
-    req.add_header("Accept-Profile", "pipeline")
     with urllib.request.urlopen(req, timeout=60) as response:
         rows = json.loads(response.read().decode("utf-8"))
     if len(rows) != 67:
@@ -77,12 +75,12 @@ def main() -> int:
         if wanted and slug not in wanted:
             continue
         sources = []
-        for sale_type, key in (("foreclosure", "foreclosure_url"), ("tax_deed", "taxdeed_url")):
+        for sale_type, key in (("foreclosure", "fc_url"), ("tax_deed", "td_url")):
             parts = source_parts(county.get(key), slug)
             if parts:
                 sources.append((sale_type, parts))
         if not sources:
-            report["gaps"].append({"county": slug, "reason": "no_supported_public_adapter", "pipeline_status": county.get("pipeline_status")})
+            report["gaps"].append({"county": slug, "reason": "no_supported_public_adapter"})
             continue
         for sale_type, (subdomain, platform) in sources:
             cmd = [sys.executable, str(HARVESTER), subdomain, platform, slug, *dates]
