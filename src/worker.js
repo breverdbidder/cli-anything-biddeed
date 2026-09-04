@@ -52,6 +52,12 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const STRIPE_INVESTOR_URL = 'https://buy.stripe.com/00w3cwc401zZ7eEape3wQ00';
 const STRIPE_PRO_URL = 'https://buy.stripe.com/bIY5kE0vq9Wr7eEbp23wQ01'; // Pro $199/mo — price_1ToWibKaSTwZgYdfZiWM5fdy
 const DISCLAIMER_SHORT = 'Informational only — not legal, financial, or investment advice. Verify independently & consult a licensed attorney before bidding.';
+// SIGNAL$ one-time report price — single source of truth. biddeed-checkout
+// (supabase/functions/biddeed-checkout/index.ts) fixes the real Stripe amount
+// server-side and never trusts the client; this label mirrors that fixed
+// amount so every CTA (property card, S3 progressive disclosure) reads the
+// same value instead of repeating the literal (issue #19847 Pass 3).
+const SIGNAL_REPORT_PRICE_LABEL = '$25';
 
 // ── PostHog — single shared init snippet, injected into every page's <head> ──
 const POSTHOG_SCRIPT = `<script>
@@ -375,13 +381,26 @@ async function getLatestAuctionDateForCase(env, county, caseNumber) {
   const rows = await res.json();
   return rows[0]?.auction_date || null;
 }
+// S3 progressive disclosure — has a real, paid SIGNAL$ Property Report ever
+// landed against this project? paid_at is set only by the Stripe webhook's
+// best-effort linking after a genuine s5_onetime purchase (never by this
+// route, never by the client) — see stripe-webhook/index.ts. mca_id, when
+// present, lets the panel deep-link to the full /report/:mca_id page.
+async function getSignalReportStatusForProject(env, ownerEmail, projectId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_reports?project_id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&paid_at=not.is.null&select=mca_id,paid_at&order=paid_at.desc&limit=1`);
+  if (!res || !res.ok) return { paid: false, mca_id: null };
+  const rows = await res.json();
+  const row = rows[0];
+  return row ? { paid: true, mca_id: row.mca_id || null } : { paid: false, mca_id: null };
+}
 async function getProjectDetail(env, ownerEmail, projectId) {
   const project = await getProjectOwned(env, ownerEmail, projectId);
   if (!project) return null;
   const sinceIso = project.last_viewed_at;
-  const [newAuctions, latestSaleDate] = await Promise.all([
+  const [newAuctions, latestSaleDate, signal] = await Promise.all([
     countNewCountyAuctionsSince(env, project.county, sinceIso),
     getLatestAuctionDateForCase(env, project.county, project.case_number),
+    getSignalReportStatusForProject(env, ownerEmail, projectId),
   ]);
   const saleDateChanged = !!(latestSaleDate && project.sale_date && latestSaleDate !== project.sale_date);
   const greeting = {
@@ -393,7 +412,7 @@ async function getProjectDetail(env, ownerEmail, projectId) {
   const patch = { last_viewed_at: new Date().toISOString() };
   if (saleDateChanged) patch.sale_date = latestSaleDate;
   await sbAdmin(env, `/rest/v1/biddeed_projects?id=eq.${encodeURIComponent(projectId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'PATCH', body: JSON.stringify(patch) });
-  return { project, greeting };
+  return { project, greeting, signal };
 }
 async function updateProject(env, ownerEmail, projectId, patch) {
   const body = { updated_at: new Date().toISOString() };
@@ -1422,6 +1441,12 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
 const INTERNAL_PREVIEW_BANNER = `<div style="background:#DC2626;color:#fff;font-weight:800;text-align:center;padding:14px;font-size:16px;letter-spacing:1px">&#9888; INTERNAL PREVIEW — NOT FOR CUSTOMER DELIVERY</div><div style="background:#7F1D1D;color:#FEE2E2;text-align:center;padding:8px;font-size:12px">Generated for internal review only. Title/lien sections may carry biddeed_report_composition.ship_status=blocked in production and are not shipped to any paying customer — see the note inline on §16 below.</div>`;
 
 function s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShort, disclaimer, body, summaryGrid = '', banner = '' }) {
+  // S2 hook (issue #19847 Pass 3) -- same unified /chat?new_project_county=
+  // mechanism every other hook point uses; ?case= lets a project pick this
+  // up already scoped, ?source=report_page distinguishes this hook in
+  // first_touch. Report visitors already hold a valid Bearer/`?key=` so
+  // there is no separate sign-in wall here beyond the existing /chat one.
+  const projectHref = `/chat?new_project_county=${encodeURIComponent(cover.county || '')}&case=${encodeURIComponent(cover.case_number || '')}&source=report_page`;
   const addr     = escHtml(cover.property_address || 'Address pending');
   const addrCity = addr.includes(',') ? addr.slice(0, addr.indexOf(',')) : addr;
   const addrRest = addr.includes(',') ? addr.slice(addr.indexOf(',') + 1).trim() : '';
@@ -1569,6 +1594,7 @@ ${banner ? banner + '\n' : ''}<div class="wrap">
         <span class="tagline" style="margin-left:10px">Shapira Auction Intelligence</span>
       </div>
       <div class="toolbar" data-noprint>
+        <a class="btn-toolbar" href="${escHtml(projectHref)}">📁 Add to project</a>
         <button class="btn-toolbar" id="collapse-all">Collapse all</button>
         <button class="btn-toolbar primary" id="dl-pdf">&darr; Download PDF</button>
       </div>
@@ -5097,6 +5123,10 @@ ${reel.street_url ? `<img class="deal-img" src="${escHtml(reel.street_url)}" alt
   // S4 (issue #19786) -- property-scoped chat entry, reuses the existing
   // /chat route (GET /chat?county=&hook=) rather than a new chat surface.
   const chatHref = `/chat?county=${encodeURIComponent(reel.county || '')}&hook=${encodeURIComponent('property_' + (reel.case_number || ''))}`;
+  // S2 hook (issue #19847 Pass 3) -- same unified /chat?new_project_county=
+  // mechanism the county page uses; signed-out visitors get the sign-in
+  // sheet on /chat before the project is created (see chat client JS).
+  const projectHref = `/chat?new_project_county=${encodeURIComponent(reel.county || '')}&case=${encodeURIComponent(reel.case_number || '')}&source=deal_page`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -5167,6 +5197,7 @@ ${reel.property_address ? `<div class="deal-addr">${escHtml(reel.property_addres
 ${orderedSections}
 ${lockedSection}
 <a class="deal-chat" href="${escHtml(chatHref)}">Ask Deed about this property &rarr;</a>
+<a class="deal-chat" href="${escHtml(projectHref)}">📁 New project from this &rarr;</a>
 <div class="deal-cta">
 <h2>Get the full property signal report</h2>
 ${ctaBlock}
@@ -5230,6 +5261,9 @@ function buildPresaleDealHtml(reel, landingPath, submitted, paidOk, archetype) {
 </form>`;
   // S4 -- property-scoped chat entry, same /chat route postsale uses.
   const chatHref = `/chat?county=${encodeURIComponent(reel.county || '')}&hook=${encodeURIComponent('property_' + (reel.case_number || ''))}`;
+  // S2 hook (issue #19847 Pass 3) -- same unified project-creation link the
+  // postsale deal page and county page use.
+  const projectHref = `/chat?new_project_county=${encodeURIComponent(reel.county || '')}&case=${encodeURIComponent(reel.case_number || '')}&source=deal_page`;
 
   const gatedInner = paidOk
     ? `
@@ -5341,6 +5375,7 @@ ${gatedInner}
 ${gateOverlay}
 </div>
 <a class="psale-chat" href="${escHtml(chatHref)}">Ask Deed about this property &rarr;</a>
+<a class="psale-chat" href="${escHtml(projectHref)}">📁 New project from this &rarr;</a>
 <div class="psale-cta">
 <h2>Get notified before the gavel drops</h2>
 ${ctaBlock}
@@ -6356,7 +6391,7 @@ let H = [], busy = false, emailDone = false, s5Shown = false, msgCount = 0, retr
 // Chat identity + persistence state (issue #19829 P1) — populated once the
 // user has an email on file (reuses the existing email-capture flow) and a
 // chat_token has been issued; null token = anonymous chat, unaffected.
-var chatState={token:null,email:null,conversationId:null,projectId:null,pendingUploadId:null,pendingUploadName:null,publicRecords:false};
+var chatState={token:null,email:null,conversationId:null,projectId:null,projectCounty:null,projectSignal:null,pendingUploadId:null,pendingUploadName:null,publicRecords:false};
 try{chatState.token=localStorage.getItem('bd_chat_token')||null;chatState.email=localStorage.getItem('bd_chat_email')||null;}catch(e){}
 const MAX_RETRIES = 3;
 
@@ -6544,7 +6579,7 @@ function buildCard(a){
   html+='<div class="pc-parity '+pinfo.cls+'"'+(pinfo.tip?(' title="'+esc(pinfo.tip)+'"'):'')+'>'+pinfo.label+'</div>';
   html+=clerkParityBadge(a);
   html+='<div class="pc-actions"><button class="btn-locked" onclick="showUpgradePrompt(\\'bid_link\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')">🔒 Place Bid — Upgrade to Unlock</button>'+
-        '<a class="pc-buy" href="'+buyUrl+'">Buy SIGNAL$ Property Report — $25</a>'+
+        '<a class="pc-buy" href="'+buyUrl+'">Buy SIGNAL$ Property Report — ${SIGNAL_REPORT_PRICE_LABEL}</a>'+
         (a.auction_url?('<a class="btn-bid" href="'+esc(a.auction_url)+'" target="_blank" rel="noopener">'+esc(a.bid_label||'View Auction →')+'</a>'):'')+
         '<div class="btn-locked" onclick="showUpgradePrompt(\\'maps\\',\\''+esc(a.case_number||'')+'\\',\\''+esc(a.county||'')+'\\')" style="font-size:12px;color:#6e655e;cursor:pointer;padding:6px 0;">🔒 View on Maps — Investor only</div>'+
         (''/* outbound competitor link removed Aug 17 2026 (Ariel, standing rule): that
@@ -7336,6 +7371,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   var projectsNewBtn=document.getElementById('projects-new-btn');
   var projectBanner=document.getElementById('project-banner');
   var projectPickerMode=false;
+  var pendingReportToAdd=null;
 
   function renderProjectsList(projects){
     if(!projects||!projects.length){projectsListEl.innerHTML='<div class="chats-empty">'+(projectPickerMode?'No projects yet — create one to add this chat.':'No projects yet — create one to group chats, reports, files, and parcels around a property.')+'</div>';return;}
@@ -7347,7 +7383,9 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     projectsListEl.querySelectorAll('.chat-item').forEach(function(btn){
       btn.addEventListener('click',function(){
         var projectId=btn.getAttribute('data-project-id');
-        if(projectPickerMode){addChatToProject(projectId);}else{closeDrawer();openProject(projectId);}
+        if(pendingReportToAdd){addReportToProject(projectId,pendingReportToAdd);}
+        else if(projectPickerMode){addChatToProject(projectId);}
+        else{closeDrawer();openProject(projectId);}
       });
     });
   }
@@ -7366,12 +7404,16 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   }
   function openProject(projectId){
     chatState.projectId=projectId;
+    chatState.projectCounty=null;
+    chatState.projectSignal=null;
     fetch('/chat/api/projects/'+encodeURIComponent(projectId),{headers:{'X-Chat-Token':chatState.token}})
       .then(function(r){return r.ok?r.json():null;})
       .then(function(d){
         if(!d)return;
         renderProjectBanner(d.greeting);
         if(d.project&&d.project.conversation_id)chatState.conversationId=d.project.conversation_id;
+        if(d.project)chatState.projectCounty=d.project.county||null;
+        chatState.projectSignal=d.signal||{paid:false,mca_id:null};
         loadProjectFilesAndReports(projectId);
       }).catch(function(){});
   }
@@ -7391,16 +7433,19 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
       .catch(function(){projectsListEl.innerHTML='<div class="chats-empty">Could not load projects.</div>';});
   }
 
-  // S2 hook — a county page or a reel short-link can pre-fill the county and
-  // first note via ?new_project_county=&intent= on /chat itself.
+  // S2 hook — any page (county, deal, calendar, report) links here with
+  // ?new_project_county=&case=&intent=&source= to pre-fill and open a
+  // project. One shared mechanism for every hook point (issue #19847 Pass 3).
   var qp=new URLSearchParams(window.location.search);
   var newProjectCounty=qp.get('new_project_county');
   var projectIntent=qp.get('intent');
+  var projectCase=qp.get('case');
+  var projectSource=qp.get('source');
 
-  function createProjectThen(cb,presetCounty,presetIntent){
+  function createProjectThen(cb,presetCounty,presetIntent,presetCase,presetSource){
     var name=window.prompt('Name this project (e.g. "Brevard tax deed — 123 Main St"):',presetCounty?(presetCounty+' project'):'');
     if(!name)return;
-    fetch('/chat/api/projects',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({name:name,county:presetCounty||null,first_note:presetIntent||null,source:presetCounty?'county_page':'chat',intent:presetIntent||null})})
+    fetch('/chat/api/projects',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({name:name,county:presetCounty||null,case_number:presetCase||null,first_note:presetIntent||null,source:presetSource||(presetCounty?'county_page':'chat'),intent:presetIntent||null})})
       .then(function(r){return r.ok?r.json():null;})
       .then(function(d){if(d&&d.project){loadProjects();if(cb)cb(d.project);}})
       .catch(function(){});
@@ -7412,6 +7457,12 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
       .then(function(r){return r.ok;})
       .then(function(ok){projectPickerMode=false;closeDrawer();if(ok&&typeof showSystemMessage==='function')showSystemMessage('Added to project.');})
       .catch(function(){projectPickerMode=false;});
+  }
+  function addReportToProject(projectId,reportId){
+    fetch('/chat/api/projects/'+encodeURIComponent(projectId)+'/items',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({kind:'report',ref_id:reportId})})
+      .then(function(r){return r.ok;})
+      .then(function(ok){pendingReportToAdd=null;closeDrawer();if(ok&&typeof showSystemMessage==='function')showSystemMessage('Report added to project.');})
+      .catch(function(){pendingReportToAdd=null;});
   }
 
   if(projectsNewBtn)projectsNewBtn.addEventListener('click',function(){
@@ -7432,9 +7483,15 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
   window.onChatIdentityReady=function(){
     if(origOnChatIdentityReady)origOnChatIdentityReady();
     if(drawer.classList.contains('open'))loadProjects();
-    if(newProjectCounty){var c=newProjectCounty;newProjectCounty=null;createProjectThen(function(p){openProject(p.id);},c,projectIntent);}
   };
-  if(newProjectCounty&&chatState.token){var c0=newProjectCounty;newProjectCounty=null;createProjectThen(function(p){openProject(p.id);},c0,projectIntent);}
+  // Signed-out users following a project hook link get the sign-in sheet
+  // first (requireIdentityThen opens the drawer, which renders it) — the
+  // project is created only after ensureChatIdentity resolves a token.
+  if(newProjectCounty){
+    var c0=newProjectCounty,i0=projectIntent,cs0=projectCase,src0=projectSource;
+    newProjectCounty=null;
+    requireIdentityThen(function(){createProjectThen(function(p){openProject(p.id);},c0,i0,cs0,src0);});
+  }
 
   // ── Report + Files side panel (issue #19847 C3, Claude.ai "Artifacts"
   // parity + project FILES: upload/version/rename/download). ──────────────
@@ -7472,6 +7529,37 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
       return fetch('/chat/api/projects/'+encodeURIComponent(chatState.projectId)+'/files',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({filename:file.name,mime_type:file.type,data_base64:b64})});
     }).then(function(){loadProjectFilesAndReports(chatState.projectId);}).catch(function(){});
   }
+  // S3 progressive disclosure (issue #19847 Pass 3) — the real, numbered
+  // section labels straight out of renderS5ReportHtml's own s5Section() calls
+  // (src/worker.js, 01–18 including the ML/ZW bonus sections and the
+  // unnumbered Opinion-of-Price bid card as "15") — never invented labels.
+  var SIGNAL_SECTIONS=[['01','Subject Property Identification'],['02–03','Value Estimate — Clearing Band & Market Band'],
+    ['04–07','Market Comparables'],['08','Transaction History'],['09–10','Property Record & Listing Details'],
+    ['11–14','Context Layers — Neighborhood · Schools · Flood · Market'],['ML','Shapira Models — Third-Party Purchase Classifier'],
+    ['ZW','ZoneWise.AI Land & Zoning Intelligence'],['15','Opinion of Price — Bid Card'],
+    ['16','Judgment & Encumbrance Summary'],['17','Provenance & Methodology'],['18','Auction Outcome & Prediction Scorecard']];
+  function renderSignalDisclosure(){
+    var signal=chatState.projectSignal;
+    if(!signal)return '';
+    var paid=!!signal.paid;
+    var rows=SIGNAL_SECTIONS.map(function(s){
+      var lockPart=paid?'<span style="color:#1f7a3f;font-size:12px">✓</span>'
+        :'<span style="filter:blur(3px);opacity:.55;font-size:11px;font-family:monospace">$···,···</span> <span style="font-size:11px">🔒</span>';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:12px'+(paid?'':';color:var(--muted)')+'">'
+        +'<span><b style="opacity:.6;margin-right:4px">'+s[0]+'</b>'+esc2(s[1])+'</span>'+lockPart+'</div>';
+    }).join('');
+    var cta;
+    if(paid){
+      cta=signal.mca_id
+        ? '<a class="chats-new" style="display:block;text-align:center;margin-top:10px" href="/report/'+encodeURIComponent(signal.mca_id)+'" target="_blank" rel="noopener">✓ Unlocked — view full report ↗</a>'
+        : '<div class="pc-empty" style="margin-top:10px">✓ SIGNAL$ Property Report purchased for this project.</div>';
+    }else{
+      var buyUrl='/buy-report'+(chatState.projectCounty?('?county='+encodeURIComponent(chatState.projectCounty)):'');
+      cta='<a class="chats-new" style="display:block;text-align:center;margin-top:10px" href="'+buyUrl+'">Buy SIGNAL$ Property Report — ${SIGNAL_REPORT_PRICE_LABEL}</a>';
+    }
+    return '<div style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:4px">SIGNAL$ Property Report</div>'
+      +'<div class="pc-card" style="padding:8px 10px">'+rows+cta+'</div>';
+  }
   function renderReportsPanel(reports,files){
     var col=document.getElementById('panel-col');
     var body=document.getElementById('panel-body');
@@ -7480,7 +7568,7 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     if(title)title.textContent='Report';
     var filesHtml='';
     if(chatState.projectId){
-      filesHtml='<div style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:4px">Files</div>';
+      filesHtml=renderSignalDisclosure()+'<div style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 4px">Files</div>';
       if(files&&files.length){
         filesHtml+=files.map(function(f){
           return '<div class="pc-card"><div style="font-weight:600;font-size:13px">📄 '+esc2(f.filename)+' — v'+f.version+'</div>'+
@@ -7497,7 +7585,8 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     }else{
       filesHtml+=reports.map(function(r){
         return '<div class="pc-card"><div style="font-weight:600;font-size:13px">'+esc2(r.title||'Report')+' — v'+r.version+' ('+fmtLabel(r.format)+')</div>'+
-          '<div class="pc-actions"><button class="panel-toggle-btn" data-dl="'+esc2(r.id)+'">↓ Download</button><button class="panel-toggle-btn" data-share="'+esc2(r.id)+'">🔗 Share link</button></div></div>';
+          '<div class="pc-actions"><button class="panel-toggle-btn" data-dl="'+esc2(r.id)+'">↓ Download</button><button class="panel-toggle-btn" data-share="'+esc2(r.id)+'">🔗 Share link</button>'+
+          (chatState.projectId?'':'<button class="panel-toggle-btn" data-report-addproj="'+esc2(r.id)+'">📁 Add to project</button>')+'</div></div>';
       }).join('')+'<button class="chats-new" id="report-generate-btn" style="margin-top:10px">Generate new version</button>';
     }
     body.innerHTML=filesHtml;
@@ -7509,6 +7598,10 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     body.querySelectorAll('[data-share]').forEach(function(b){b.addEventListener('click',function(){shareReport(b.getAttribute('data-share'),b);});});
     body.querySelectorAll('[data-fdl]').forEach(function(b){b.addEventListener('click',function(){downloadProjectFile(b.getAttribute('data-fdl'));});});
     body.querySelectorAll('[data-fren]').forEach(function(b){b.addEventListener('click',function(){renameProjectFilePrompt(b.getAttribute('data-fren'),b.getAttribute('data-fname'));});});
+    body.querySelectorAll('[data-report-addproj]').forEach(function(b){b.addEventListener('click',function(){
+      var reportId=b.getAttribute('data-report-addproj');
+      requireIdentityThen(function(){pendingReportToAdd=reportId;openDrawer();loadProjects();});
+    });});
     var genBtn=document.getElementById('report-generate-btn');
     if(genBtn)genBtn.addEventListener('click',function(){generateReport();});
     var fileBtn=document.getElementById('project-file-btn');

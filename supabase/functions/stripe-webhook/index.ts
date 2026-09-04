@@ -488,6 +488,35 @@ async function deliverReportPdf({ sessionId, paymentIntent, caseNumber, county, 
         report_json: report
       })
     }).catch((e)=>console.error('s5_pdf_cache insert failed', e));
+    // Issue #19847 Pass 3 — S3 progressive disclosure. Best-effort link: if
+    // the purchaser's email matches a Project's owner_email for this exact
+    // case_number, mark that project's SIGNAL$ Property Report unlocked so
+    // the /chat report panel can render it in place. Additive and
+    // non-blocking, mirrors the s5_pdf_cache insert above -- a miss here
+    // (no matching project, e.g. the purchase happened before any project
+    // existed) never fails the paid delivery already completed above.
+    await rest(`biddeed_projects?owner_email=eq.${encodeURIComponent(email)}&case_number=eq.${encodeURIComponent(caseNumber)}&select=id&limit=1`).then(async (r)=>{
+      if (!r.ok) return;
+      const rows = await r.json();
+      const projectId = rows?.[0]?.id;
+      if (!projectId) return;
+      await rest('biddeed_reports', {
+        method: 'POST',
+        headers: {
+          Prefer: 'return=minimal'
+        },
+        body: JSON.stringify({
+          owner_email: email,
+          project_id: projectId,
+          title: 'SIGNAL$ Property Report',
+          version: 1,
+          format: 'pdf',
+          storage_path: `signal/${mcaId}`,
+          mca_id: mcaId,
+          paid_at: new Date().toISOString()
+        })
+      });
+    }).catch((e)=>console.error('biddeed_reports paid-link insert failed', e));
     await reportQueuePatch(sessionId, {
       status: 'delivered',
       report_pdf_url: downloadUrl,
