@@ -23,7 +23,7 @@ def get_rows(start: str, end: str) -> list[dict]:
     offset = 0
     while True:
         query = urllib.parse.urlencode([
-            ("select", "id,county,auction_date,sale_type,case_number,parcel_id,opening_bid,opening_bid_usd,judgment_amount,judgment_amount_usd,bcpao_data,bcpao_url,clerk_url,source_url,source_platform,source_county,source_run_id,scrape_timestamp"),
+            ("select", "id,county,auction_date,sale_type,case_number,parcel_id,opening_bid,opening_bid_usd,judgment_amount,judgment_amount_usd,bcpao_data,bcpao_url,clerk_url,source_url,source_platform,source_county,scrape_timestamp"),
             ("auction_date", f"gte.{start}"),
             ("auction_date", f"lte.{end}"),
             ("limit", "1000"),
