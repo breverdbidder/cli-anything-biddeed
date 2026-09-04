@@ -35,6 +35,9 @@ htmlcov/
 node_modules/
 .wrangler/
 
+# Cloudflare Workers local dev (wrangler) -- ephemeral cache/bundle output
+.wrangler/
+
 # Session files
 *.session.json
 pipeline_reports/

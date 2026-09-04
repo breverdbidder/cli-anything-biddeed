@@ -1,0 +1,43 @@
+/* GENERATED FILE — do not hand-edit. Source: packages/tokens/tokens.json.
+   Regenerate with: node packages/tokens/generate.mjs
+   SSOT for these values is biddeed-web/app/globals.css :root — see tokens.json
+   $comment field. Both the Worker (src/worker.js) and biddeed-web should
+   consume this file rather than hardcoding hex; see docs/spec/19828.md for
+   the current adoption status (partial — Worker migration is follow-up work,
+   not completed in issue #19828). */
+
+:root {
+  --background: #F5F0E8;
+  --foreground: #1F1B16;
+  --card: #FBFAF7;
+  --card-foreground: #1F1B16;
+  --primary: #9F4D32;
+  --primary-foreground: #F5F0E8;
+  --secondary: #EDE3D7;
+  --muted: #EDE3D7;
+  --muted-foreground: #6E655E;
+  --border: #DDD5C9;
+  --input: #DDD5C9;
+  --ring: #9F4D32;
+  --amber: #F59E0B;
+  --radius: 0.5rem;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+  --font-display: 'Newsreader', Iowan Old Style, Palatino Linotype, Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+html[data-theme='dark'],
+html.dark {
+  --background: #0B0F17;
+  --foreground: #F3EFE8;
+  --card: #111827;
+  --primary: #E07A52;
+  --secondary: #1C2434;
+  --muted: #1C2434;
+  --muted-foreground: #A39C93;
+  --border: #232B3A;
+}
+
+.tabular-figures {
+  font-variant-numeric: tabular-nums;
+}
