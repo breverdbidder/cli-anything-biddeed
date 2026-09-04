@@ -8,7 +8,7 @@
   "statutes": [
     {
       "code": "45.031",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0045/Sections/0045.031.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0045/Sections/0045.031.html",
       "sentence": "In the order or final judgment, the court shall direct the clerk to sell the property at public sale on a specified day that shall be not less than 20 days or more than 35 days after the date thereof, on terms and conditions specified in the order or judgment."
     }
   ],

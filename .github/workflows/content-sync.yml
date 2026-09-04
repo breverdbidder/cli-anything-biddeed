@@ -72,11 +72,13 @@ jobs:
         if: steps.diff.outputs.added != ''
         run: |
           set -uo pipefail
+          FILES="${{ steps.diff.outputs.added }}"
           FAIL=0
-          for f in ${{ steps.diff.outputs.added }}; do
+          for f in $FILES; do
             slug=$(basename "$f" .md)
             echo "=== $slug ==="
-            python3 factory/gtm/gate.py --paths "$f" --check-url "https://biddeed.ai/answers/$slug"
-            if [ $? -ne 0 ]; then FAIL=1; fi
+            if ! python3 factory/gtm/gate.py --paths "$f" --check-url "https://biddeed.ai/answers/$slug"; then
+              FAIL=1
+            fi
           done
           exit $FAIL

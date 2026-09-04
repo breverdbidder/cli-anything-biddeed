@@ -8,12 +8,12 @@
   "statutes": [
     {
       "code": "45.031",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0045/Sections/0045.031.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0045/Sections/0045.031.html",
       "sentence": "At the time of the sale, the successful high bidder shall post with the clerk a deposit equal to 5 percent of the final bid. The deposit shall be applied to the sale price at the time of payment. If final payment is not made within the prescribed period, the clerk shall readvertise the sale as provided in this section and pay all costs of the sale from the deposit."
     },
     {
       "code": "197.542",
-      "url": "http://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.542.html",
+      "url": "https://www.leg.state.fl.us/statutes/index.cfm?App_mode=Display_Statute&URL=0100-0199/0197/Sections/0197.542.html",
       "sentence": "The high bidder shall post with the clerk a nonrefundable deposit of 5 percent of the bid or $200, whichever is greater, at the time of the sale, to be applied to the sale price at the time of full payment. ... If full payment of the final bid and of documentary stamp tax and recording fees is not made within 24 hours, excluding weekends and legal holidays, the clerk shall cancel all bids, readvertise the sale as provided in this section, and pay all costs of the sale from the deposit."
     }
   ],
