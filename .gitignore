@@ -33,6 +33,7 @@ htmlcov/
 
 # Node
 node_modules/
+.wrangler/
 
 # Session files
 *.session.json
