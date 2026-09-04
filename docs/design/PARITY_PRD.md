@@ -48,3 +48,17 @@ Parity for the SITE = every route in §2 passes all eight, twice (both viewports
 
 ## 5. Current gap list (2026-09-04 12:10 UTC, from the harness)
 Open: `/radar` palette (PR #27) · Mapbox token (PR #19881 + #28) · Worker site-wide palette (PR #19878) · `/buy-report` 3 H1s · `/blog` Article schema · 23 `:root` blocks → 1 token file (#19845) · C2b verified identity · C3–C5 · county pages at `/counties/*` (B3) · PDF extraction in chat uploads · Deed "no auctions" contradiction (P0).
+
+
+## 6. The five Deed layers — Claude.ai's five sticky tools, mapped (Ariel, 2026-09-04)
+Claude keeps people because five product layers reinforce each other: Chat (thinking), Cowork (background execution), Code (autonomous engineering), Projects (memory), Skills (standardised workflows). Parity means Deed has all five, named for bidders, and our 5 Sticky Layers (CTA_AND_STICKY_SPEC §S1–S5) live inside Projects.
+
+| Claude layer | Deed layer | What it is for a bidder | Where it lives | Issue |
+|---|---|---|---|---|
+| Chat | **Deed Chat** | one composer everywhere: ask about a county, a case, an address; upload a document and Deed cites it; voice | `/` + `/chat`, same "+" menu, same mic | C2 (#19835 live), C2c (#19934) |
+| Cowork | **Deed Watches** (scheduled work) | background execution while the bidder sleeps: watch a case, a county, a sale date; regenerate the report before the sale; deliver by email/calendar; export to Drive | sidebar "Scheduled" (= Claude's Scheduled), Alerts & Watches, Google Calendar/Drive connectors, Resend delivery | C4 (#19829 P3) |
+| Code | **Deed Research + Deed API** | autonomous multi-step work on one property (Deep Research → SIGNAL$ report, 18 sections, evidence per section) and the same power for developers: API keys + `mcp.biddeed.ai` so Deed runs inside their own tools | Deep Research in the "+" menu; Settings → API keys & MCP | C2 (Deep Research), C8 (developer surface, new) |
+| Projects | **Projects** | one project per property the bidder intends to win: files (upload/version/download), project-scoped chat, S1–S5 sticky layers, report sections with progressive disclosure | sidebar "Projects" | C3 (#19847) |
+| Skills | **Skills** | the six system skills bound to live RPCs + user-authored SKILL.md playbooks (a bidder's own due-diligence checklist) that produce the same deliverable every time | sidebar "Skills", `/` picker in the composer | C4b (#19924) |
+
+Rule: no layer ships as a page without its harness row in §2 and its function proof in the PR body. Vendor/model names appear only on Settings → Models (C6, #19925).
