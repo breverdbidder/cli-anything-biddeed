@@ -31,6 +31,16 @@
  *   GET  /disclaimer          → Disclaimer
  *   GET  /security            → Security overview
  *   GET  /data-retention      → Data Retention & Deletion Policy
+ *
+ *   -- issue #19847 C3: Deal Rooms + Reports (chat identity required, X-Chat-Token) --
+ *   GET/POST/PATCH/DELETE /chat/api/rooms[/:id]  → Deal Rooms CRUD
+ *   POST /chat/api/rooms/:id/items            → attach a conversation/report/upload/parcel to a room
+ *   GET  /chat/api/reports                    → list reports (?room=|conversation=)
+ *   POST /chat/api/reports                    → generate report(s) from a conversation (json/pdf always, csv if a property table is present)
+ *   GET  /chat/api/reports/:id/download       → 10-minute signed download URL (?format= must match the row)
+ *   POST /chat/api/reports/:id/share          → create a public read-only /r/:token link
+ *   POST /chat/api/reports/:id/share/revoke   → revoke all active share links for a report
+ *   GET  /r/:token                            → public, server-rendered, no-JS-required share page
  */
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -303,19 +313,241 @@ async function getUploadOwned(env, ownerEmail, uploadId) {
   return rows[0] || null;
 }
 
-// ── Supabase Storage (chat-uploads bucket, private) ──────────────────────────
+// ── Deal Rooms (issue #19847 C3, Claude.ai "Projects" parity) ────────────────
+const ROOM_ITEM_KINDS = new Set(['conversation', 'report', 'upload', 'parcel']);
+async function createRoom(env, ownerEmail, name, county) {
+  const res = await sbAdmin(env, '/rest/v1/biddeed_deal_rooms', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ owner_email: ownerEmail, name: String(name || 'Untitled Room').slice(0, 120), county: county ? String(county).slice(0, 60) : null }),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function listRooms(env, ownerEmail) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_deal_rooms?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=updated_at.desc&select=id,name,county,created_at,updated_at`);
+  if (!res || !res.ok) return [];
+  return res.json();
+}
+async function getRoomOwned(env, ownerEmail, roomId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_deal_rooms?id=eq.${encodeURIComponent(roomId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,name,county`);
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function updateRoom(env, ownerEmail, roomId, patch) {
+  const body = { updated_at: new Date().toISOString() };
+  if (patch.name !== undefined) body.name = String(patch.name).slice(0, 120);
+  if (patch.county !== undefined) body.county = patch.county ? String(patch.county).slice(0, 60) : null;
+  const res = await sbAdmin(env, `/rest/v1/biddeed_deal_rooms?id=eq.${encodeURIComponent(roomId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, {
+    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(body),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function deleteRoom(env, ownerEmail, roomId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_deal_rooms?id=eq.${encodeURIComponent(roomId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}`, { method: 'DELETE' });
+  return !!(res && res.ok);
+}
+async function addRoomItem(env, roomId, kind, refId) {
+  const res = await sbAdmin(env, '/rest/v1/biddeed_deal_room_items', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ room_id: roomId, kind, ref_id: String(refId) }),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+
+// ── Reports (issue #19847 C3, Claude.ai "Artifacts" parity) ──────────────────
+async function nextReportVersion(env, ownerEmail, conversationId, roomId) {
+  let q = `/rest/v1/biddeed_reports?owner_email=eq.${encodeURIComponent(ownerEmail)}&select=version&order=version.desc&limit=1`;
+  if (conversationId) q += `&conversation_id=eq.${encodeURIComponent(conversationId)}`;
+  else if (roomId) q += `&room_id=eq.${encodeURIComponent(roomId)}`;
+  const res = await sbAdmin(env, q);
+  if (!res || !res.ok) return 1;
+  const rows = await res.json();
+  return rows[0] ? rows[0].version + 1 : 1;
+}
+async function createReportRow(env, row) {
+  const res = await sbAdmin(env, '/rest/v1/biddeed_reports', {
+    method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(row),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function listReports(env, ownerEmail, { room, conversation } = {}) {
+  let q = `/rest/v1/biddeed_reports?owner_email=eq.${encodeURIComponent(ownerEmail)}&order=created_at.desc&select=id,title,version,format,room_id,conversation_id,created_at`;
+  if (room) q += `&room_id=eq.${encodeURIComponent(room)}`;
+  if (conversation) q += `&conversation_id=eq.${encodeURIComponent(conversation)}`;
+  const res = await sbAdmin(env, q);
+  if (!res || !res.ok) return [];
+  return res.json();
+}
+async function getReportOwned(env, ownerEmail, reportId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_reports?id=eq.${encodeURIComponent(reportId)}&owner_email=eq.${encodeURIComponent(ownerEmail)}&select=id,title,version,format,storage_path,room_id,conversation_id`);
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+
+// ── Share links (issue #19847 C3) — opaque random token, not a DB sequence or
+// the report's own uuid, so a leaked report id never doubles as a share link. ─
+function newShareToken() { return b64url(crypto.getRandomValues(new Uint8Array(24))); }
+async function createShareLink(env, token, reportId) {
+  const res = await sbAdmin(env, '/rest/v1/biddeed_share_links', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ token, report_id: reportId }),
+  });
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function getShareLink(env, token) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_share_links?token=eq.${encodeURIComponent(token)}&select=token,report_id,revoked_at`);
+  if (!res || !res.ok) return null;
+  const rows = await res.json();
+  return rows[0] || null;
+}
+async function revokeShareLinksForReport(env, reportId) {
+  const res = await sbAdmin(env, `/rest/v1/biddeed_share_links?report_id=eq.${encodeURIComponent(reportId)}&revoked_at=is.null`, {
+    method: 'PATCH', body: JSON.stringify({ revoked_at: new Date().toISOString() }),
+  });
+  return !!(res && res.ok);
+}
+
+// ── Report content builders (issue #19847 C3) ────────────────────────────────
+// Markdown-pipe-table detection over a conversation's own assistant messages
+// -- this is the only structured "property table" signal that exists in this
+// schema (chat messages are free text; there is no separate structured
+// property-row store attached to a conversation). Never synthesizes rows.
+function splitMdRow(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+}
+function extractFirstMarkdownTable(messages) {
+  for (const m of messages) {
+    if (m.role !== 'assistant') continue;
+    const lines = String(m.content || '').split('\n');
+    for (let i = 0; i < lines.length - 1; i++) {
+      const headerLine = lines[i].trim();
+      const sepLine = lines[i + 1].trim().replace(/\s/g, '');
+      if (!/^\|.*\|$/.test(headerLine)) continue;
+      if (!/^\|?[-:|]+\|?$/.test(sepLine) || !/-/.test(sepLine)) continue;
+      const headers = splitMdRow(headerLine);
+      const rows = [];
+      let j = i + 2;
+      while (j < lines.length && /^\|.*\|$/.test(lines[j].trim())) { rows.push(splitMdRow(lines[j])); j++; }
+      if (rows.length) return { headers, rows };
+    }
+  }
+  return null;
+}
+function csvEscape(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function tableToCsv(table) {
+  const lines = [table.headers.map(csvEscape).join(',')];
+  for (const row of table.rows) lines.push(row.map(csvEscape).join(','));
+  return lines.join('\r\n');
+}
+function parseCsvLine(line) {
+  const cells = []; let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += c; }
+    else if (c === '"') inQ = true;
+    else if (c === ',') { cells.push(cur); cur = ''; }
+    else cur += c;
+  }
+  cells.push(cur);
+  return cells;
+}
+// "PDF" via the existing report engine's own mechanism: the S5 report
+// (renderS5ReportHtml/s5Page below) ships a #dl-pdf button that just opens the
+// browser print dialog (window.print()) on a print-styled HTML page -- there
+// is no server-side PDF byte generator anywhere in this Worker, and none can
+// be added without an npm dependency, which `wrangler deploy --no-bundle`
+// (zero `import` statements, confirmed in docs/spec/19829-P1.md for the
+// identical DOCX/OCR constraint) rules out. This reuses that exact pattern: a
+// self-printing, print-styled HTML document. Opening it and choosing "Save as
+// PDF" in the browser's print dialog produces a real PDF.
+function buildConversationReportHtml(title, messages) {
+  const body = messages.map(m => `<div class="rpt-msg rpt-${escHtml(m.role)}"><div class="rpt-role">${m.role === 'user' ? 'You' : 'Deed'}</div><div class="rpt-content">${escHtml(m.content).replace(/\n/g, '<br>')}</div></div>`).join('\n');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title>
+<style>
+body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:32px}
+.rpt-wrap{max-width:760px;margin:0 auto}
+.rpt-hdr{border-bottom:2px solid #1E3A5F;padding-bottom:16px;margin-bottom:24px}
+.rpt-hdr h1{color:#F59E0B;font-size:20px;margin:0 0 4px}
+.rpt-msg{margin-bottom:16px;padding:12px 16px;border-radius:8px}
+.rpt-user{background:#1E3A5F}
+.rpt-assistant{background:#0f172a;border:1px solid #1E3A5F}
+.rpt-role{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:6px}
+@media print{body{background:#fff;color:#000}.rpt-user{background:#f1f5f9}.rpt-assistant{background:#fff;border:1px solid #cbd5e1}}
+</style></head><body><div class="rpt-wrap">
+<div class="rpt-hdr"><h1>${escHtml(title)}</h1><div style="font-size:12px;color:#94a3b8">BidDeed.AI &middot; Generated ${escHtml(new Date().toISOString())}</div></div>
+${body}
+</div>
+<script>setTimeout(function(){window.print();},400);</script>
+</body></html>`;
+}
+// Static, no-JS-required shell for the public /r/:token share page.
+function shareLinkPageShell(title, inner) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)} — BidDeed.AI</title>
+<style>
+body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:32px}
+.wrap{max-width:820px;margin:0 auto}
+h1{color:#F59E0B;font-size:20px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid #1E3A5F;padding:8px 10px;text-align:left}
+th{background:#1E3A5F}
+pre{white-space:pre-wrap;word-break:break-word;background:#0f172a;border:1px solid #1E3A5F;border-radius:8px;padding:16px;font-size:12px}
+.foot{margin-top:24px;font-size:11px;color:#64748b}
+</style></head><body><div class="wrap"><h1>${escHtml(title)}</h1>${inner}<div class="foot">BidDeed.AI &middot; Read-only shared report</div></div></body></html>`;
+}
+
+// ── Supabase Storage (chat-uploads + artifacts buckets, both private) ────────
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB raw file cap
-async function storagePutObject(env, path, bytes, contentType) {
+async function storagePutObject(env, bucket, path, bytes, contentType) {
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) return false;
   try {
-    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/chat-uploads/${path}`, {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
       method: 'POST',
       headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': contentType || 'application/octet-stream', 'x-upsert': 'true' },
       body: bytes,
     });
     return res.ok;
   } catch (_) { return false; }
+}
+async function storageGetObject(env, bucket, path) {
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    });
+    return res.ok ? res : null;
+  } catch (_) { return null; }
+}
+// 10-minute signed URL for a private object (issue #19847 C3 — report downloads).
+async function storageSignUrl(env, bucket, path, expiresInSeconds) {
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
+      method: 'POST',
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn: expiresInSeconds }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && data.signedURL ? `${SUPABASE_URL}/storage/v1${data.signedURL}` : null;
+  } catch (_) { return null; }
 }
 
 // ── Upload text extraction — no npm deps (deploy is `wrangler deploy
@@ -3576,12 +3808,197 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         }
         const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
         const storagePath = `${await sha256Hex(ownerEmail)}/${crypto.randomUUID()}-${safeName}`;
-        const stored = await storagePutObject(env, storagePath, bytes, mime_type);
+        const stored = await storagePutObject(env, 'chat-uploads', storagePath, bytes, mime_type);
         if (!stored) return new Response(JSON.stringify({ error: 'Storage upload failed' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const extraction = await extractUploadText(mime_type, filename, bytes);
         const row = await insertUpload(env, ownerEmail, conversation_id || null, { storagePath, filename, mimeType: mime_type, extractedText: extraction.text, extractionStatus: extraction.status });
         if (!row) return new Response(JSON.stringify({ error: 'Failed to record upload' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         return new Response(JSON.stringify({ id: row.id, filename: row.filename, extraction_status: row.extraction_status, extracted_text_preview: (row.extracted_text || '').slice(0, 300) }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ══ Deal Rooms + Reports (issue #19847 C3 — Claude.ai Projects/Artifacts
+      // parity). All routes below build on the exact #19829 P1 chat identity
+      // (X-Chat-Token → verifyChatToken → owner_email) -- no new auth. ══════
+
+      // ── GET/POST /chat/api/rooms ──────────────────────────────────────────
+      if (path === '/chat/api/rooms' && (method === 'GET' || method === 'POST')) {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Deal Rooms not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (method === 'GET') {
+          const rows = await listRooms(env, ownerEmail);
+          return new Response(JSON.stringify({ rooms: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        let rbody = {};
+        try { rbody = await request.json(); } catch (_) {}
+        const room = await createRoom(env, ownerEmail, rbody.name, rbody.county);
+        if (!room) return new Response(JSON.stringify({ error: 'Failed to create room' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ room }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── PATCH/DELETE /chat/api/rooms/:id ──────────────────────────────────
+      if (/^\/chat\/api\/rooms\/[^/]+$/.test(path) && (method === 'PATCH' || method === 'DELETE')) {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Deal Rooms not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const roomId = path.split('/')[4];
+        const owned = await getRoomOwned(env, ownerEmail, roomId);
+        if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (method === 'DELETE') {
+          const ok = await deleteRoom(env, ownerEmail, roomId);
+          return new Response(JSON.stringify({ ok }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        }
+        let pbody = {};
+        try { pbody = await request.json(); } catch (_) {}
+        const room = await updateRoom(env, ownerEmail, roomId, pbody);
+        if (!room) return new Response(JSON.stringify({ error: 'Update failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ room }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── POST /chat/api/rooms/:id/items — "Add to Room" ────────────────────
+      if (/^\/chat\/api\/rooms\/[^/]+\/items$/.test(path) && method === 'POST') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Deal Rooms not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const roomId = path.split('/')[4];
+        const owned = await getRoomOwned(env, ownerEmail, roomId);
+        if (!owned) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let ibody2 = {};
+        try { ibody2 = await request.json(); } catch (_) {}
+        const { kind, ref_id } = ibody2;
+        if (!ROOM_ITEM_KINDS.has(kind) || !ref_id) return new Response(JSON.stringify({ error: 'kind (conversation|report|upload|parcel) and ref_id required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (kind === 'conversation' && !(await getConversationOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'conversation not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (kind === 'report' && !(await getReportOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'report not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (kind === 'upload' && !(await getUploadOwned(env, ownerEmail, ref_id))) return new Response(JSON.stringify({ error: 'upload not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const item = await addRoomItem(env, roomId, kind, ref_id);
+        if (!item) return new Response(JSON.stringify({ error: 'Failed to add item' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ item }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /chat/api/reports?room=|conversation= ─────────────────────────
+      if (path === '/chat/api/reports' && method === 'GET') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const rows = await listReports(env, ownerEmail, { room: url.searchParams.get('room'), conversation: url.searchParams.get('conversation') });
+        return new Response(JSON.stringify({ reports: rows }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── POST /chat/api/reports — generate from a conversation ─────────────
+      // JSON is always produced; PDF is always produced via the existing
+      // report engine's print-to-PDF mechanism (see buildConversationReportHtml);
+      // CSV is produced only when the conversation actually contains a
+      // markdown property table (see extractFirstMarkdownTable) -- never
+      // fabricated.
+      if (path === '/chat/api/reports' && method === 'POST') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        let gbody = {};
+        try { gbody = await request.json(); } catch (_) {}
+        const { conversation_id, room_id, title } = gbody;
+        if (!conversation_id) return new Response(JSON.stringify({ error: 'conversation_id required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const messages = await getConversationMessages(env, ownerEmail, conversation_id);
+        if (messages === null) return new Response(JSON.stringify({ error: 'conversation not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        if (room_id && !(await getRoomOwned(env, ownerEmail, room_id))) return new Response(JSON.stringify({ error: 'room not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const reportTitle = String(title || 'Deed conversation report').slice(0, 160);
+        const version = await nextReportVersion(env, ownerEmail, conversation_id, room_id);
+        const ownerHash = await sha256Hex(ownerEmail);
+        const basePath = `${ownerHash}/${conversation_id}/v${version}`;
+        const created = [];
+
+        const jsonBytes = new TextEncoder().encode(JSON.stringify({ conversation_id, title: reportTitle, generated_at: new Date().toISOString(), messages }, null, 2));
+        if (await storagePutObject(env, 'artifacts', `${basePath}/report.json`, jsonBytes, 'application/json')) {
+          const row = await createReportRow(env, { owner_email: ownerEmail, room_id: room_id || null, conversation_id, title: reportTitle, version, format: 'json', storage_path: `${basePath}/report.json` });
+          if (row) created.push(row);
+        }
+
+        const htmlBytes = new TextEncoder().encode(buildConversationReportHtml(reportTitle, messages));
+        if (await storagePutObject(env, 'artifacts', `${basePath}/report.html`, htmlBytes, 'text/html')) {
+          const row = await createReportRow(env, { owner_email: ownerEmail, room_id: room_id || null, conversation_id, title: reportTitle, version, format: 'pdf', storage_path: `${basePath}/report.html` });
+          if (row) created.push(row);
+        }
+
+        const table = extractFirstMarkdownTable(messages);
+        if (table) {
+          const csvBytes = new TextEncoder().encode(tableToCsv(table));
+          if (await storagePutObject(env, 'artifacts', `${basePath}/report.csv`, csvBytes, 'text/csv')) {
+            const row = await createReportRow(env, { owner_email: ownerEmail, room_id: room_id || null, conversation_id, title: reportTitle, version, format: 'csv', storage_path: `${basePath}/report.csv` });
+            if (row) created.push(row);
+          }
+        }
+
+        if (!created.length) return new Response(JSON.stringify({ error: 'Report generation failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ reports: created }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /chat/api/reports/:id/download?format= — 10-minute signed URL ──
+      if (/^\/chat\/api\/reports\/[^/]+\/download$/.test(path) && method === 'GET') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const reportId = path.split('/')[4];
+        const report = await getReportOwned(env, ownerEmail, reportId);
+        if (!report) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const wantFormat = url.searchParams.get('format');
+        if (wantFormat && wantFormat !== report.format) return new Response(JSON.stringify({ error: `This report is format=${report.format}, not ${wantFormat}` }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const signedUrl = await storageSignUrl(env, 'artifacts', report.storage_path, 600);
+        if (!signedUrl) return new Response(JSON.stringify({ error: 'Failed to sign URL' }), { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ url: signedUrl, format: report.format, expires_in: 600 }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── POST /chat/api/reports/:id/share — create a public /r/:token link ──
+      if (/^\/chat\/api\/reports\/[^/]+\/share$/.test(path) && method === 'POST') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const reportId = path.split('/')[4];
+        const report = await getReportOwned(env, ownerEmail, reportId);
+        if (!report) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const token = newShareToken();
+        const link = await createShareLink(env, token, reportId);
+        if (!link) return new Response(JSON.stringify({ error: 'Failed to create share link' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        return new Response(JSON.stringify({ token, url: `https://biddeed.ai/r/${token}` }), { status: 201, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── POST /chat/api/reports/:id/share/revoke ────────────────────────────
+      if (/^\/chat\/api\/reports\/[^/]+\/share\/revoke$/.test(path) && method === 'POST') {
+        if (!hasServiceRole(env)) return new Response(JSON.stringify({ error: 'Reports not yet configured' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ownerEmail = await verifyChatToken(env, extractChatToken(request));
+        if (!ownerEmail) return new Response(JSON.stringify({ error: 'Invalid or missing chat session' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const reportId = path.split('/')[4];
+        const report = await getReportOwned(env, ownerEmail, reportId);
+        if (!report) return new Response(JSON.stringify({ error: 'Not found' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+        const ok = await revokeShareLinksForReport(env, reportId);
+        return new Response(JSON.stringify({ ok }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+      }
+
+      // ── GET /r/:token — public, read-only, server-rendered share page. No
+      // auth, no client JS required to view content (a small print script is
+      // present only inside a stored 'pdf'-format HTML report itself, as
+      // progressive enhancement -- the content renders and is readable
+      // without it). ──────────────────────────────────────────────────────
+      if (/^\/r\/[^/]+$/.test(path) && method === 'GET') {
+        const token = path.split('/')[2];
+        const link = await getShareLink(env, token);
+        if (!link || link.revoked_at) return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+        const reportRes = await sbAdmin(env, `/rest/v1/biddeed_reports?id=eq.${encodeURIComponent(link.report_id)}&select=id,title,format,storage_path`);
+        const reportRows = reportRes && reportRes.ok ? await reportRes.json() : [];
+        const report = reportRows[0];
+        if (!report) return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+        const obj = await storageGetObject(env, 'artifacts', report.storage_path);
+        if (!obj) return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+        if (report.format === 'pdf') {
+          return new Response(await obj.text(), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+        if (report.format === 'csv') {
+          const rows = (await obj.text()).split(/\r?\n/).filter(Boolean).map(parseCsvLine);
+          const [head, ...body2] = rows;
+          const tableHtml = '<table><tr>' + head.map(h => `<th>${escHtml(h)}</th>`).join('') + '</tr>' + body2.map(r => '<tr>' + r.map(c => `<td>${escHtml(c)}</td>`).join('') + '</tr>').join('') + '</table>';
+          return new Response(shareLinkPageShell(report.title || 'Report', tableHtml), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+        const jsonText = await obj.text();
+        return new Response(shareLinkPageShell(report.title || 'Report', `<pre>${escHtml(jsonText)}</pre>`), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       }
 
       // ── POST /chat/api — Streaming SSE ───────────────────────────────────
@@ -5501,6 +5918,7 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .chats-search{padding:8px 12px;border-bottom:1px solid var(--border)}
 .chats-search input{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--text);font-size:12px;font-family:inherit;outline:none}
 .chats-list{flex:1;overflow-y:auto;padding:6px}
+#rooms-list.chats-list{flex:0 1 auto;max-height:180px}
 .chats-empty{color:var(--muted);font-size:11.5px;text-align:center;padding:24px 12px}
 .chat-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:9px 10px;cursor:pointer;font-family:inherit}
 .chat-item:hover{background:var(--navy3)}
@@ -5570,11 +5988,16 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 </header>
 
 <div class="chats-scrim" id="chats-scrim"></div>
-<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats">
+<aside class="chats-drawer" id="chats-drawer" aria-label="Recent chats and Deal Rooms">
+  <div class="chats-hdr">
+    <h3 id="rooms-hdr-title">Deal Rooms</h3>
+    <button class="chats-new" id="rooms-new-btn" type="button">+ New</button>
+    <button class="chats-close" id="chats-close-btn" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="chats-list" id="rooms-list"><div class="chats-empty">Loading…</div></div>
   <div class="chats-hdr">
     <h3>Recent chats</h3>
     <button class="chats-new" id="chats-new-btn" type="button">+ New</button>
-    <button class="chats-close" id="chats-close-btn" type="button" aria-label="Close">✕</button>
   </div>
   <div class="chats-search"><input type="text" id="chats-search-input" placeholder="Search your chats..."></div>
   <div class="chats-list" id="chats-list"><div class="chats-empty">Loading…</div></div>
@@ -5582,7 +6005,7 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 
 <div class="split">
   <div class="chat-col">
-<div class="chat-toolbar"><button class="chats-btn" id="chats-open-btn" type="button" title="Recent chats">🕘 Chats</button></div>
+<div class="chat-toolbar"><button class="chats-btn" id="report-open-btn" type="button" title="Report">📄 Report</button><button class="chats-btn" id="chats-open-btn" type="button" title="Deal Rooms and Recent chats">🕘 Chats</button></div>
 ${countyBar}
 
 <div class="msgs" id="msgs">
@@ -5936,7 +6359,7 @@ function scrollBottom(){const m=document.getElementById('msgs');if(m){m.scrollTo
 
 function actionsHtml(role){
   if(role==='assistant'){
-    return '<div class="msg-actions" data-role="assistant"><button data-action="copy" title="Copy">⧉</button><button data-action="retry" title="Retry">↻</button><button data-action="thumbsup" title="Good response">👍</button><button data-action="thumbsdown" title="Bad response">👎</button><button data-action="addroom" disabled title="Coming in P2 - Deal Rooms">➕ Room</button><button data-action="setalert" disabled title="Coming in P3 - Alerts and Watches">🔔 Alert</button></div>';
+    return '<div class="msg-actions" data-role="assistant"><button data-action="copy" title="Copy">⧉</button><button data-action="retry" title="Retry">↻</button><button data-action="thumbsup" title="Good response">👍</button><button data-action="thumbsdown" title="Bad response">👎</button><button data-action="addroom" title="Add this chat to a Deal Room">➕ Room</button><button data-action="setalert" disabled title="Coming in P3 - Alerts and Watches">🔔 Alert</button></div>';
   }
   return '<div class="msg-actions" data-role="user"><button data-action="edit" title="Edit">✎ Edit</button></div>';
 }
@@ -6673,7 +7096,139 @@ if(AUTO)setTimeout(()=>ask(AUTO),600);
     }else if(action==='edit'&&bbl){
       document.getElementById('inp').value=bbl.textContent||'';
       document.getElementById('inp').focus();
+    }else if(action==='addroom'){
+      if(typeof window.bdAddCurrentChatToRoom==='function')window.bdAddCurrentChatToRoom();
     }
+  });
+
+  // ── Deal Rooms (issue #19847 C3, Claude.ai "Projects" parity) ───────────
+  var roomsListEl=document.getElementById('rooms-list');
+  var roomsNewBtn=document.getElementById('rooms-new-btn');
+  var roomPickerMode=false;
+
+  function renderRoomsList(rooms){
+    if(!rooms||!rooms.length){roomsListEl.innerHTML='<div class="chats-empty">'+(roomPickerMode?'No rooms yet — create one to add this chat.':'No Deal Rooms yet — create one to group chats, reports, and parcels.')+'</div>';return;}
+    roomsListEl.innerHTML=rooms.map(function(r){
+      var name=esc2(r.name||'Untitled Room');
+      var county=r.county?esc2(r.county):'';
+      return '<button class="chat-item" data-room-id="'+esc2(r.id)+'"><div class="ci-title">📁 '+name+'</div>'+(county?'<div class="ci-snip">'+county+'</div>':'')+'</button>';
+    }).join('');
+    roomsListEl.querySelectorAll('.chat-item').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        var roomId=btn.getAttribute('data-room-id');
+        if(roomPickerMode){addChatToRoom(roomId);}else{closeDrawer();loadRoomReports(roomId);}
+      });
+    });
+  }
+  function loadRoomReports(roomId){
+    fetch('/chat/api/reports?room='+encodeURIComponent(roomId),{headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():{reports:[]};})
+      .then(function(d){renderReportsPanel(d.reports);})
+      .catch(function(){});
+  }
+
+  function loadRooms(){
+    if(!chatState.token){roomsListEl.innerHTML='<div class="chats-empty">Sign in above to use Deal Rooms.</div>';return;}
+    roomsListEl.innerHTML='<div class="chats-empty">Loading…</div>';
+    fetch('/chat/api/rooms',{headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():{rooms:[]};})
+      .then(function(d){renderRoomsList(d.rooms);})
+      .catch(function(){roomsListEl.innerHTML='<div class="chats-empty">Could not load Deal Rooms.</div>';});
+  }
+
+  function createRoomThen(cb){
+    var name=window.prompt('Name this Deal Room (e.g. "Brevard tax deed leads"):');
+    if(!name)return;
+    fetch('/chat/api/rooms',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({name:name})})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){if(d&&d.room){loadRooms();if(cb)cb(d.room);}})
+      .catch(function(){});
+  }
+
+  function addChatToRoom(roomId){
+    if(!chatState.conversationId){window.alert('Send a message first, then add this chat to a room.');roomPickerMode=false;closeDrawer();return;}
+    fetch('/chat/api/rooms/'+encodeURIComponent(roomId)+'/items',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({kind:'conversation',ref_id:chatState.conversationId})})
+      .then(function(r){return r.ok;})
+      .then(function(ok){roomPickerMode=false;closeDrawer();if(ok&&typeof showSystemMessage==='function')showSystemMessage('Added to Deal Room.');})
+      .catch(function(){roomPickerMode=false;});
+  }
+
+  if(roomsNewBtn)roomsNewBtn.addEventListener('click',function(){
+    if(!chatState.token){requireIdentityThen(function(){createRoomThen();});return;}
+    createRoomThen();
+  });
+
+  window.bdAddCurrentChatToRoom=function(){
+    requireIdentityThen(function(){
+      roomPickerMode=true;
+      openDrawer();
+      loadRooms();
+    });
+  };
+
+  if(openBtn)openBtn.addEventListener('click',loadRooms);
+  var origOnChatIdentityReady=window.onChatIdentityReady;
+  window.onChatIdentityReady=function(){if(origOnChatIdentityReady)origOnChatIdentityReady();if(drawer.classList.contains('open'))loadRooms();};
+
+  // ── Report side panel (issue #19847 C3, Claude.ai "Artifacts" parity) ───
+  var reportOpenBtn=document.getElementById('report-open-btn');
+  function fmtLabel(f){return f==='pdf'?'PDF':f==='csv'?'CSV':'JSON';}
+  function downloadReport(reportId){
+    fetch('/chat/api/reports/'+encodeURIComponent(reportId)+'/download',{headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){if(d&&d.url)window.open(d.url,'_blank');})
+      .catch(function(){});
+  }
+  function shareReport(reportId,btn){
+    fetch('/chat/api/reports/'+encodeURIComponent(reportId)+'/share',{method:'POST',headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){
+        if(!d||!d.url)return;
+        if(navigator.clipboard)navigator.clipboard.writeText(d.url).catch(function(){});
+        if(btn){var old=btn.textContent;btn.textContent='✓ Link copied';setTimeout(function(){btn.textContent=old;},2000);}
+      }).catch(function(){});
+  }
+  function renderReportsPanel(reports){
+    var col=document.getElementById('panel-col');
+    var body=document.getElementById('panel-body');
+    var title=document.getElementById('panel-title');
+    if(!col||!body)return;
+    if(title)title.textContent='Report';
+    if(!reports||!reports.length){
+      body.innerHTML='<div class="pc-empty">No reports for this chat yet.</div><button class="chats-new" id="report-generate-btn" style="margin-top:10px">Generate report</button>';
+    }else{
+      body.innerHTML=reports.map(function(r){
+        return '<div class="pc-card"><div style="font-weight:600;font-size:13px">'+esc2(r.title||'Report')+' — v'+r.version+' ('+fmtLabel(r.format)+')</div>'+
+          '<div class="pc-actions"><button class="panel-toggle-btn" data-dl="'+esc2(r.id)+'">↓ Download</button><button class="panel-toggle-btn" data-share="'+esc2(r.id)+'">🔗 Share link</button></div></div>';
+      }).join('')+'<button class="chats-new" id="report-generate-btn" style="margin-top:10px">Generate new version</button>';
+    }
+    col.style.display='flex';panelOpen=true;
+    var toggle=document.getElementById('panel-toggle');
+    if(toggle)toggle.textContent='Hide ▸';
+    body.style.display='block';
+    body.querySelectorAll('[data-dl]').forEach(function(b){b.addEventListener('click',function(){downloadReport(b.getAttribute('data-dl'));});});
+    body.querySelectorAll('[data-share]').forEach(function(b){b.addEventListener('click',function(){shareReport(b.getAttribute('data-share'),b);});});
+    var genBtn=document.getElementById('report-generate-btn');
+    if(genBtn)genBtn.addEventListener('click',function(){generateReport();});
+  }
+  function loadReportsPanel(){
+    if(!chatState.conversationId){window.alert('Send a message first, then generate a report from this chat.');return;}
+    fetch('/chat/api/reports?conversation='+encodeURIComponent(chatState.conversationId),{headers:{'X-Chat-Token':chatState.token}})
+      .then(function(r){return r.ok?r.json():{reports:[]};})
+      .then(function(d){renderReportsPanel(d.reports);})
+      .catch(function(){});
+  }
+  function generateReport(){
+    if(!chatState.conversationId)return;
+    var body=document.getElementById('panel-body');
+    if(body)body.innerHTML='<div class="pc-empty">Generating…</div>';
+    fetch('/chat/api/reports',{method:'POST',headers:{'Content-Type':'application/json','X-Chat-Token':chatState.token},body:JSON.stringify({conversation_id:chatState.conversationId})})
+      .then(function(r){return r.ok;})
+      .then(function(){loadReportsPanel();})
+      .catch(function(){loadReportsPanel();});
+  }
+  if(reportOpenBtn)reportOpenBtn.addEventListener('click',function(){
+    requireIdentityThen(function(){loadReportsPanel();});
   });
 })();
 </script>
