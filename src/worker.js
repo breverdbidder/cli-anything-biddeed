@@ -5705,7 +5705,7 @@ function buildChatPage(county, hook, ref) {
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--navy:#fbfaf7;--navy2:#fbfaf7;--navy3:#f5f0e8;--orange:#9f4d32;--orange2:#9f4d32;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9;--green:#1f7a3f}
+:root{--navy:#fbfaf7;--navy2:#fbfaf7;--navy3:#f5f0e8;--orange:#9f4d32;--orange2:#9f4d32;--text:#1f1b16;--muted:#6e655e;--border:#ddd5c9;--green:#1f7a3f;--red:#b42318}
 html{height:100%;height:-webkit-fill-available}
 body{display:flex;flex-direction:column;background:var(--navy);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;height:-webkit-fill-available;height:var(--vvh,100vh);overflow:hidden;position:fixed;width:100%}
 
@@ -5921,14 +5921,14 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .models-ping{background:var(--navy3);color:var(--text);border:1px solid var(--border)!important}
 .models-status{font-size:11px;margin-top:8px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .models-status.ok{color:var(--green)}
-.models-status.err{color:#b42318}
+.models-status.err{color:var(--red)}
 .models-saved{border-top:1px solid var(--border);margin-top:14px;padding-top:12px}
 .models-saved h4{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px}
 .models-saved-item{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:11.5px;color:var(--text);border-bottom:1px solid var(--border)}
 .models-saved-item:last-child{border-bottom:none}
 .models-saved-item .msi-active{color:var(--orange);font-weight:700;font-size:10px}
 .models-saved-item .msi-del{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px}
-.models-saved-item .msi-del:hover{color:#b42318}
+.models-saved-item .msi-del:hover{color:var(--red)}
 
 /* Message actions row (issue #19829 P1) */
 .msg-actions{display:flex;gap:4px;margin:4px 0 0 40px;flex-wrap:wrap}
