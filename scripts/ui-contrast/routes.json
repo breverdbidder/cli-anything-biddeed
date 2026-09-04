@@ -1,0 +1,25 @@
+{
+  "description": "Public routes checked by scripts/ui-contrast/check.mjs. Add a route here whenever a new Worker-rendered or Next.js public page ships — this list is the DoD for the ui-contrast gate, not a sample.",
+  "viewports": [
+    { "name": "desktop", "width": 1440, "height": 900 },
+    { "name": "mobile", "width": 390, "height": 844 }
+  ],
+  "routes": [
+    "/",
+    "/blog",
+    "/blog/florida-foreclosure-max-bid-guide",
+    "/chat",
+    "/counties",
+    "/county/brevard",
+    "/reels",
+    "/radar",
+    "/terms",
+    "/privacy",
+    "/disclaimer",
+    "/security",
+    "/data-retention",
+    "/subscribe",
+    "/buy-report",
+    "/pioneers"
+  ]
+}
