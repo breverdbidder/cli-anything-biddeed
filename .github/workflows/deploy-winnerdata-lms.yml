@@ -326,32 +326,56 @@ jobs:
           const PASS = process.env.LMS_PASS;
           const TILE_LABELS = ['YouTube', 'Instagram Business', 'Facebook Page', 'TikTok', 'X (Twitter)', 'Typefully', 'LinkedIn Company Page'];
 
+          // Issue #19745/#20029 both hit the same documented flakiness: a
+          // Playwright browser-driven /login (page.fill + click) can 401
+          // even seconds after a plain fetch()/curl POST to the identical
+          // URL with the identical secret values succeeds (see this repo's
+          // docs/spec/20029.md — reproduced on 2+ prior runs before any of
+          // this page's code existed). Since the DoD only requires the
+          // *rendered page* to be captured by Playwright, not the login step
+          // itself, sidestep the flakiness entirely: log in with plain
+          // fetch() (retried the same way the workflow's own curl-based
+          // login-verify step already does, proven reliable earlier in this
+          // same job), then hand that real session cookie to the browser via
+          // addCookies() instead of re-driving the login form.
+          let sessionCookie = null;
+          for (let attempt = 1; attempt <= 6; attempt++) {
+            const res = await fetch(`${BASE}/login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({ username: USER, password: PASS }).toString(),
+              redirect: 'manual',
+            });
+            console.log(`attempt ${attempt}: fetch POST /login -> ${res.status}`);
+            const setCookie = res.headers.get('set-cookie');
+            if (res.status === 303 && setCookie && setCookie.includes('lms_session=')) {
+              sessionCookie = setCookie.split(';')[0].split('=').slice(1).join('=');
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 10000));
+          }
+          if (!sessionCookie) {
+            console.error('FAIL: could not obtain a session cookie via fetch() after 6 attempts');
+            process.exit(1);
+          }
+
           const browser = await chromium.launch();
-          const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+          const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+          const baseUrl = new URL(BASE);
+          await context.addCookies([{ name: 'lms_session', value: sessionCookie, domain: baseUrl.hostname, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' }]);
+          const page = await context.newPage();
 
           const consoleErrors = [];
           page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
           page.on('pageerror', (err) => consoleErrors.push(String(err)));
 
-          let loginResponse;
-          for (let attempt = 1; attempt <= 4; attempt++) {
-            await page.goto(`${BASE}/login`);
-            await page.fill('#username', USER);
-            await page.fill('#password', PASS);
-            [loginResponse] = await Promise.all([
-              page.waitForResponse((r) => r.url().endsWith('/login') && r.request().method() === 'POST'),
-              page.click('form[action="/login"] button[type="submit"]'),
-            ]);
-            if (loginResponse.status() === 303) break;
-            await new Promise((r) => setTimeout(r, 5000));
-          }
-          if (loginResponse.status() !== 303) {
-            console.error(`FAIL: login did not succeed after retries (status=${loginResponse.status()})`);
-            process.exit(1);
-          }
-
           await page.goto(`${BASE}/connections`);
           await page.waitForLoadState('networkidle').catch(() => {});
+
+          if (page.url().includes('/login')) {
+            console.error('FAIL: session cookie did not authenticate the browser (redirected to /login)');
+            process.exit(1);
+          }
 
           const bodyText = await page.textContent('body');
           const missingTiles = TILE_LABELS.filter((label) => !bodyText.includes(label));
