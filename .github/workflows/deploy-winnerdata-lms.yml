@@ -66,6 +66,13 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # Issue #20033: Meta/TikTok/X OAuth callback routes, mocked providers
+      # (no real app credentials exist yet -- Ariel creates the apps after
+      # this ships). A failing unit test blocks deploy, same as the syntax
+      # check above.
+      - name: Unit test — OAuth callback routes (mocked Meta/TikTok/X/Supabase)
+        run: node --test tests/
+
       - name: Deploy via wrangler
         id: deploy
         run: |
@@ -90,6 +97,36 @@ jobs:
           echo "${{ secrets.SUPABASE_ANON_KEY }}" | npx wrangler secret put SUPABASE_ANON_KEY
           echo "${{ secrets.LMS_SUPABASE_AUTH_EMAIL }}" | npx wrangler secret put LMS_SUPABASE_AUTH_EMAIL
           echo "${{ secrets.LMS_SUPABASE_AUTH_PASSWORD }}" | npx wrangler secret put LMS_SUPABASE_AUTH_PASSWORD
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
+      # Issue #20033: all seven are OPTIONAL app-level credentials Ariel adds
+      # once he creates each platform's developer app. Absence is expected
+      # state, not an error -- each is only `wrangler secret put` if the
+      # corresponding GitHub secret is actually set, so an unset one leaves
+      # env.<NAME> undefined at runtime and that platform's /connections tile
+      # renders "Not configured — add <NAME>" per intent guardrail #7
+      # (never a placeholder value). This step must not fail when any/all of
+      # these are absent.
+      - name: Set optional Connections Worker secrets (Meta/TikTok/X/Typefully)
+        run: |
+          set_if_present() {
+            name="$1"; value="$2"
+            if [ -n "$value" ]; then
+              echo "$value" | npx wrangler secret put "$name"
+              echo "Set $name"
+            else
+              echo "Skipping $name — not set as a GitHub secret yet (tile will show Not configured)"
+            fi
+          }
+          set_if_present META_APP_ID "${{ secrets.META_APP_ID }}"
+          set_if_present META_APP_SECRET "${{ secrets.META_APP_SECRET }}"
+          set_if_present TIKTOK_CLIENT_KEY "${{ secrets.TIKTOK_CLIENT_KEY }}"
+          set_if_present TIKTOK_CLIENT_SECRET "${{ secrets.TIKTOK_CLIENT_SECRET }}"
+          set_if_present X_API_KEY "${{ secrets.X_API_KEY }}"
+          set_if_present X_API_SECRET "${{ secrets.X_API_SECRET }}"
+          set_if_present TYPEFULLY_API_KEY "${{ secrets.TYPEFULLY_API_KEY }}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -270,6 +307,101 @@ jobs:
         run: |
           npm install --no-save playwright
           npx playwright install --with-deps chromium
+
+      # Issue #20033 DoD: "/connections live behind the LMS auth, Playwright
+      # 390 px screenshot, all six tiles rendering with real status, zero
+      # console errors." Separate from the FF-batch click-through below —
+      # this is a read-only page, no approval/send risk (M1) either way.
+      - name: Playwright — /connections at 390px, real login, zero console errors
+        env:
+          LMS_URL: ${{ steps.deploy.outputs.worker_url }}
+          LMS_USER: ${{ secrets.LMS_AUTH_USER }}
+          LMS_PASS: ${{ secrets.LMS_AUTH_PASS }}
+        run: |
+          cat > ./lms_connections_390.mjs <<'EOF'
+          import { chromium } from 'playwright';
+
+          const BASE = process.env.LMS_URL;
+          const USER = process.env.LMS_USER;
+          const PASS = process.env.LMS_PASS;
+          const TILE_LABELS = ['YouTube', 'Instagram Business', 'Facebook Page', 'TikTok', 'X (Twitter)', 'Typefully', 'LinkedIn Company Page'];
+
+          const browser = await chromium.launch();
+          const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+
+          const consoleErrors = [];
+          page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+          page.on('pageerror', (err) => consoleErrors.push(String(err)));
+
+          let loginResponse;
+          for (let attempt = 1; attempt <= 4; attempt++) {
+            await page.goto(`${BASE}/login`);
+            await page.fill('#username', USER);
+            await page.fill('#password', PASS);
+            [loginResponse] = await Promise.all([
+              page.waitForResponse((r) => r.url().endsWith('/login') && r.request().method() === 'POST'),
+              page.click('form[action="/login"] button[type="submit"]'),
+            ]);
+            if (loginResponse.status() === 303) break;
+            await new Promise((r) => setTimeout(r, 5000));
+          }
+          if (loginResponse.status() !== 303) {
+            console.error(`FAIL: login did not succeed after retries (status=${loginResponse.status()})`);
+            process.exit(1);
+          }
+
+          await page.goto(`${BASE}/connections`);
+          await page.waitForLoadState('networkidle').catch(() => {});
+
+          const bodyText = await page.textContent('body');
+          const missingTiles = TILE_LABELS.filter((label) => !bodyText.includes(label));
+          if (missingTiles.length) {
+            console.error(`FAIL: missing tile(s): ${missingTiles.join(', ')}`);
+            process.exit(1);
+          }
+          console.log('PASS: all six platform tiles rendered with real status');
+
+          const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+          if (overflow) {
+            console.error('FAIL: horizontal overflow at 390px viewport');
+            process.exit(1);
+          }
+          console.log('PASS: no horizontal overflow at 390px');
+
+          if (consoleErrors.length) {
+            console.error(`FAIL: ${consoleErrors.length} console error(s): ${JSON.stringify(consoleErrors)}`);
+            process.exit(1);
+          }
+          console.log('PASS: zero console errors');
+
+          await page.screenshot({ path: '/tmp/connections_390.png', fullPage: true });
+          await browser.close();
+          EOF
+          node ./lms_connections_390.mjs
+          rm -f ./lms_connections_390.mjs
+
+      - name: Commit /connections 390px screenshot evidence
+        working-directory: .
+        run: |
+          mkdir -p docs/evidence
+          cp /tmp/connections_390.png docs/evidence/20033-lms-connections-390px.png
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/evidence/20033-lms-connections-390px.png
+          if git diff --cached --quiet; then
+            echo "No screenshot changes to commit."
+          else
+            git commit -m "$(cat <<'EOF'
+          docs(20033): commit live Playwright /connections 390px screenshot
+
+          Automated evidence from deploy-winnerdata-lms.yml — real browser login +
+          /connections render at 390px, all six tiles present, zero console errors.
+
+          Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+          EOF
+          )"
+            git push origin HEAD:main
+          fi
 
       - name: Playwright — real LMS login + FF batch approve click-through
         env:

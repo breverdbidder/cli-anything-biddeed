@@ -354,6 +354,7 @@ function layout(title, activeNav, orgId, body) {
     ['billing', '/billing', 'Billing'],
     ['ff-batches', '/ff-batches', 'FF Batches'],
     ['reels', '/reels', 'Reels'],
+    ['connections', '/connections', 'Connections'],
   ].map(([key, path, label]) => {
     const href = orgId ? `${path}?org_id=${encodeURIComponent(orgId)}` : path;
     const active = key === activeNav ? ' style="color:#F59E0B;border-bottom:2px solid #F59E0B"' : '';
@@ -405,6 +406,19 @@ function layout(title, activeNav, orgId, body) {
   .day-group{margin-top:2rem}
   .day-group h2{color:#F59E0B;font-size:1rem;border-bottom:1px solid #1e3a5f;padding-bottom:.4rem}
   @media (max-width:480px){ .reel-grid{grid-template-columns:1fr} }
+  .conn-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem;margin-top:1rem}
+  .conn-tile{background:#0f172a;border:1px solid #1e3a5f;border-radius:8px;padding:1rem;display:flex;flex-direction:column;gap:.45rem}
+  .conn-tile h3{margin:0;font-size:1rem;color:#e2e8f0}
+  .conn-status{font-size:.78rem;font-weight:600;padding:.15rem .5rem;border-radius:4px;display:inline-block;width:fit-content}
+  .conn-status-connected{background:#14532d;color:#4ade80}
+  .conn-status-needs-reauth{background:#F59E0B;color:#020617}
+  .conn-status-audit-pending{background:#1E3A5F;color:#F59E0B}
+  .conn-status-not-configured{background:#334155;color:#94a3b8}
+  .conn-meta{font-size:.75rem;color:#64748b}
+  .conn-missing{font-size:.72rem;color:#f87171}
+  .conn-tile form{margin-top:.25rem}
+  .conn-tile button{width:100%}
+  @media (max-width:480px){ .conn-grid{grid-template-columns:1fr} }
 </style>
 </head><body>
 <header>
@@ -840,6 +854,425 @@ async function handleReelVariantBatchApprove(env, request) {
   return Response.redirect(new URL('/reels', request.url).toString(), 303);
 }
 
+// --- Connections page (issue #20033) ------------------------------------
+// One-tap OAuth for Meta (Instagram+Facebook)/TikTok/X, no publishing here
+// (that's #19788 for YouTube; Meta/TikTok/X publishing lanes are explicitly
+// out of scope). Every provider follows the same shape: GET /connections/
+// <platform>/connect builds the authorize URL and stashes CSRF `state` (and,
+// for X, the PKCE code_verifier) in a short-lived signed cookie -- never in
+// a DB row, since it only needs to survive one redirect round trip and this
+// Worker has no other request-scoped storage. GET /connections/<platform>/
+// callback verifies that cookie against the provider's `state` query param
+// before doing anything else (the issue's own negative test), exchanges the
+// code, and writes only the exact vault secret names the issue names via
+// lms_oauth_vault_write() (whitelist-enforced in Postgres, not just here).
+//
+// App ID/secret (META_APP_ID, TIKTOK_CLIENT_KEY, X_API_KEY, ...) are NOT
+// vault secrets -- they're Worker secrets set the same way LMS_AUTH_USER is
+// (GitHub secret -> `wrangler secret put` in the deploy workflow), because
+// they're static app-level config Ariel creates once, not a per-connect
+// OAuth artifact. If absent, every tile/route for that platform fails
+// closed with a human-readable "Not configured" message -- never a fake
+// placeholder (intent guardrail #7).
+
+const OAUTH_STATE_COOKIE = 'lms_oauth_state';
+const OAUTH_STATE_TTL_SECONDS = 10 * 60; // 10 minutes -- long enough for a human to complete the provider's consent screen
+
+async function oauthStateSign(env, payload) {
+  const enc = new TextEncoder();
+  // Distinct HMAC domain from the session cookie's ("lms-session-v1") so a
+  // leaked/replayed session cookie can never double as a valid oauth-state
+  // cookie or vice versa, even though both derive from the same login secret.
+  const keyDigest = await crypto.subtle.digest('SHA-256', enc.encode(`${env.LMS_AUTH_USER}:${env.LMS_AUTH_PASS}:lms-oauth-state-v1`));
+  const key = await crypto.subtle.importKey('raw', keyDigest, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  return base64url(new Uint8Array(sigBuf));
+}
+
+function randomToken(byteLen) {
+  const bytes = new Uint8Array(byteLen);
+  crypto.getRandomValues(bytes);
+  return base64url(bytes);
+}
+
+async function sha256Base64Url(input) {
+  const enc = new TextEncoder();
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(input));
+  return base64url(new Uint8Array(digest));
+}
+
+// payload: platform|state|exp[|extra] -- `extra` carries X's PKCE code_verifier.
+async function createOAuthStateCookie(env, platform, state, extra) {
+  const exp = Math.floor(Date.now() / 1000) + OAUTH_STATE_TTL_SECONDS;
+  const payload = `${platform}|${state}|${exp}|${extra || ''}`;
+  const sig = await oauthStateSign(env, payload);
+  const value = `${base64url(new TextEncoder().encode(payload))}.${sig}`;
+  return `${OAUTH_STATE_COOKIE}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/connections; Max-Age=${OAUTH_STATE_TTL_SECONDS}`;
+}
+
+const CLEAR_OAUTH_STATE_COOKIE = `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/connections; Max-Age=0`;
+
+// Returns { platform, state, extra } on a fully valid, signature-checked,
+// non-expired cookie, or null. Callers MUST also compare the returned
+// `state` against the provider's own `state` query param (this only proves
+// the cookie itself wasn't forged/tampered/expired -- the actual CSRF check
+// is the equality comparison the caller does next).
+async function readOAuthStateCookie(request, env) {
+  const cookieHeader = request.headers.get('Cookie') || '';
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${OAUTH_STATE_COOKIE}=([^;]+)`));
+  if (!match) return null;
+  const [payloadB64, sig] = match[1].split('.');
+  if (!payloadB64 || !sig) return null;
+  let payload;
+  try {
+    payload = new TextDecoder().decode(base64urlDecode(payloadB64));
+  } catch {
+    return null;
+  }
+  const expectedSig = await oauthStateSign(env, payload);
+  if (!timingSafeEqual(sig, expectedSig)) return null;
+  const [platform, state, expStr, extra] = payload.split('|');
+  const exp = Number(expStr);
+  if (!platform || !state || !Number.isFinite(exp) || Math.floor(Date.now() / 1000) > exp) return null;
+  return { platform, state, extra: extra || null };
+}
+
+function connectionsErrorPage(title, detail) {
+  return layout(title, 'connections', null, `
+    <p><a class="link" href="/connections">&larr; Connections</a></p>
+    <h2>${esc(title)}</h2>
+    <p class="conn-missing">${esc(detail)}</p>`);
+}
+
+// --- Meta (Instagram Business + Facebook Page) --------------------------
+const META_REDIRECT_URI = 'https://lms.winnerdataai.com/connections/meta/callback';
+const META_SCOPES = 'pages_manage_posts,pages_read_engagement,instagram_basic,instagram_content_publish,business_management';
+const META_GRAPH_VERSION = 'v21.0';
+
+async function handleMetaConnect(env, request) {
+  if (!env.META_APP_ID) {
+    return new Response(connectionsErrorPage('Meta not configured', 'META_APP_ID is not set as a GitHub secret / Worker secret yet. Add it, redeploy, then Connect will work.'), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }
+  const state = randomToken(24);
+  const authUrl = new URL(`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`);
+  authUrl.searchParams.set('client_id', env.META_APP_ID);
+  authUrl.searchParams.set('redirect_uri', META_REDIRECT_URI);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('scope', META_SCOPES);
+  authUrl.searchParams.set('response_type', 'code');
+  const cookie = await createOAuthStateCookie(env, 'meta', state);
+  return new Response(null, { status: 303, headers: { Location: authUrl.toString(), 'Set-Cookie': cookie } });
+}
+
+async function handleMetaCallback(env, request, searchParams) {
+  const stateParam = searchParams.get('state');
+  const code = searchParams.get('code');
+  const providerError = searchParams.get('error_description') || searchParams.get('error');
+
+  const stored = await readOAuthStateCookie(request, env);
+  if (!stored || stored.platform !== 'meta' || !stateParam || !timingSafeEqual(stored.state, stateParam)) {
+    return new Response(connectionsErrorPage('Meta connect failed', 'Invalid or expired connection request (state mismatch). This can happen if the link was opened twice or took too long -- go back to Connections and tap Connect again.'), { status: 403, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+  if (providerError || !code) {
+    return new Response(connectionsErrorPage('Meta connect failed', `Meta did not return an authorization code (${providerError || 'no code'}). Nothing was stored.`), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+  if (!env.META_APP_ID || !env.META_APP_SECRET) {
+    return new Response(connectionsErrorPage('Meta not configured', 'META_APP_ID / META_APP_SECRET missing at callback time.'), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+
+  try {
+    const shortTokenUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token`);
+    shortTokenUrl.searchParams.set('client_id', env.META_APP_ID);
+    shortTokenUrl.searchParams.set('client_secret', env.META_APP_SECRET);
+    shortTokenUrl.searchParams.set('redirect_uri', META_REDIRECT_URI);
+    shortTokenUrl.searchParams.set('code', code);
+    const shortRes = await fetch(shortTokenUrl.toString());
+    const shortData = await shortRes.json();
+    if (!shortRes.ok || !shortData.access_token) {
+      return new Response(connectionsErrorPage('Meta connect failed', `Code exchange failed: ${esc(JSON.stringify(shortData))}`), { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+    }
+
+    const longTokenUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token`);
+    longTokenUrl.searchParams.set('grant_type', 'fb_exchange_token');
+    longTokenUrl.searchParams.set('client_id', env.META_APP_ID);
+    longTokenUrl.searchParams.set('client_secret', env.META_APP_SECRET);
+    longTokenUrl.searchParams.set('fb_exchange_token', shortData.access_token);
+    const longRes = await fetch(longTokenUrl.toString());
+    const longData = await longRes.json();
+    if (!longRes.ok || !longData.access_token) {
+      return new Response(connectionsErrorPage('Meta connect failed', `Long-lived token exchange failed: ${esc(JSON.stringify(longData))}`), { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+    }
+    const userToken = longData.access_token;
+    const expiresAt = new Date(Date.now() + (Number(longData.expires_in) || 60 * 24 * 60 * 60) * 1000).toISOString();
+
+    const pagesUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts`);
+    pagesUrl.searchParams.set('fields', 'id,name,access_token,instagram_business_account');
+    pagesUrl.searchParams.set('access_token', userToken);
+    const pagesRes = await fetch(pagesUrl.toString());
+    const pagesData = await pagesRes.json();
+    const page = (pagesData.data || [])[0];
+    if (!pagesRes.ok || !page) {
+      return new Response(connectionsErrorPage('Meta connect failed', `No Facebook Page found on this account (dev-mode apps only see Pages where the connecting user has a role): ${esc(JSON.stringify(pagesData))}`), { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+    }
+
+    await rpc(env, 'lms_oauth_vault_write', { p_platform: 'meta', p_vault_secret_name: 'meta_page_access_token', p_value: page.access_token });
+    await rpc(env, 'lms_oauth_vault_write', { p_platform: 'meta', p_vault_secret_name: 'meta_page_id', p_value: page.id });
+    await rpc(env, 'lms_oauth_vault_write', { p_platform: 'meta', p_vault_secret_name: 'meta_user_token_expires_at', p_value: expiresAt });
+    const igId = page.instagram_business_account && page.instagram_business_account.id;
+    if (igId) {
+      await rpc(env, 'lms_oauth_vault_write', { p_platform: 'meta', p_vault_secret_name: 'ig_business_account_id', p_value: igId });
+    }
+
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'facebook', p_healthy: true, p_detail: `Connected via /connections OAuth, Page "${page.name}"` });
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'instagram', p_healthy: !!igId, p_detail: igId ? `Connected via /connections OAuth, linked to Page "${page.name}"` : 'Facebook Page connected, but no linked Instagram Business account found -- link one in Meta Business Suite, then reconnect.' });
+
+    return new Response(null, { status: 303, headers: { Location: '/connections', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  } catch (err) {
+    return new Response(connectionsErrorPage('Meta connect failed', `Unexpected error: ${esc(String(err))}. Nothing was stored.`), { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+}
+
+// --- TikTok (Login Kit) ---------------------------------------------------
+const TIKTOK_REDIRECT_URI = 'https://lms.winnerdataai.com/connections/tiktok/callback';
+const TIKTOK_SCOPES = 'user.info.basic,video.publish,video.upload';
+
+async function handleTiktokConnect(env, request) {
+  if (!env.TIKTOK_CLIENT_KEY) {
+    return new Response(connectionsErrorPage('TikTok not configured', 'TIKTOK_CLIENT_KEY is not set as a GitHub secret / Worker secret yet. Add it, redeploy, then Connect will work.'), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }
+  const state = randomToken(24);
+  const authUrl = new URL('https://www.tiktok.com/v2/auth/authorize/');
+  authUrl.searchParams.set('client_key', env.TIKTOK_CLIENT_KEY);
+  authUrl.searchParams.set('redirect_uri', TIKTOK_REDIRECT_URI);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('scope', TIKTOK_SCOPES);
+  authUrl.searchParams.set('response_type', 'code');
+  const cookie = await createOAuthStateCookie(env, 'tiktok', state);
+  return new Response(null, { status: 303, headers: { Location: authUrl.toString(), 'Set-Cookie': cookie } });
+}
+
+async function handleTiktokCallback(env, request, searchParams) {
+  const stateParam = searchParams.get('state');
+  const code = searchParams.get('code');
+  const providerError = searchParams.get('error_description') || searchParams.get('error');
+
+  const stored = await readOAuthStateCookie(request, env);
+  if (!stored || stored.platform !== 'tiktok' || !stateParam || !timingSafeEqual(stored.state, stateParam)) {
+    return new Response(connectionsErrorPage('TikTok connect failed', 'Invalid or expired connection request (state mismatch). Go back to Connections and tap Connect again.'), { status: 403, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+  if (providerError || !code) {
+    return new Response(connectionsErrorPage('TikTok connect failed', `TikTok did not return an authorization code (${providerError || 'no code'}). Nothing was stored.`), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+  if (!env.TIKTOK_CLIENT_KEY || !env.TIKTOK_CLIENT_SECRET) {
+    return new Response(connectionsErrorPage('TikTok not configured', 'TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET missing at callback time.'), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+
+  try {
+    const tokenRes = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cache-Control': 'no-cache' },
+      body: new URLSearchParams({
+        client_key: env.TIKTOK_CLIENT_KEY,
+        client_secret: env.TIKTOK_CLIENT_SECRET,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: TIKTOK_REDIRECT_URI,
+      }).toString(),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || !tokenData.access_token) {
+      return new Response(connectionsErrorPage('TikTok connect failed', `Code exchange failed: ${esc(JSON.stringify(tokenData))}`), { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+    }
+    const expiresAt = new Date(Date.now() + (Number(tokenData.expires_in) || 24 * 60 * 60) * 1000).toISOString();
+
+    await rpc(env, 'lms_oauth_vault_write', { p_platform: 'tiktok', p_vault_secret_name: 'tiktok_access_token', p_value: tokenData.access_token });
+    await rpc(env, 'lms_oauth_vault_write', { p_platform: 'tiktok', p_vault_secret_name: 'tiktok_refresh_token', p_value: tokenData.refresh_token });
+    await rpc(env, 'lms_oauth_vault_write', { p_platform: 'tiktok', p_vault_secret_name: 'tiktok_open_id', p_value: tokenData.open_id });
+    await rpc(env, 'lms_oauth_vault_write', { p_platform: 'tiktok', p_vault_secret_name: 'tiktok_token_expires_at', p_value: expiresAt });
+
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'tiktok', p_healthy: true, p_detail: 'Audit pending -- posts are private until TikTok approves video.publish for this app (Content Posting API App Review).' });
+
+    return new Response(null, { status: 303, headers: { Location: '/connections', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  } catch (err) {
+    return new Response(connectionsErrorPage('TikTok connect failed', `Unexpected error: ${esc(String(err))}. Nothing was stored.`), { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+}
+
+// --- X (OAuth 2.0 + PKCE) --------------------------------------------------
+const X_REDIRECT_URI = 'https://lms.winnerdataai.com/connections/x/callback';
+const X_SCOPES = 'tweet.read tweet.write users.read offline.access';
+
+async function handleXConnect(env, request) {
+  if (!env.X_API_KEY) {
+    return new Response(connectionsErrorPage('X not configured', 'X_API_KEY is not set as a GitHub secret / Worker secret yet. Add it, redeploy, then Connect will work.'), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }
+  const state = randomToken(24);
+  const codeVerifier = randomToken(48);
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const authUrl = new URL('https://twitter.com/i/oauth2/authorize');
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('client_id', env.X_API_KEY);
+  authUrl.searchParams.set('redirect_uri', X_REDIRECT_URI);
+  authUrl.searchParams.set('scope', X_SCOPES);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('code_challenge', codeChallenge);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+  const cookie = await createOAuthStateCookie(env, 'x', state, codeVerifier);
+  return new Response(null, { status: 303, headers: { Location: authUrl.toString(), 'Set-Cookie': cookie } });
+}
+
+async function handleXCallback(env, request, searchParams) {
+  const stateParam = searchParams.get('state');
+  const code = searchParams.get('code');
+  const providerError = searchParams.get('error_description') || searchParams.get('error');
+
+  const stored = await readOAuthStateCookie(request, env);
+  if (!stored || stored.platform !== 'x' || !stateParam || !timingSafeEqual(stored.state, stateParam) || !stored.extra) {
+    return new Response(connectionsErrorPage('X connect failed', 'Invalid or expired connection request (state mismatch). Go back to Connections and tap Connect again.'), { status: 403, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+  if (providerError || !code) {
+    return new Response(connectionsErrorPage('X connect failed', `X did not return an authorization code (${providerError || 'no code'}). Nothing was stored.`), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+  if (!env.X_API_KEY || !env.X_API_SECRET) {
+    return new Response(connectionsErrorPage('X not configured', 'X_API_KEY / X_API_SECRET missing at callback time.'), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+
+  try {
+    const basicAuth = btoa(`${env.X_API_KEY}:${env.X_API_SECRET}`);
+    const tokenRes = await fetch('https://api.twitter.com/2/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${basicAuth}` },
+      body: new URLSearchParams({
+        code,
+        grant_type: 'authorization_code',
+        client_id: env.X_API_KEY,
+        redirect_uri: X_REDIRECT_URI,
+        code_verifier: stored.extra,
+      }).toString(),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || !tokenData.access_token) {
+      return new Response(connectionsErrorPage('X connect failed', `Code exchange failed: ${esc(JSON.stringify(tokenData))}`), { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+    }
+
+    await rpc(env, 'lms_oauth_vault_write', { p_platform: 'x', p_vault_secret_name: 'x_access_token', p_value: tokenData.access_token });
+    if (tokenData.refresh_token) {
+      await rpc(env, 'lms_oauth_vault_write', { p_platform: 'x', p_vault_secret_name: 'x_refresh_token', p_value: tokenData.refresh_token });
+    }
+
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'x', p_healthy: true, p_detail: 'Connected via /connections OAuth. Billed per post ($0.015, $0.20 with a link) -- confirm spend before enabling a publishing lane.' });
+
+    return new Response(null, { status: 303, headers: { Location: '/connections', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  } catch (err) {
+    return new Response(connectionsErrorPage('X connect failed', `Unexpected error: ${esc(String(err))}. Nothing was stored.`), { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'Set-Cookie': CLEAR_OAUTH_STATE_COOKIE } });
+  }
+}
+
+// --- Tile rendering --------------------------------------------------------
+
+function connTileStatus(healthy, detail) {
+  if (!healthy && /NOT_CONFIGURED/.test(detail || '')) return { cls: 'not-configured', label: 'Not configured' };
+  if (!healthy) return { cls: 'needs-reauth', label: 'Needs re-auth' };
+  if (/audit pending/i.test(detail || '')) return { cls: 'audit-pending', label: 'Audit pending' };
+  return { cls: 'connected', label: 'Connected' };
+}
+
+function missingSecretNames(detail) {
+  const match = /missing vault secret\(s\) (\[.*?\])/.exec(detail || '');
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1].replace(/'/g, '"'));
+  } catch {
+    return null;
+  }
+}
+
+function connTile({ name, key, statusHealthy, statusDetail, checkedAt, connectPath, appSecretPresent, appSecretName, note }) {
+  const status = connTileStatus(statusHealthy, statusDetail);
+  const missing = missingSecretNames(statusDetail);
+  let action = '';
+  if (connectPath) {
+    if (!appSecretPresent) {
+      action = `<p class="conn-missing">Not configured -- add <code>${esc(appSecretName)}</code> (GitHub repo secret) to enable Connect.</p>`;
+    } else if (status.cls !== 'connected' && status.cls !== 'audit-pending') {
+      action = `<form method="GET" action="${connectPath}"><button type="submit">Connect</button></form>`;
+    } else {
+      action = `<form method="GET" action="${connectPath}"><button type="submit">Reconnect</button></form>`;
+    }
+  }
+  return `
+    <div class="conn-tile">
+      <h3>${esc(name)}</h3>
+      <span class="conn-status conn-status-${status.cls}">${esc(status.label)}</span>
+      <div class="conn-meta">${esc(statusDetail || 'No check on file yet')}</div>
+      ${missing ? `<div class="conn-missing">Missing: ${missing.map(esc).join(', ')}</div>` : ''}
+      <div class="conn-meta">Last check: ${checkedAt ? fmtDate(checkedAt) : '—'}</div>
+      ${note ? `<div class="conn-meta">${note}</div>` : ''}
+      ${action}
+    </div>`;
+}
+
+async function viewConnections(env) {
+  const data = await rpc(env, 'lms_connections_status', {});
+  const social = data.social || [];
+  const byPlatform = Object.fromEntries(social.map((s) => [s.platform, s]));
+  const youtube = data.youtube;
+
+  const tiles = [
+    connTile({
+      name: 'YouTube', key: 'youtube',
+      statusHealthy: !!(youtube && youtube.ok), statusDetail: youtube ? (youtube.ok ? 'Connected' : (youtube.error || 'Unhealthy')) : 'No check on file yet',
+      checkedAt: youtube && youtube.checked_at,
+      connectPath: null,
+    }),
+    connTile({
+      name: 'Instagram Business', key: 'instagram',
+      statusHealthy: byPlatform.instagram && byPlatform.instagram.healthy, statusDetail: byPlatform.instagram && byPlatform.instagram.detail,
+      checkedAt: byPlatform.instagram && byPlatform.instagram.checked_at,
+      connectPath: '/connections/meta/connect', appSecretPresent: !!env.META_APP_ID, appSecretName: 'META_APP_ID',
+      note: 'Same Connect button as Facebook Page (one Meta app covers both).',
+    }),
+    connTile({
+      name: 'Facebook Page', key: 'facebook',
+      statusHealthy: byPlatform.facebook && byPlatform.facebook.healthy, statusDetail: byPlatform.facebook && byPlatform.facebook.detail,
+      checkedAt: byPlatform.facebook && byPlatform.facebook.checked_at,
+      connectPath: '/connections/meta/connect', appSecretPresent: !!env.META_APP_ID, appSecretName: 'META_APP_ID',
+    }),
+    connTile({
+      name: 'TikTok', key: 'tiktok',
+      statusHealthy: byPlatform.tiktok && byPlatform.tiktok.healthy, statusDetail: byPlatform.tiktok && byPlatform.tiktok.detail,
+      checkedAt: byPlatform.tiktok && byPlatform.tiktok.checked_at,
+      connectPath: '/connections/tiktok/connect', appSecretPresent: !!env.TIKTOK_CLIENT_KEY, appSecretName: 'TIKTOK_CLIENT_KEY',
+    }),
+    connTile({
+      name: 'X (Twitter)', key: 'x',
+      statusHealthy: byPlatform.x && byPlatform.x.healthy, statusDetail: byPlatform.x && byPlatform.x.detail,
+      checkedAt: byPlatform.x && byPlatform.x.checked_at,
+      connectPath: '/connections/x/connect', appSecretPresent: !!env.X_API_KEY, appSecretName: 'X_API_KEY',
+      note: '$0.015/post, $0.20/post with a link -- no free tier.',
+    }),
+    connTile({
+      name: 'Typefully', key: 'typefully',
+      statusHealthy: byPlatform.typefully && byPlatform.typefully.healthy, statusDetail: byPlatform.typefully && byPlatform.typefully.detail,
+      checkedAt: byPlatform.typefully && byPlatform.typefully.checked_at,
+      connectPath: null,
+      note: env.TYPEFULLY_API_KEY ? 'API key set -- health reflects the last 6h probe.' : 'Not configured -- add TYPEFULLY_API_KEY (GitHub repo secret). No OAuth: connect via typefully.com, copy the API key to Ariel, who hands it to Claude to store.',
+    }),
+    connTile({
+      name: 'LinkedIn Company Page', key: 'linkedin_company',
+      statusHealthy: false, statusDetail: 'Manual / Typefully -- LinkedIn Community Management API is a Vetted Product requiring a multi-day review; no OAuth wired here by design.',
+      checkedAt: byPlatform.linkedin_company && byPlatform.linkedin_company.checked_at,
+      connectPath: null,
+    }),
+  ].join('');
+
+  const body = `
+    <h2>Connections</h2>
+    <p class="footer-note">One tap connects a platform's OAuth -- tokens go straight to the Supabase vault, never through this page or any log. Publishing lanes for Meta/TikTok/X are a separate, later build (this page only proves the connection and shows status).</p>
+    <div class="conn-grid">${tiles}</div>`;
+  return layout('Connections', 'connections', null, body);
+}
+
 // --- Handlers ----------------------------------------------------------
 
 async function handleFlag(env, request, leadId) {
@@ -906,6 +1339,91 @@ async function handleHealthz(env) {
   });
 }
 
+// --- Scheduled health probe (issue #20033 scope item 6, every 6h) --------
+// Reads each platform's token straight from the vault via the same
+// service-role rpc() helper this Worker already uses everywhere else (the
+// CLAUDE.md-sanctioned `vault_secret(name)` passthrough -- safe specifically
+// because its EXECUTE grant is postgres+service_role only, which is exactly
+// what this Worker authenticates as). Never logs a token value; only the
+// boolean health result is written back via lms_connections_health_upsert.
+async function readVaultSecret(env, name) {
+  try {
+    return await rpc(env, 'vault_secret', { p_name: name });
+  } catch {
+    return null;
+  }
+}
+
+async function probeMeta(env) {
+  const token = await readVaultSecret(env, 'meta_page_access_token');
+  if (!token) return; // stays NOT_CONFIGURED from the last real state, nothing to probe
+  const expiresAtRaw = await readVaultSecret(env, 'meta_user_token_expires_at');
+  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw) : null;
+  const daysToExpiry = expiresAt ? (expiresAt.getTime() - Date.now()) / 86400000 : null;
+
+  const res = await fetch(`https://graph.facebook.com/${META_GRAPH_VERSION}/me?fields=id,name&access_token=${encodeURIComponent(token)}`);
+  const data = await res.json();
+  const igId = await readVaultSecret(env, 'ig_business_account_id');
+
+  if (!res.ok || data.error) {
+    const detail = `Token check failed: ${data.error ? data.error.message : res.status}`;
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'facebook', p_healthy: false, p_detail: detail });
+    if (igId) await rpc(env, 'lms_connections_health_upsert', { p_platform: 'instagram', p_healthy: false, p_detail: detail });
+    return;
+  }
+  const needsReauth = daysToExpiry !== null && daysToExpiry <= 7;
+  const detail = needsReauth
+    ? `Needs re-auth -- Meta token expires in ${Math.max(0, Math.round(daysToExpiry))} day(s)`
+    : `Connected, Page "${data.name}"`;
+  await rpc(env, 'lms_connections_health_upsert', { p_platform: 'facebook', p_healthy: !needsReauth, p_detail: detail });
+  if (igId) await rpc(env, 'lms_connections_health_upsert', { p_platform: 'instagram', p_healthy: !needsReauth, p_detail: needsReauth ? detail : `Connected, linked to Page "${data.name}"` });
+}
+
+async function probeTiktok(env) {
+  const token = await readVaultSecret(env, 'tiktok_access_token');
+  if (!token) return;
+  const res = await fetch('https://open.tiktokapis.com/v2/user/info/?fields=open_id', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json();
+  if (!res.ok || (data.error && data.error.code !== 'ok')) {
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'tiktok', p_healthy: false, p_detail: `Token check failed: ${data.error ? data.error.message : res.status}` });
+    return;
+  }
+  await rpc(env, 'lms_connections_health_upsert', { p_platform: 'tiktok', p_healthy: true, p_detail: 'Audit pending -- posts are private until TikTok approves video.publish for this app (Content Posting API App Review).' });
+}
+
+async function probeX(env) {
+  const token = await readVaultSecret(env, 'x_access_token');
+  if (!token) return;
+  const res = await fetch('https://api.twitter.com/2/users/me', { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  if (!res.ok || data.errors) {
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'x', p_healthy: false, p_detail: `Token check failed: ${data.errors ? JSON.stringify(data.errors) : res.status}` });
+    return;
+  }
+  await rpc(env, 'lms_connections_health_upsert', { p_platform: 'x', p_healthy: true, p_detail: 'Connected via /connections OAuth. Billed per post ($0.015, $0.20 with a link) -- confirm spend before enabling a publishing lane.' });
+}
+
+async function probeTypefully(env) {
+  if (!env.TYPEFULLY_API_KEY) return; // stays NOT_CONFIGURED
+  try {
+    const res = await fetch('https://api.typefully.com/v2/me', { headers: { Authorization: `Bearer ${env.TYPEFULLY_API_KEY}` } });
+    if (!res.ok) {
+      await rpc(env, 'lms_connections_health_upsert', { p_platform: 'typefully', p_healthy: false, p_detail: `Token check failed: HTTP ${res.status}` });
+      return;
+    }
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'typefully', p_healthy: true, p_detail: 'Connected -- GET /v2/me succeeded.' });
+  } catch (err) {
+    await rpc(env, 'lms_connections_health_upsert', { p_platform: 'typefully', p_healthy: false, p_detail: `Probe error: ${String(err)}` });
+  }
+}
+
+async function probeAllConnections(env) {
+  const results = await Promise.allSettled([probeMeta(env), probeTiktok(env), probeX(env), probeTypefully(env)]);
+  return results.map((r) => (r.status === 'fulfilled' ? 'ok' : String(r.reason)));
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -946,6 +1464,14 @@ export default {
       if (pathname === '/billing' && request.method === 'GET') return new Response(await viewBilling(env, orgId, searchParams), { headers: { 'content-type': 'text/html; charset=utf-8' } });
       if (pathname === '/ff-batches' && request.method === 'GET') return new Response(await viewFFBatches(env), { headers: { 'content-type': 'text/html; charset=utf-8' } });
       if (pathname === '/reels' && request.method === 'GET') return new Response(await viewReelVariants(env), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      if (pathname === '/connections' && request.method === 'GET') return new Response(await viewConnections(env), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+
+      if (pathname === '/connections/meta/connect' && request.method === 'GET') return handleMetaConnect(env, request);
+      if (pathname === '/connections/meta/callback' && request.method === 'GET') return handleMetaCallback(env, request, searchParams);
+      if (pathname === '/connections/tiktok/connect' && request.method === 'GET') return handleTiktokConnect(env, request);
+      if (pathname === '/connections/tiktok/callback' && request.method === 'GET') return handleTiktokCallback(env, request, searchParams);
+      if (pathname === '/connections/x/connect' && request.method === 'GET') return handleXConnect(env, request);
+      if (pathname === '/connections/x/callback' && request.method === 'GET') return handleXCallback(env, request, searchParams);
 
       const flagMatch = pathname.match(/^\/leads\/([0-9a-fA-F-]{36})\/flag$/);
       if (flagMatch && request.method === 'POST') return handleFlag(env, request, flagMatch[1]);
@@ -974,5 +1500,14 @@ export default {
         headers: { 'content-type': 'application/json' },
       });
     }
+  },
+
+  // Cron Trigger, see wrangler.toml [triggers] -- fires every 6h, flips the
+  // /connections tiles by re-probing each connected platform's token
+  // directly (issue #20033 scope item 6). No-ops for any platform with no
+  // token in the vault yet -- those stay NOT_CONFIGURED from the seed rows
+  // until Ariel actually connects them.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(probeAllConnections(env));
   },
 };

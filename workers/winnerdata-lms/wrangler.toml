@@ -19,6 +19,12 @@ workers_dev = true
 pattern = "lms.winnerdataai.com/*"
 zone_name = "winnerdataai.com"
 
+# Issue #20033 scope item 6: re-probe each connected platform's token every
+# 6h so the /connections tiles flip (Needs re-auth / Connected / unhealthy)
+# without a human refreshing anything. See scheduled() in src/index.js.
+[triggers]
+crons = ["0 */6 * * *"]
+
 # No [vars] — all seven values this Worker needs (SUPABASE_URL,
 # SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY, LMS_AUTH_USER, LMS_AUTH_PASS,
 # LMS_SUPABASE_AUTH_EMAIL, LMS_SUPABASE_AUTH_PASSWORD) are real secrets set via
@@ -37,3 +43,12 @@ zone_name = "winnerdataai.com"
 # data-access boundary is now the RPCs' service_role-only grant, not just
 # org_id-in-the-request-body; the human-access boundary is still HTTP Basic
 # Auth via LMS_AUTH_USER/LMS_AUTH_PASS.
+#
+# Issue #20033: seven MORE secrets are set the same way (GH secret ->
+# `wrangler secret put`), all OPTIONAL -- absence just leaves that platform's
+# /connections tile "Not configured", never a placeholder value (intent
+# guardrail #7): META_APP_ID, META_APP_SECRET, TIKTOK_CLIENT_KEY,
+# TIKTOK_CLIENT_SECRET, X_API_KEY, X_API_SECRET, TYPEFULLY_API_KEY. These are
+# static per-app credentials Ariel creates once with each platform, distinct
+# from the per-connect OAuth tokens (meta_page_access_token, tiktok_access_
+# token, x_access_token, ...) which live in the Supabase vault, never here.
