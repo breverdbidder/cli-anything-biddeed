@@ -136,7 +136,20 @@ def fetch_shortlisted_reel(county: str, auction_date: str | None = None) -> dict
         order by shortlisted desc, rank_score desc nulls last, auction_date desc
         limit 1;
     """)
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    reel = rows[0]
+    # issue #20032 -- lib.run_sql() goes through the Supabase Management API,
+    # which serializes Postgres `numeric` columns as JSON strings (same bug
+    # class fixed at scripts/biddeed_reels_pipeline.py:494 for rank_score).
+    # recommend_framing_archetype() does `assessed_value <= 0`, which raises
+    # TypeError on a str -- this was a live, never-hit crash in this CLI's
+    # own "path of record for NEW reels" (this file's own docstring), latent
+    # until this session actually called it against a real numeric row.
+    for k in ("sold_amount", "assessed_value", "delta_pct", "condition_score"):
+        if reel.get(k) is not None:
+            reel[k] = float(reel[k])
+    return reel
 
 
 # ---------------------------------------------------------------------------
@@ -1182,7 +1195,8 @@ def generate_one_variant_with_retry(reel: dict, avoid_archetypes: list[str], use
     return None, None, last_reasons
 
 
-def generate_variants_for_reel(reel: dict, k: int = K_VARIANTS, max_retries: int = 2, log_prefix: str = "") -> dict:
+def generate_variants_for_reel(reel: dict, k: int = K_VARIANTS, max_retries: int = 2, log_prefix: str = "",
+                                auction_venue_online: bool | None = None) -> dict:
     """Returns {"ok": bool, "variants": [...], "router_meta": {...}, "errors": [...]}.
 
     Pre-assigns each of the K slots a distinct, random archetype and fires
@@ -1196,7 +1210,19 @@ def generate_variants_for_reel(reel: dict, k: int = K_VARIANTS, max_retries: int
     sequentially with the same pinned archetype. One slot is reserved for
     the framing this property's own numbers support (recommend_framing_
     archetype) when one clears the threshold -- the rest stay random for
-    diversity, same as before."""
+    diversity, same as before.
+
+    issue #20032 -- 'remote_bidder' never appeared in any of the 25 live
+    variants: not because generation avoids it, but because random.sample
+    over 8 archetypes just never happened to draw it in these 5 reels, and
+    check_archetype_data_match hard-rejects it at QA time whenever the sale
+    record's own auction_venue isn't 'online' (never guessed/defaulted).
+    Caller passes that same live fact in as auction_venue_online so this
+    function can (a) drop remote_bidder from the pool entirely when it would
+    fail QA by construction (same pattern as hidden_value_reveal below), and
+    (b) force it into one slot -- like the framing archetype -- when the
+    property's own record supports it, so eligible properties actually get
+    one instead of leaving it to chance."""
     used_pairs: list = []
     preferred = recommend_framing_archetype(reel.get("sold_amount"), reel.get("assessed_value"))
     # issue #19814 defect 1 -- don't even offer 'hidden_value_reveal' into the
@@ -1206,10 +1232,16 @@ def generate_variants_for_reel(reel: dict, k: int = K_VARIANTS, max_retries: int
     sold_amount, assessed_value = reel.get("sold_amount"), reel.get("assessed_value")
     is_premium_sale = sold_amount is not None and assessed_value and sold_amount > assessed_value
     pool = [a for a in ARCHETYPES if not (is_premium_sale and a == "hidden_value_reveal")]
+    if auction_venue_online is not True:
+        pool = [a for a in pool if a != "remote_bidder"]
+
+    forced = []
     if preferred:
-        archetypes = [preferred] + random.sample([a for a in pool if a != preferred], k - 1)
-    else:
-        archetypes = random.sample(pool, k)
+        forced.append(preferred)
+    if auction_venue_online is True and "remote_bidder" not in forced:
+        forced.append("remote_bidder")
+    remaining_pool = [a for a in pool if a not in forced]
+    archetypes = forced + random.sample(remaining_pool, k - len(forced))
 
     def _gen(archetype):
         return generate_one_variant_with_retry(reel, [], used_pairs, max_retries, forced_archetype=archetype)
@@ -1282,12 +1314,34 @@ def insert_variant(reel_id: str, variant_key: str, package: dict, short_code: st
     return rows[0]["id"]
 
 
+def fetch_auction_venue_online(county: str, case_number: str) -> bool | None:
+    """Live lookup, same field/semantics director_qa.fetch_reel_facts() uses
+    for the check_archetype_data_match QA gate -- venue comes ONLY from the
+    sale record's own auction_venue column, never inferred from
+    source_platform. None (column absent/unset) stays None, never defaulted
+    to True/False."""
+    try:
+        import urllib.parse as up
+        rows = lib.pg_rest(
+            "multi_county_auctions",
+            f"select=auction_venue&case_number=eq.{up.quote(case_number)}"
+            f"&county=ilike.{up.quote(county)}&limit=1",
+        )
+        if not rows:
+            return None
+        venue = rows[0].get("auction_venue")
+        return (str(venue).strip().lower() == "online") if venue is not None else None
+    except Exception:
+        return None
+
+
 def run_for_county(county: str, auction_date: str | None, dry_run: bool = False) -> dict:
     reel = fetch_shortlisted_reel(county, auction_date)
     if not reel:
         return {"county": county, "ok": False, "error": "no biddeed_reels row found"}
 
-    result = generate_variants_for_reel(reel, log_prefix=f"[{county}]")
+    auction_venue_online = fetch_auction_venue_online(reel["county"], reel["case_number"])
+    result = generate_variants_for_reel(reel, log_prefix=f"[{county}]", auction_venue_online=auction_venue_online)
     if not result["ok"]:
         return {"county": county, "reel_id": reel["id"], "ok": False, "errors": result["errors"]}
 

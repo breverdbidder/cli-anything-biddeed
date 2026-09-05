@@ -405,9 +405,19 @@ def review_reel(reel_id: str) -> list[dict]:
 
     reel_facts = fetch_reel_facts(reel_id)
 
+    # issue #20032 -- a translation (es/pt-BR) of an EN variant shares that
+    # variant's variant_key and copies its variant_dna verbatim (only `lang`
+    # differs), so feeding every row (all languages) into assert_diversity()
+    # compared each EN variant against its own translation and always found
+    # a duplicate archetype + Jaccard distance 0.00 against itself. Diversity
+    # is a property of the distinct creatives (one per variant_key), not of
+    # every language copy, so dedupe to one representative row per
+    # variant_key before computing it.
+    diversity_siblings = list({v["variant_key"]: v for v in variants}.values())
+
     results = []
     for v in variants:
-        siblings = [s for s in variants]
+        siblings = diversity_siblings
         report = review_variant(v, siblings, reel_facts)
         lib.run_sql(f"""
             update winnerdata.reel_variants
