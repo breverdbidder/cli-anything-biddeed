@@ -8,6 +8,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { Resend }       = require('resend');
 const { format, addDays } = require('date-fns');
+const crypto           = require('crypto');
 
 // Node 22 has native WebSocket — createClient works without ws transport
 const supabase = createClient(
@@ -17,9 +18,28 @@ const supabase = createClient(
 );
 const resend = new Resend(process.env.RESEND_API_KEY);
 const BASE   = 'https://biddeed.ai';
+const UNSUB_FN_URL = `${process.env.SUPABASE_URL}/functions/v1/email-unsubscribe`;
 const TODAY  = format(new Date(), 'yyyy-MM-dd');
 const END30  = format(addDays(new Date(), 30), 'yyyy-MM-dd');
 const LABEL  = format(new Date(), 'EEEE, MMMM d, yyyy');
+
+// ── GTM-5 (#20034): one-click unsubscribe — HMAC-signed link, no login needed.
+// Signature key comes from the same shared secret the email-unsubscribe edge
+// function verifies against (cli_anything_shared_secret via the sanctioned
+// cli_anything_get_secret() accessor — never held as a raw env var here).
+let unsubSecret = null;
+async function getUnsubSecret() {
+  if (unsubSecret) return unsubSecret;
+  const { data, error } = await supabase.rpc('cli_anything_get_secret', { p_name: 'cli_anything_shared_secret' });
+  if (error || !data) throw new Error(`Unsubscribe signing secret unavailable: ${error?.message}`);
+  unsubSecret = data;
+  return unsubSecret;
+}
+async function unsubscribeUrl(email) {
+  const secret = await getUnsubSecret();
+  const sig = crypto.createHmac('sha256', secret).update(email.toLowerCase()).digest('hex');
+  return `${UNSUB_FN_URL}?email=${encodeURIComponent(email)}&sig=${sig}`;
+}
 
 // ── STEP 1: Build twin snapshot from live MCA data ────────────────────────────
 async function getTwinSnapshot() {
@@ -95,20 +115,56 @@ async function getTopAuctions(county) {
   return data || [];
 }
 
-// ── STEP 3: Pull leads ────────────────────────────────────────────────────────
+// ── STEP 3: Pull leads (GTM-5 #20034 consent gate) ─────────────────────────────
+// Recipients = lead_profiles WHERE email IS NOT NULL AND (email_consent OR
+// marketing_consent) AND email NOT IN email_opt_outs/email_suppressions.
+// unsubscribe_link-sourced rows already carry email_consent=false and
+// marketing_consent=false (verified in Supabase), so the consent predicate
+// alone excludes them — the opt-out/suppression check is a second,
+// independent layer that survives even if a consent flag is ever re-flipped.
+async function getOptedOutEmails() {
+  const [{ data: optOuts, error: e1 }, { data: suppressed, error: e2 }] = await Promise.all([
+    supabase.from('email_opt_outs').select('email'),
+    supabase.from('email_suppressions').select('email'),
+  ]);
+  if (e1) throw new Error(`email_opt_outs fetch: ${e1.message}`);
+  if (e2) throw new Error(`email_suppressions fetch: ${e2.message}`);
+  return new Set([...(optOuts || []), ...(suppressed || [])].map(r => r.email.toLowerCase()));
+}
+
 async function getLeads() {
   if (process.env.TEST_EMAIL) {
     console.log(`TEST MODE → ${process.env.TEST_EMAIL}`);
     return [{ id: 'test', email: process.env.TEST_EMAIL, name: 'Ariel', county: 'brevard', stage: 'lead', hooks_triggered: [], messages_count: 0, score: 0, tier: null }];
   }
+
+  const optedOut = await getOptedOutEmails();
+
   const { data, error } = await supabase
     .from('lead_profiles')
-    .select('id, email, name, county, stage, hooks_triggered, messages_count, score, tier')
+    .select('id, email, name, county, stage, hooks_triggered, messages_count, score, tier, email_consent, marketing_consent')
     .not('stage', 'eq', 'unsubscribed')
-    .not('email', 'is', null);
+    .not('email', 'is', null)
+    .or('email_consent.eq.true,marketing_consent.eq.true');
   if (error) throw new Error(`Lead fetch: ${error.message}`);
-  console.log(`✅ Leads: ${data.length}`);
-  return data || [];
+
+  const consented = (data || []).filter(l => !optedOut.has(l.email.toLowerCase()));
+  console.log(`✅ Consented leads: ${consented.length} (${(data || []).length} passed DB consent filter, ${(data || []).length - consented.length} excluded by opt-out/suppression list)`);
+
+  // Independent hard-fail check: recipient count must never exceed the
+  // consented count. Re-runs the exact same predicate as a second query so a
+  // future accidental relaxation of the filter above cannot silently ship.
+  const { count: consentedCount, error: e3 } = await supabase
+    .from('lead_profiles')
+    .select('id', { count: 'exact', head: true })
+    .not('email', 'is', null)
+    .or('email_consent.eq.true,marketing_consent.eq.true');
+  if (e3) throw new Error(`Consent count check: ${e3.message}`);
+  if (consented.length > consentedCount) {
+    throw new Error(`REFUSING TO SEND: recipient count (${consented.length}) exceeds consented count (${consentedCount}) — consent gate regression`);
+  }
+
+  return consented;
 }
 
 // ── Hook classifier ───────────────────────────────────────────────────────────
@@ -162,7 +218,7 @@ function countyRows(snapshot, leadCounty) {
 }
 
 // ── Featured property card ────────────────────────────────────────────────────
-function featuredCard(auctions, county) {
+function featuredCard(auctions, county, lead) {
   if (!auctions?.length) return '';
   const top = auctions[0];
   const addr = top.property_address?.split(',')[0] || 'FL Property';
@@ -246,7 +302,7 @@ function hookCTA(hook, lead, snapshot) {
 }
 
 // ── Build full HTML email ─────────────────────────────────────────────────────
-function buildEmail({ lead, hook, snapshot, auctions }) {
+function buildEmail({ lead, hook, snapshot, auctions, unsubUrl }) {
   const firstName = lead.name?.split(' ')[0] || 'there';
   const county    = lead.county || 'florida';
   const cd        = snapshot.find(c => c.county === county);
@@ -326,7 +382,7 @@ function buildEmail({ lead, hook, snapshot, auctions }) {
     <div style="border-top:1px solid #1E3A5F;padding-top:16px;margin-bottom:12px;">
       <div style="color:#F59E0B;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">🏠 Featured — ${(county.charAt(0).toUpperCase()+county.slice(1).replace(/_/g,' '))}</div>
     </div>
-    ${featuredCard(auctions, county)}
+    ${featuredCard(auctions, county, lead)}
   </td></tr>` : ''}
 
   <tr><td style="background:#020617;padding:20px 32px 0;">
@@ -355,7 +411,7 @@ function buildEmail({ lead, hook, snapshot, auctions }) {
         </div>
       </td>
       <td width="110" align="right" valign="top">
-        <a href="${BASE}/chat?action=unsubscribe&email=${encodeURIComponent(lead.email)}" style="color:#475569;font-size:11px;text-decoration:none;">Unsubscribe</a><br/>
+        <a href="${unsubUrl}" style="color:#475569;font-size:11px;text-decoration:none;">Unsubscribe</a><br/>
         <a href="${BASE}/chat?ref=email_footer" style="color:#F59E0B;font-size:11px;font-weight:600;text-decoration:none;margin-top:4px;display:block;">Open BidDeed →</a>
       </td>
     </tr></table>
@@ -384,7 +440,8 @@ async function main() {
       const hook     = classifyHook(lead);
       const county   = lead.county || 'brevard';
       const auctions = await getTopAuctions(county);
-      const html     = buildEmail({ lead, hook, snapshot, auctions });
+      const unsubUrl = await unsubscribeUrl(lead.email);
+      const html     = buildEmail({ lead, hook, snapshot, auctions, unsubUrl });
 
       const cd = snapshot.find(c => c.county === county);
       const fc = cd?.fc_upcoming_30d || 0;
@@ -403,6 +460,10 @@ async function main() {
         to:      [lead.email],
         subject: subjects[hook] || subjects.QUICK_DEMO,
         html,
+        headers: {
+          'List-Unsubscribe': `<mailto:unsubscribe@biddeed.ai>, <${unsubUrl}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
         tags: [{ name:'hook', value:hook }, { name:'stage', value:lead.stage||'lead' }],
       });
 
