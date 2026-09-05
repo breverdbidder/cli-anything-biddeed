@@ -1,10 +1,9 @@
 name: Deploy Watch Dashboard
+# DEPRECATED — Vercel exit 2026-09-05 (issue #20027, part of #19812 Vercel decommission).
+# Push trigger removed to stop metered Vercel build minutes on every push touching this path;
+# target Vercel project ("dashboard") is already paused. workflow_dispatch kept manual-only.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'harnesses/watch/dashboard/**'
   workflow_dispatch: {}
 
 jobs:

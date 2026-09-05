@@ -1,9 +1,8 @@
-name: "MCP HTTP — Deploy to Vercel (biddeed.ai/api/mcp) — DEPRECATED"
-# DEPRECATED (#20025, EXIT VERCEL A): mcp.biddeed.ai now deploys via
-# .github/workflows/cloudflare-mcp-production.yml to the Cloudflare Worker
-# biddeed-mcp-production. Push trigger removed so this can no longer
-# auto-deploy to Vercel on every packages/biddeed-mcp change. Left as
-# workflow_dispatch-only until #19812-C closes the Vercel account entirely.
+name: "MCP HTTP — Deploy to Vercel (biddeed.ai/api/mcp)"
+# DEPRECATED — Vercel exit 2026-09-05 (issue #20027, part of #19812 Vercel decommission).
+# mcp.biddeed.ai is cutting over to a Cloudflare Worker (biddeed-mcp-production, see #20025).
+# Auto-deploy-on-push removed to stop metered Vercel build minutes; workflow_dispatch kept
+# as a manual-only escape hatch until biddeed-mcp is paused/detached in Part 2 of #20027.
 #
 # Deploys api/mcp.js serverless function to Vercel
 # Requires: VERCEL_TOKEN secret.
