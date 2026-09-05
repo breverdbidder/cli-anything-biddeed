@@ -1,9 +1,12 @@
-import { RateLimiterCounter, checkRateLimitDO } from './rate-limit-do.mjs';
-
-// Re-exported so wrangler can bind the `RATE_LIMIT_DO` Durable Object
-// (class_name: "RateLimiterCounter" in wrangler.toml) to this Worker's own
-// script — see #20041 in the rate-limit section near the bottom of this file.
-export { RateLimiterCounter };
+// RateLimiterCounter (Durable Object, #20041) and checkRateLimitDO() are
+// defined inline further down (near RATE_LIMIT_RULES) rather than imported
+// from a sibling module: this Worker deploys with `wrangler deploy
+// --no-bundle` (deploy-worker.yml), which does not auto-discover sibling
+// .mjs files to upload as additional modules — both a `../cloudflare/...`
+// import (error 10021 "Invalid module specifier") and a same-directory
+// `./rate-limit-do.mjs` import (error 10021 "No such module") were rejected
+// live by the Workers API before landing on this single-file approach,
+// which matches this file's existing zero-import convention.
 
 /**
  * BidDeed.AI Cloudflare Worker — src/worker.js
@@ -2582,7 +2585,38 @@ export { renderS5ReportHtml };
 // undercounted. This uses the RATE_LIMIT_DO Durable Object instead — one
 // strongly-consistent, single-threaded counter instance per (bucket, IP),
 // regardless of which colo the request lands in. SQLite-backed DOs are
-// available on the Workers Free plan. See cloudflare/rate-limit-do.mjs.
+// available on the Workers Free plan.
+//
+// Bound via [[durable_objects.bindings]] name="RATE_LIMIT_DO" class_name=
+// "RateLimiterCounter" in wrangler.toml, which requires this class to be an
+// export of this Worker's main module (below).
+export class RateLimiterCounter {
+  constructor(state) {
+    this.sql = state.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS counters (window_start INTEGER NOT NULL, count INTEGER NOT NULL)');
+  }
+
+  async fetch(request) {
+    const { limit, windowMs } = await request.json();
+    const now = Date.now();
+    const rows = [...this.sql.exec('SELECT window_start, count FROM counters LIMIT 1')];
+    const row = rows[0];
+    let windowStart;
+    let count;
+    if (!row || now - row.window_start >= windowMs) {
+      windowStart = now;
+      count = 1;
+      this.sql.exec('DELETE FROM counters');
+      this.sql.exec('INSERT INTO counters (window_start, count) VALUES (?, ?)', windowStart, count);
+    } else {
+      windowStart = row.window_start;
+      count = row.count + 1;
+      this.sql.exec('UPDATE counters SET count = ?', count);
+    }
+    return Response.json({ allowed: count <= limit, count, windowStart });
+  }
+}
+
 const RATE_LIMIT_RULES = [
   { test: (p, m) => p === '/chat/api' && m === 'POST', bucket: 'chat_api', limit: 30 },
   { test: (p, m) => p === '/chat/lead' && m === 'POST', bucket: 'chat_lead', limit: 5 },
@@ -2592,8 +2626,22 @@ const RATE_LIMIT_RULES = [
 
 const RATE_WINDOW_MS = 60_000;
 
+// Fails OPEN (allowed=true) on any DO error, matching the fail-open
+// behavior the caches.default counter had — a limiter outage must never
+// take down chat/auctions/checkout traffic.
 async function checkRateLimit(env, bucket, ip, limit) {
-  return checkRateLimitDO(env, 'RATE_LIMIT_DO', bucket, ip, limit, RATE_WINDOW_MS);
+  try {
+    const id = env.RATE_LIMIT_DO.idFromName(`${bucket}:${ip}`);
+    const stub = env.RATE_LIMIT_DO.get(id);
+    const res = await stub.fetch('https://rate-limit-do.internal/check', {
+      method: 'POST',
+      body: JSON.stringify({ limit, windowMs: RATE_WINDOW_MS }),
+    });
+    const data = await res.json();
+    return !!data.allowed;
+  } catch {
+    return true;
+  }
 }
 
 // GET /auctions JSON and GET /county/:slug HTML (not the /lots JSON sub-route,
