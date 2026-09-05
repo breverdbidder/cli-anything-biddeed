@@ -3,18 +3,17 @@ main = "src/index.js"
 compatibility_date = "2026-08-24"
 account_id = "83ab3f2fbbabd1a9b01a018fb4efe219"
 
-# workers_dev=true (P0 fix, 2026-09-01): ff.winnerdataai.com was NXDOMAIN in
-# every live send -- confirmed the CF_API_TOKEN available to this repo's GHA
-# runners can read the zone (Zone:Read) but returns "Authentication error"
-# (code 10000) on every DNS record read/write call, same root cause already
-# documented in workers/winnerdata-lms/wrangler.toml for lms.winnerdataai.com.
-# Without workers_dev this Worker had NO reachable hostname at all (probing
-# winnerdata-ff.brevardbidderai.workers.dev/healthz returned Cloudflare error
-# 1042 -- workers.dev disabled). Enabling it here mirrors winnerdata-lms's
-# fix and gives every "View FF" link a working destination today. The
-# [[routes]] binding below stays declared so it activates automatically once
-# the token gets Zone:DNS:Edit and ff.winnerdataai.com actually resolves.
-workers_dev = true
+# workers_dev=false (issue #20038, 2026-09-05): the 2026-09-01 P0 fix above
+# enabled workers_dev because ff.winnerdataai.com was unreachable at the
+# time. Verified live 2026-09-05: ff.winnerdataai.com now serves /portal,
+# /healthz and /ff/<uuid> at 200 -- the custom domain route below is the
+# reachable path. workers.dev is disabled here so
+# winnerdata-ff.brevardbidderai.workers.dev stops being an unauthenticated
+# second front door to the same lead data (436 Protection Partners leads
+# with phones were readable there with zero auth). This also clears the way
+# for Cloudflare Access to be placed in front of ff.winnerdataai.com without
+# a workers.dev bypass sitting next to it (Ariel's follow-up action).
+workers_dev = false
 
 # templates/FF_TEMPLATE_*.html are imported as text at deploy time (esbuild,
 # bundled by `wrangler deploy` itself — no separate build step to maintain).
@@ -27,8 +26,8 @@ fallthrough = false
 pattern = "ff.winnerdataai.com/*"
 zone_name = "winnerdataai.com"
 
-# No [vars] — this Worker holds no secrets. SUPABASE_URL and the anon key are
-# non-secret constants embedded in src/index.js (same pattern as
-# src/worker.js:36-37); RLS/RPC validation is the access boundary, not key
-# secrecy. If a future secret is ever needed: `wrangler secret put <NAME>`,
-# never written here.
+# No [vars] here by design. SUPABASE_URL/ORG_ID stay non-secret constants in
+# src/index.js; the Supabase key used to call ff_* RPCs is now a Worker
+# secret (SUPABASE_SERVICE_ROLE_KEY, set via `wrangler secret put` from
+# .github/workflows/deploy-winnerdata-ff.yml -- issue #20038, 2026-09-05).
+# Secrets are never declared in this file.

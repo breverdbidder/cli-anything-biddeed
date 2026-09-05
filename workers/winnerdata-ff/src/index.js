@@ -54,9 +54,14 @@ import TEMPLATE_B from '../../../templates/FF_TEMPLATE_B_HOMEOWNER.html';
 import { money, esc, normalizeBuyerName, callScript } from './ff_format.js';
 
 const SUPABASE_URL = 'https://mocerqjnksmhcjzxrewo.supabase.co';
-// Anon key — safe to embed in source, same as src/worker.js:37. RLS/RPC
-// validation (not secrecy of this key) is the actual access boundary.
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2VycWpua3NtaGNqenhyZXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1MzI1MjYsImV4cCI6MjA4MDEwODUyNn0.ySFJIOngWWB0aqYra4PoGFuqcbdHOx1ZV6T9-klKQDw';
+// issue #20038 (2026-09-05): was a hardcoded public anon JWT (safe-to-embed
+// at the time because RLS/RPC validation, not key secrecy, was the access
+// boundary). anon EXECUTE on the ff_* RPCs below is being revoked as part of
+// the same issue, so this Worker now needs the service-role key to keep
+// calling them -- set as a Worker secret (`wrangler secret put
+// SUPABASE_SERVICE_ROLE_KEY`, done from .github/workflows/deploy-winnerdata-ff.yml)
+// and read from env at request time, never hardcoded.
+let SUPABASE_KEY;
 // Single live tenant (winnerdata.organizations, verified 2026-08-24). v1 is
 // explicitly single-tenant scope — the Worker never accepts org_id from the
 // client; every RPC call uses this constant.
@@ -1044,27 +1049,52 @@ async function handleCallWebhook(request) {
   return jsonResponse(result);
 }
 
+// issue #20038: every response gets these two headers -- this Worker only
+// ever serves lead-carrying or internal-ops pages, none of which belong in
+// a search index or a shared/CDN cache. Wrapping the single dispatch return
+// point (rather than every handler) keeps this a one-line-per-route
+// guarantee instead of something each new handler could forget.
+function addSecurityHeaders(response) {
+  const headers = new Headers(response.headers);
+  headers.set('X-Robots-Tag', 'noindex, nofollow');
+  headers.set('Cache-Control', 'private, no-store');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function route(request) {
+  const url = new URL(request.url);
+  const { pathname } = url;
+
+  try {
+    if (pathname === '/healthz') return handleHealthz();
+    if (pathname === '/portal' && request.method === 'GET') return handlePortal();
+    if (pathname === '/portal/bind' && request.method === 'POST') return handlePortalBind(request);
+    if (pathname === '/producer-report' && request.method === 'GET') return handleProducerReport(request);
+    if (pathname === '/producer-report/update-state' && request.method === 'POST') return handleProducerReportUpdateState(request);
+    if (pathname === '/producer-report/call-webhook' && request.method === 'POST') return handleCallWebhook(request);
+    if (pathname === '/owner-dashboard' && request.method === 'GET') return handleOwnerDashboard(request);
+
+    const ffMatch = pathname.match(/^\/ff\/([0-9a-fA-F-]{36})$/);
+    if (ffMatch && request.method === 'GET') return handleFF(ffMatch[1]);
+    if (ffMatch && request.method === 'POST') return handleFFSubmit(ffMatch[1], request);
+
+    return new Response('Not found', { status: 404 });
+  } catch (err) {
+    return jsonResponse({ ok: false, error: String(err) }, 500);
+  }
+}
+
 export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    const { pathname } = url;
-
-    try {
-      if (pathname === '/healthz') return handleHealthz();
-      if (pathname === '/portal' && request.method === 'GET') return handlePortal();
-      if (pathname === '/portal/bind' && request.method === 'POST') return handlePortalBind(request);
-      if (pathname === '/producer-report' && request.method === 'GET') return handleProducerReport(request);
-      if (pathname === '/producer-report/update-state' && request.method === 'POST') return handleProducerReportUpdateState(request);
-      if (pathname === '/producer-report/call-webhook' && request.method === 'POST') return handleCallWebhook(request);
-      if (pathname === '/owner-dashboard' && request.method === 'GET') return handleOwnerDashboard(request);
-
-      const ffMatch = pathname.match(/^\/ff\/([0-9a-fA-F-]{36})$/);
-      if (ffMatch && request.method === 'GET') return handleFF(ffMatch[1]);
-      if (ffMatch && request.method === 'POST') return handleFFSubmit(ffMatch[1], request);
-
-      return new Response('Not found', { status: 404 });
-    } catch (err) {
-      return jsonResponse({ ok: false, error: String(err) }, 500);
-    }
+  async fetch(request, env) {
+    // issue #20038: SUPABASE_KEY is now the service-role Worker secret, read
+    // fresh per request from env (same value every time -- never varies per
+    // request -- so writing this module-level binding on each call is safe
+    // under concurrent requests in the same isolate).
+    SUPABASE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+    return addSecurityHeaders(await route(request));
   },
 };
