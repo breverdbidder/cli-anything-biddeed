@@ -297,7 +297,7 @@ async function findOrCreateColdCustomer(email: string): Promise<string> {
 }
 
 async function handleColdCheckout(body: any): Promise<Response> {
-  const { tier, customer_email: customerEmail, interval: billingInterval, referral_code: referralCode } = body;
+  const { tier, customer_email: customerEmail, interval: billingInterval, referral_code: referralCode, first_reel_code: firstReelCode } = body;
   if (!SELLABLE_TIERS.includes(tier)) {
     return jsonRes({ error: `tier must be one of: ${SELLABLE_TIERS.join(", ")}` }, 400);
   }
@@ -352,6 +352,19 @@ async function handleColdCheckout(body: any): Promise<Response> {
   });
   if (referralCode && typeof referralCode === "string") {
     params.set("metadata[referral_code]", referralCode);
+  }
+  // issue #20031 (GTM-2) -- first-touch reel attribution, additive only:
+  // absence of a reel_code must never block checkout (negative test).
+  // stripe.subscriptions.metadata (Stripe Sync Engine mirror) is the read
+  // path finance.v_gtm_unit_economics / public.v_gspi_daily join on --
+  // no new table/column needed for this to be queryable.
+  if (firstReelCode && typeof firstReelCode === "string") {
+    params.set("metadata[first_reel_code]", firstReelCode);
+    // Session metadata does NOT copy to the Subscription object Stripe
+    // creates from it -- subscription_data[metadata] is required so
+    // stripe.subscriptions.metadata (what v_gspi_daily/v_gtm_unit_economics
+    // actually join against for MRR-by-reel_code) carries it too.
+    params.set("subscription_data[metadata][first_reel_code]", firstReelCode);
   }
 
   const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {

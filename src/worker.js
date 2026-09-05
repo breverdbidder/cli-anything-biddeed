@@ -141,6 +141,24 @@ async function logFunnelEvent(env, sessionId, step, params) {
   } catch (_) {}
 }
 
+// issue #20031 (GTM-2) -- server-side PostHog capture, same public project
+// key already embedded in POSTHOG_SCRIPT (client-side init below). This is
+// the DB-row's PostHog twin: every funnel step logFunnelEvent writes to
+// winnerdata.funnel_events also fires here so the same event is visible in
+// both places, per the GTM SOP measurement contract (docs/gtm/GTM_SOP_v1.md
+// section 6). Never blocks the caller -- same fire-and-forget shape as
+// logFunnelEvent and captureError above.
+const POSTHOG_PUBLIC_KEY = 'phc_zUQGNqDUYXbpJn7RGKt2wwnHfP8GXge2MZsYAJXTs14';
+async function capturePosthogServer(distinctId, event, properties) {
+  try {
+    await fetch('https://us.i.posthog.com/capture/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: POSTHOG_PUBLIC_KEY, event, distinct_id: distinctId || 'anonymous', properties: properties || {} }),
+    });
+  } catch (_) {}
+}
+
 // ── S5 Interactive HTML Report — GET /report/:mca_id (issue #18307) ──────────
 async function sha256Hex(str) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -2907,17 +2925,39 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/subscribe/checkout' && method === 'POST') {
         let body = {};
         try { body = await request.json(); } catch(_) {}
-        const { tier, customer_email, referral_code, interval } = body;
+        const { tier, customer_email, referral_code, interval, visitor_id } = body;
         if (!tier || !['investor','pro','proplus'].includes(tier)) {
           return new Response(JSON.stringify({ error: 'valid tier required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
         if (!customer_email || typeof customer_email !== 'string') {
           return new Response(JSON.stringify({ error: 'customer_email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
+        // issue #20031 (GTM-2) -- attribution is additive, never blocking:
+        // a checkout with no first-touch reel record must still complete.
+        // First-touch (reel_code/county) was persisted anonymously by
+        // public.upsert_visitor_profile() at /deal/visitor time, keyed by
+        // the same bd_vid localStorage id the /subscribe page now sends.
+        let firstReelCode = null, firstCounty = null;
+        const vid = (visitor_id || '').toString().trim().slice(0, 64);
+        if (vid) {
+          try {
+            const lp = await fetch(`${SUPABASE_URL}/rest/v1/lead_profiles?visitor_id=eq.${encodeURIComponent(vid)}&select=first_reel_code,first_county&limit=1`, {
+              headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            });
+            if (lp.ok) {
+              const rows = await lp.json();
+              if (rows?.length) { firstReelCode = rows[0].first_reel_code || null; firstCounty = rows[0].first_county || null; }
+            }
+          } catch (_) {}
+        }
+        const checkoutStartedProps = { tier, interval: interval === 'annual' ? 'annual' : 'monthly', reel_code: firstReelCode, county: firstCounty };
+        ctx.waitUntil(logFunnelEvent(env, `checkout-${vid || customer_email}`, 'checkout_started', checkoutStartedProps));
+        ctx.waitUntil(capturePosthogServer(vid || customer_email, 'checkout_started', checkoutStartedProps));
         try {
           const checkoutBody = { tier, customer_email };
           if (referral_code && typeof referral_code === 'string') checkoutBody.referral_code = referral_code;
           if (interval === 'annual') checkoutBody.interval = 'annual';
+          if (firstReelCode) checkoutBody.first_reel_code = firstReelCode;
           const res = await fetch(`${SUPABASE_URL}/functions/v1/biddeed-checkout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3355,12 +3395,14 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         // (no ?a=) still gets a sensible default.
         const archetype = url.searchParams.get('a') || reel.archetype || 'shock_number';
         if (method === 'GET' && reel.short_code) {
-          ctx.waitUntil(logFunnelEvent(env, `deal-${reel.short_code}`, 'deal_view', { code: reel.short_code, archetype }));
+          const dealViewProps = { code: reel.short_code, reel_code: reel.short_code, archetype, county: reel.county || null, sale_type: reel.sale_type || null };
+          ctx.waitUntil(logFunnelEvent(env, `deal-${reel.short_code}`, 'deal_view', dealViewProps));
+          ctx.waitUntil(capturePosthogServer(`deal-${reel.short_code}`, 'deal_view', dealViewProps));
           // S3 progressive disclosure's locked rung renders on every page
           // load (rung (b) is always visible), so gate_view fires alongside
           // deal_view -- an honest reflection of the actual UI, not a
           // separate user action.
-          ctx.waitUntil(logFunnelEvent(env, `deal-${reel.short_code}`, 'gate_view', { code: reel.short_code, archetype }));
+          ctx.waitUntil(logFunnelEvent(env, `deal-${reel.short_code}`, 'gate_view', dealViewProps));
         }
         // issue #19761 T2: presale rows (phase='presale', calendar/upcoming
         // auctions) render the UPCOMING template with a paid-tier gate on the
@@ -3435,6 +3477,12 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           await logErr(env, '/deal/lead', 'insert_reel_lead failed', String(e), 500);
         }
         if (shortCode) ctx.waitUntil(logFunnelEvent(env, `deal-${shortCode}`, 'gate_submit', { code: shortCode }));
+        {
+          const emailHash = await sha256Hex(email.toLowerCase());
+          const captureProps = { code: shortCode, reel_code: shortCode, county: county || null, case_number: caseNumber };
+          ctx.waitUntil(logFunnelEvent(env, `deal-${shortCode || emailHash}`, 'email_capture', captureProps));
+          ctx.waitUntil(capturePosthogServer(emailHash, 'email_capture', captureProps));
+        }
         const joiner = backTo.includes('?') ? '&' : '?';
         return Response.redirect(`${url.origin}${backTo}${joiner}submitted=1`, 302);
       }
@@ -3466,7 +3514,11 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         if (link.utm_campaign) target.searchParams.set('utm_campaign', link.utm_campaign);
         if (link.utm_content) target.searchParams.set('utm_content', link.utm_content);
         if (link.archetype) target.searchParams.set('a', link.archetype);
-        if (method === 'GET') ctx.waitUntil(logFunnelEvent(env, `reel-${code}`, 'reel_click', { code }));
+        if (method === 'GET') {
+          const clickProps = { code, reel_code: code, variant_id: link.variant_id || null, county: link.county || null, sale_type: link.sale_type || null, archetype: link.archetype || null };
+          ctx.waitUntil(logFunnelEvent(env, `reel-${code}`, 'reel_click', clickProps));
+          ctx.waitUntil(capturePosthogServer(`reel-${code}`, 'reel_click', clickProps));
+        }
         return new Response(null, { status: 302, headers: { Location: target.toString(), 'Cache-Control': 'no-store' } });
       }
 
@@ -3908,6 +3960,20 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         try { ibody = await request.json(); } catch (_) {}
         if (!isValidEmail(ibody.email)) return new Response(JSON.stringify({ error: 'Valid email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         const token = await issueChatToken(env, ibody.email);
+        {
+          // Free-account creation (SOP funnel "Email -> free account"). The
+          // client only calls this route when it has no cached, unexpired
+          // bd_chat_token (see requireIdentityThen), so each call is a fresh
+          // token issuance -- an honest proxy for "signup", not a guarantee
+          // of first-ever signup (a returning user past the 30-day token TTL
+          // re-triggers it too; documented in docs/spec/20031.md).
+          const emailLower = String(ibody.email).toLowerCase().trim();
+          const emailHash = await sha256Hex(emailLower);
+          const visitorId = (ibody.visitor_id || '').toString().trim().slice(0, 64) || null;
+          const signupProps = { visitor_id: visitorId };
+          ctx.waitUntil(logFunnelEvent(env, `signup-${emailHash}`, 'signup', signupProps));
+          ctx.waitUntil(capturePosthogServer(emailHash, 'signup', signupProps));
+        }
         return new Response(JSON.stringify({ token, email: String(ibody.email).toLowerCase().trim() }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
@@ -6785,7 +6851,8 @@ async function ensureChatIdentity(email){
   if(!email)return null;
   if(chatState.token&&chatState.email===email.toLowerCase().trim())return chatState.token;
   try{
-    const res=await fetch('/chat/api/identity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})});
+    var identVid=null; try{ identVid=localStorage.getItem('bd_vid'); }catch(e0){}
+    const res=await fetch('/chat/api/identity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,visitor_id:identVid||undefined})});
     if(!res.ok)return null;
     const data=await res.json();
     chatState.token=data.token;chatState.email=data.email;
@@ -7702,9 +7769,11 @@ document.getElementById('sub-form').addEventListener('submit', async function(e)
   var email=document.getElementById('sub-email').value.trim();
   err.style.display='none';
   btn.disabled=true; btn.textContent='Redirecting to checkout...';
-  try{if(window.posthog)posthog.capture('subscribe_redirect',{tier:'TIER_PLACEHOLDER',interval:selectedInterval});}catch(e2){}
+  var bdVid=null; try{ bdVid=localStorage.getItem('bd_vid'); }catch(e3){}
+  try{if(window.posthog)posthog.capture('checkout_started',{tier:'TIER_PLACEHOLDER',interval:selectedInterval});}catch(e2){}
   var checkoutPayload={tier:'TIER_PLACEHOLDER',customer_email:email,interval:selectedInterval};
   if(refCode){ checkoutPayload.referral_code=refCode; }
+  if(bdVid){ checkoutPayload.visitor_id=bdVid; }
   fetch('/subscribe/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(checkoutPayload)})
     .then(function(res){ return res.json().then(function(data){ return {ok:res.ok,data:data}; }); })
     .then(function(r){

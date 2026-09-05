@@ -45,6 +45,20 @@ async function rest(path, init = {}) {
     }
   });
 }
+// issue #20031 (GTM-2) -- server-side 'purchased' PostHog capture. Same
+// public project API key already embedded in every page's POSTHOG_SCRIPT
+// (src/worker.js) -- that key is designed to be public (client-side init),
+// so reusing it here needs no new secret/vault entry.
+const POSTHOG_PUBLIC_KEY = 'phc_zUQGNqDUYXbpJn7RGKt2wwnHfP8GXge2MZsYAJXTs14';
+async function capturePosthog(distinctId, event, properties) {
+  try {
+    await fetch('https://us.i.posthog.com/capture/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: POSTHOG_PUBLIC_KEY, event, distinct_id: distinctId || 'unknown', properties: properties || {} })
+    });
+  } catch (_) {}
+}
 async function vaultSecret(name) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/vault_secret`, {
     method: 'POST',
@@ -652,6 +666,25 @@ async function handleSubscriptionCheckout(obj, eventId) {
       notes: 'stripe-webhook v9 subscription activation'
     })
   }).catch(()=>{});
+  // issue #20031 (GTM-2) -- 'purchased' fires here, the one point every
+  // cold-subscription checkout confirms payment. reel_code/county come
+  // from metadata.first_reel_code (additive -- never blocks activation
+  // above if absent, per the intent doc's negative test).
+  const tierPriceRes = await rest(`mcp_subscription_tiers?tier_id=eq.${effectiveTier}&select=price_monthly_usd`);
+  const tierPriceRows = tierPriceRes.ok ? await tierPriceRes.json() : [];
+  const mrrUsd = Number(tierPriceRows?.[0]?.price_monthly_usd ?? 0);
+  const purchasedProps = {
+    tier: effectiveTier,
+    mrr_usd: mrrUsd,
+    reel_code: obj.metadata?.first_reel_code ?? null,
+    stripe_customer_id: stripeCustomerId,
+    product: 'cold_subscription'
+  };
+  await capturePosthog(customerId, 'purchased', purchasedProps);
+  await rest('rpc/log_funnel_event', {
+    method: 'POST',
+    body: JSON.stringify({ p_session_id: `purchase-${customerId}`, p_step: 'purchased', p_params: purchasedProps })
+  }).catch(() => {});
   return null;
 }
 async function handleActivation(evt) {

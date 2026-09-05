@@ -1,0 +1,30 @@
+name: Deploy stripe-webhook Edge Function
+
+# No push-triggered deploy existed for this function before issue #20031
+# (confirmed by grep across .github/workflows/ -- stripe-webhook changes
+# were previously deployed some other way, undocumented in this repo).
+# Mirrors deploy-biddeed-checkout.yml's workflow_dispatch-only pattern so
+# both Stripe-facing functions deploy the same way.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy stripe-webhook function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy stripe-webhook \
+            --project-ref mocerqjnksmhcjzxrewo \
+            --no-verify-jwt
