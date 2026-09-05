@@ -167,10 +167,25 @@ ELLIPSIS = "…"
 # Than Half...", where "for"/"a"/"the" stay lowercase but every content
 # word is capitalized) -- but the FIRST word is always required capitalized
 # regardless of this list.
-_TITLE_CASE_STOPWORDS = {
+_TITLE_CASE_STOPWORDS_EN = {
     "a", "an", "the", "of", "in", "on", "for", "to", "is", "at", "by",
     "and", "or", "its", "it's", "this", "that", "than", "off",
 }
+
+# issue #20040 -- check_title_case() applied the EN stopword list to every
+# title regardless of `lang`, so es/pt-BR connective words ("de", "em",
+# "nunca"...) were flagged as miscapitalized on every non-EN translation
+# (live-verified: 3 of 5 translation rows failing on exactly this check,
+# flagged as a residual in docs/spec/20032.md). Lists cover the same
+# short-connective-word role the EN list plays, sourced from the issue body.
+_TITLE_CASE_STOPWORDS_ES_PTBR = {
+    "de", "la", "el", "en", "del", "los", "las", "y", "a",
+    "do", "da", "em", "um", "uma", "o", "os", "as", "e", "com", "para", "por", "no", "na",
+}
+
+
+def _title_case_stopwords(lang: str) -> set[str]:
+    return _TITLE_CASE_STOPWORDS_ES_PTBR if (lang or "").lower().startswith(("es", "pt")) else _TITLE_CASE_STOPWORDS_EN
 
 
 def check_ellipsis_form(title: str) -> tuple[bool, list[str]]:
@@ -210,20 +225,22 @@ def check_emoji_placement(title: str) -> tuple[bool, list[str]]:
     return (len(reasons) == 0, reasons)
 
 
-def check_title_case(title: str) -> tuple[bool, list[str]]:
+def check_title_case(title: str, lang: str = "en") -> tuple[bool, list[str]]:
     """Named check (issue #19792 PART 1): catches sentence-case drift
     ('Tax deed stuns Lee County...', 'The bank lost this bet...') against
-    Bolt's consistently Title Case titles."""
+    Bolt's consistently Title Case titles. `lang` (issue #20040) selects the
+    stopword list so es/pt-BR connective words aren't flagged as EN drift."""
     reasons = []
     title = title or ""
     stem = title.split(ELLIPSIS)[0] if ELLIPSIS in title else title
     words = [w for w in re.split(r"\s+", stem.strip()) if w]
+    stopwords = _title_case_stopwords(lang)
     bad = []
     for i, w in enumerate(words):
         core = re.sub(r"^[^A-Za-z0-9]+", "", w)
         if not core or not core[0].isalpha():
             continue
-        is_stopword = re.sub(r"[^a-z']", "", w.lower()) in _TITLE_CASE_STOPWORDS
+        is_stopword = re.sub(r"[^a-z']", "", w.lower()) in stopwords
         if core[0].isupper():
             continue
         if i == 0 or not is_stopword:
@@ -364,7 +381,7 @@ def check_remote_bidder_honesty_guardrail(archetype: str, title: str, script_tex
     return (len(reasons) == 0, reasons)
 
 
-def validate_title(title: str) -> tuple[bool, list[str]]:
+def validate_title(title: str, lang: str = "en") -> tuple[bool, list[str]]:
     reasons = []
     words = [w for w in re.split(r"\s+", title.strip()) if w]
     word_count = len([w for w in words if not _EMOJI_RE.fullmatch(w)])
@@ -376,7 +393,7 @@ def validate_title(title: str) -> tuple[bool, list[str]]:
     ok, why = check_emoji_placement(title)
     if not ok:
         reasons.extend(why)
-    ok, why = check_title_case(title)
+    ok, why = check_title_case(title, lang)
     if not ok:
         reasons.extend(why)
     if _FIRST_SECOND_PERSON.search(title):

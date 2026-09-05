@@ -49,6 +49,27 @@ def get_v1_rows(auction_date: str) -> list[dict]:
     return rows
 
 
+def get_rows_by_case_numbers(pairs: list[tuple[str, str]]) -> list[dict]:
+    """issue #20040 -- scope a v2 run to an explicit (county, case_number)
+    list instead of an --auction-date window, so a deal-page backfill never
+    touches a row outside the exact set the caller named."""
+    conditions = " or ".join(
+        f"(county = {lib.sql_str(county)} and case_number = {lib.sql_str(case_number)})"
+        for county, case_number in pairs
+    )
+    rows = lib.run_sql(f"""
+        select id, case_number, county, sale_type, auction_date, property_address,
+               sold_amount, parcel_id, assessed_value, condition_json, condition_score,
+               video_v2_url, short_code, aerial_wide_url, aerial_tight_url, street_url,
+               zw_parcel_id, parcel_geojson, parcel_outline
+        from winnerdata.biddeed_reels
+        where ({conditions})
+          and status = 'pending_approval'
+        order by county, case_number;
+    """)
+    return rows
+
+
 def _sql_val(col: str, v):
     if col in ("sold_amount", "assessed_value", "delta_pct", "condition_score",
                "duration_sec", "rank_score", "zw_parcel_id", "edit_version"):
@@ -94,7 +115,7 @@ def ensure_short_link(reel_id: str, existing_code: str | None, landing_url: str)
     return code, f"{SHORT_BASE}/{code}"
 
 
-def process_row_v2(row: dict, force: bool, keys: dict) -> dict:
+def process_row_v2(row: dict, force: bool, keys: dict, skip_reel: bool = False) -> dict:
     case_number = row["case_number"]
     county = row["county"]
     result = {"case_number": case_number, "county": county, "status": None, "error": None}
@@ -147,12 +168,22 @@ def process_row_v2(row: dict, force: bool, keys: dict) -> dict:
                 parcel_geojson = None
                 parcel_outline = False
 
-                if geom_row and geom_row.get("centroid_lat") is not None:
+                if geom_row and geom_row.get("centroid_lat") is not None and geom_row.get("geojson") is not None:
                     lat, lon = float(geom_row["centroid_lat"]), float(geom_row["centroid_lon"])
                     parcel_geojson = json.loads(geom_row["geojson"])
                     ring = lib.geojson_ring_latlng(parcel_geojson)
                     wide_url, tight_url = lib.build_parcel_aerial_urls(lat, lon, ring, keys["google_maps"])
                     parcel_outline = True
+                    zw_parcel_id = geom_row["zw_parcel_id"]
+                elif geom_row and geom_row.get("centroid_lat") is not None:
+                    # issue #20040 -- zw_parcels matched by pin_clean and has a
+                    # centroid, but z.geom itself is null (no polygon on file,
+                    # live-verified for broward/514018111070 and palm_beach/
+                    # 56424225230001290): use the precise centroid for a pin
+                    # marker instead of falling all the way back to street-
+                    # address geocoding, but never fabricate an outline.
+                    lat, lon = float(geom_row["centroid_lat"]), float(geom_row["centroid_lon"])
+                    wide_url, tight_url = lib.build_pin_aerial_urls(lat, lon, keys["google_maps"])
                     zw_parcel_id = geom_row["zw_parcel_id"]
                 else:
                     # No geometry match -- fall back to geocoding the raw address
@@ -191,6 +222,31 @@ def process_row_v2(row: dict, force: bool, keys: dict) -> dict:
             qr_path = os.path.join(tmp, "qr.png")
             lib.generate_qr_png(short_url, qr_path)
             qr_url = lib.storage_upload(qr_path, f"{prefix}/qr.png", "image/png")
+
+            if skip_reel:
+                # issue #20040 -- deal-page-only mode (mirrors presale
+                # pipeline's --skip-reels T3/T4 split): stop here, no LLM
+                # script rewrite, no ElevenLabs call, no video render. v1's
+                # existing script_text/caption_text/condition_json are left
+                # untouched -- get_reel_landing() never reads video_v2_url.
+                update_row(row["id"], {
+                    "zw_parcel_id": zw_parcel_id,
+                    "parcel_geojson": parcel_geojson,
+                    "parcel_outline": parcel_outline,
+                    "aerial_wide_url": aerial_wide_url,
+                    "aerial_tight_url": aerial_tight_url,
+                    "street_url": street_url,
+                    "short_code": short_code,
+                    "short_url": short_url,
+                    "qr_url": qr_url,
+                    "landing_url": landing_url,
+                })
+                result.update({
+                    "status": "deal_page_done", "parcel_outline": parcel_outline,
+                    "street_or_substitute": "street" if "street_v2" in (street_url or "") else "substitute_aerial",
+                    "landing_url": f"{landing_url}?preview={row['id']}", "short_url": short_url,
+                })
+                return result
 
             # T4: v2 script/caption (hook-first beat list), reusing v1's
             # already-scored condition_json -- no new T3 vision spend.
@@ -270,6 +326,15 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--only", default=None, help="case_number substring filter")
+    ap.add_argument("--case-numbers", default=None,
+                     help="issue #20040 -- comma-separated county:case_number pairs "
+                          "(e.g. 'seminole:2025CA001862,broward:COWE-12-011377'). "
+                          "Scopes the run to exactly this list instead of --auction-date; "
+                          "no row outside this list is read or written.")
+    ap.add_argument("--skip-reel", action="store_true",
+                     help="issue #20040 -- T3 deal-page fields only (imagery, short link, "
+                          "landing_url). No script rewrite, no ElevenLabs call, no video "
+                          "render -- mirrors the presale pipeline's --skip-reels flag.")
     args = ap.parse_args()
 
     def resolve_key(env_name, vault_names):
@@ -283,41 +348,56 @@ def main():
                 continue
         return ""
 
-    keys = {
-        "google_maps": resolve_key("GOOGLE_MAPS_API_KEY", ["google_maps_api_key"]),
-        "elevenlabs": resolve_key("ELEVENLABS_API_KEY", ["elevenlabs_api_key", "elevenlabs_production"]),
-    }
+    keys = {"google_maps": resolve_key("GOOGLE_MAPS_API_KEY", ["google_maps_api_key"])}
+    if not args.skip_reel:
+        keys["elevenlabs"] = resolve_key("ELEVENLABS_API_KEY", ["elevenlabs_api_key", "elevenlabs_production"])
     missing = [k for k, v in keys.items() if not v]
     if missing:
         print(f"ERROR: missing keys: {missing}", file=sys.stderr)
         sys.exit(1)
 
-    rows = get_v1_rows(args.auction_date)
-    if args.only:
-        rows = [r for r in rows if args.only in r["case_number"]]
+    if args.case_numbers:
+        pairs = []
+        for pair in args.case_numbers.split(","):
+            county, _, case_number = pair.strip().partition(":")
+            pairs.append((county.strip(), case_number.strip()))
+        rows = get_rows_by_case_numbers(pairs)
+        found = {(r["county"], r["case_number"]) for r in rows}
+        missing_pairs = [p for p in pairs if p not in found]
+        if missing_pairs:
+            print(f"WARNING: {len(missing_pairs)} requested case number(s) not found "
+                  f"(wrong county/case_number, wrong status, or already processed): {missing_pairs}")
+        print(f"{len(rows)} row(s) matched from --case-numbers ({len(pairs)} requested).")
+    else:
+        rows = get_v1_rows(args.auction_date)
+        if args.only:
+            rows = [r for r in rows if args.only in r["case_number"]]
+        print(f"{len(rows)} row(s) to process for {args.auction_date}.")
     if args.limit:
         rows = rows[: args.limit]
 
-    print(f"{len(rows)} row(s) to process for {args.auction_date}.")
     t0 = time.time()
     results = []
     for r in rows:
         print(f"Processing {r['case_number']} / {r['county']} ...")
-        res = process_row_v2(r, args.force, keys)
+        res = process_row_v2(r, args.force, keys, skip_reel=args.skip_reel)
         print(f"  -> {res['status']}" + (f" ({res['error']})" if res.get("error") else ""))
         results.append(res)
 
-    n_ok = sum(1 for r in results if r["status"] == "v2_done")
+    n_ok = sum(1 for r in results if r["status"] in ("v2_done", "deal_page_done"))
     n_err = sum(1 for r in results if r["status"] == "error")
     n_skip = sum(1 for r in results if r["status"] == "skipped_has_v2")
     print("\n=== SUMMARY ===")
-    print(f"rows={len(results)} v2_done={n_ok} error={n_err} skipped={n_skip} "
+    print(f"rows={len(results)} done={n_ok} error={n_err} skipped={n_skip} "
           f"wall_time_sec={time.time()-t0:.1f}")
     for r in results:
         if r["status"] == "v2_done":
             print(f"  {r['case_number']}/{r['county']}: outline={r['parcel_outline']} "
                   f"street={r['street_or_substitute']} dur={r['duration_sec']}s "
                   f"video={r['video_v2_url']} landing={r['landing_url']} short={r['short_url']}")
+        elif r["status"] == "deal_page_done":
+            print(f"  {r['case_number']}/{r['county']}: outline={r['parcel_outline']} "
+                  f"street={r['street_or_substitute']} landing={r['landing_url']} short={r['short_url']}")
     errored = [r for r in results if r["status"] == "error"]
     if errored:
         print("\n=== ERRORS ===")

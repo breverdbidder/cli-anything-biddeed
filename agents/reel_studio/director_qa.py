@@ -64,7 +64,7 @@ def _text_blob(variant: dict) -> str:
 
 
 def check_title_compliance(variant: dict) -> dict:
-    ok, reasons = hook_writer.validate_title(variant.get("title", ""))
+    ok, reasons = hook_writer.validate_title(variant.get("title", ""), variant.get("lang", "en"))
     return {"pass": ok, "reasons": reasons, "observed_title": variant.get("title", "")}
 
 
@@ -92,7 +92,7 @@ def check_emoji_placement(variant: dict) -> dict:
 
 def check_title_case(variant: dict) -> dict:
     title = variant.get("title", "")
-    ok, reasons = hook_writer.check_title_case(title)
+    ok, reasons = hook_writer.check_title_case(title, variant.get("lang", "en"))
     return {"pass": ok, "reasons": reasons, "observed": title}
 
 
@@ -395,7 +395,7 @@ def fetch_reel_facts(reel_id: str) -> dict:
 def review_reel(reel_id: str) -> list[dict]:
     variants = lib.run_sql(f"""
         select id, variant_key, variant_dna, title, script, caption_groups,
-               voice_tags, hashtags, short_code
+               voice_tags, hashtags, short_code, lang
         from winnerdata.reel_variants where reel_id = {lib.sql_str(reel_id)} order by variant_key;
     """)
     for v in variants:
