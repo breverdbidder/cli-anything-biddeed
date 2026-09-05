@@ -2,7 +2,9 @@ name: Continuous Executor (Every 2 Hours)
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Every 30min to keep 3 slots filled
+    # LAUNCH-E (#20039, 2026-09-05): */30 -> :09/:39, off the :00/:15/:30/:45
+    # stampede marks (still every 30min to keep 3 slots filled).
+    - cron: '9,39 * * * *'
   workflow_dispatch:
 
 jobs:

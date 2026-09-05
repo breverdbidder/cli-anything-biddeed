@@ -1,7 +1,10 @@
 name: Gold Standard Tick Watcher
 on:
   schedule:
-    - cron: '*/20 * * * *'
+    # LAUNCH-E (#20039, 2026-09-05): */20 -> :03/:23/:43, off the :00 mark
+    # (still every 20min — cadence unchanged, the 900s freshness check below
+    # is independent of poll phase).
+    - cron: '3,23,43 * * * *'
   workflow_dispatch: {}
 jobs:
   check:

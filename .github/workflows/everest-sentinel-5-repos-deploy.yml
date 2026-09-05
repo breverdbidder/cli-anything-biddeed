@@ -6,6 +6,13 @@ name: everest-sentinel-5-repos-deploy
 # Guarantees: any state=verified transition must pass trg_prevent_ghost_success
 # guardrail (needs hard_verification + github_commits or other evidence keys).
 
+# LAUNCH-E (#20039, 2026-09-05): schedule retired — consolidated into
+# sentinel-v2.yml, which now carries the canonical `7,37 * * * *` schedule
+# for this three-workflow group (sentinel.yml / sentinel-v2.yml /
+# everest-sentinel-5-repos-deploy.yml). This file is workflow_dispatch-only;
+# queued five-repo deploys will sit until manually dispatched (or until this
+# poller is wired into the canonical schedule's job steps in a follow-up).
+
 on:
   workflow_dispatch:
     inputs:
@@ -13,8 +20,6 @@ on:
         description: 'Optional specific repo_slug to deploy (else all queued)'
         required: false
         type: string
-  schedule:
-    - cron: '*/10 * * * *'  # every 10 min
 
 permissions:
   contents: write

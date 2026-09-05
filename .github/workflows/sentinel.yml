@@ -1,7 +1,13 @@
 name: "Everest Sentinel"
+
+# LAUNCH-E (#20039, 2026-09-05): schedule retired — consolidated into
+# sentinel-v2.yml, which now carries the canonical `7,37 * * * *` schedule
+# for this three-workflow group (sentinel.yml / sentinel-v2.yml /
+# everest-sentinel-5-repos-deploy.yml). This file is workflow_dispatch-only;
+# dispatch it manually if scripts/sentinel-patrol.sh's specific checks are
+# needed outside sentinel-v2's coverage.
+
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       run_id:

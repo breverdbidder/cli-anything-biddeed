@@ -3,8 +3,15 @@ name: Supabase SUMMIT Verifier
 # Autonomous audit of verified SUMMITs against actual artifacts.
 # Closes the self-attestation loophole in trg_prevent_ghost_success.
 #
-# Cron: every 30 min, scans last 24h of state=verified, auto-flips to failed
-# on GHA-GREEN-NOT-DELIVERED + logs CRITICAL honesty_violation.
+# Cron: hourly at :41 (was every 30 min), scans last 24h of state=verified,
+# auto-flips to failed on GHA-GREEN-NOT-DELIVERED + logs CRITICAL
+# honesty_violation.
+#
+# LAUNCH-E (#20039, 2026-09-05): this is now the canonical schedule for the
+# two-workflow SUMMIT verifier group (this file + summit-verifier.yml).
+# summit-verifier.yml's `schedule:` was removed; it stays workflow_dispatch +
+# repository_dispatch only. Moved */30 -> hourly :41 (off :00/:15/:30/:45)
+# to cut scheduled Supabase load ahead of launch.
 
 on:
   workflow_dispatch:
@@ -32,7 +39,7 @@ on:
         default: true
         type: boolean
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '41 * * * *'
 
 permissions:
   contents: read

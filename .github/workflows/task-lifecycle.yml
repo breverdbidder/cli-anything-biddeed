@@ -2,7 +2,9 @@ name: Task Lifecycle — Auto-Complete & Auto-Create
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Every 30 min
+    # LAUNCH-E (#20039, 2026-09-05): */30 -> :14/:44, off the :00/:15/:30/:45
+    # stampede marks (still every 30 min).
+    - cron: '14,44 * * * *'
   workflow_dispatch:
   # 2026-09-03 (#19767): narrowed from workflows: ["*"] — that wildcard meant
   # a Task Lifecycle run per completed run of ANY of the ~660 workflow files

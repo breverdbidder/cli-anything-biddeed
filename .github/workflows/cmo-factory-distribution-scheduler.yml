@@ -7,10 +7,15 @@ name: CMO Factory — distribution scheduler (CP3g)
 # Every platform is NOT_CONFIGURED today (no vault credentials exist yet),
 # so every run currently no-ops cleanly -- see docs/gtm/DISTRIBUTION_LANE.md.
 
+# LAUNCH-E (#20039, 2026-09-05): schedule disabled. Log tail confirmed 7/7
+# recent scheduled runs failed on the SAME reason every time:
+# "spi_gates.gtm_factory_halt-open" (run 33971876837 and prior) — the
+# gtm_factory_halt gate is Ariel's stop button and is OPEN by design; this is
+# not a bug to fix. Every run was a guaranteed no-op-that-fails, so the
+# schedule is pure wasted Supabase load. workflow_dispatch is kept so the
+# scheduler can still be run manually once the gate is closed.
 on:
   workflow_dispatch: {}
-  schedule:
-    - cron: '23 */2 * * *' # every 2h, offset from the :00/:15/:30/:45 pg_cron watchdog tick
 
 jobs:
   dispatch:

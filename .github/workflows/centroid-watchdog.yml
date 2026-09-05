@@ -1,9 +1,14 @@
 name: centroid-watchdog
 # TEMPORARY — self-destructs on DoD.
+#
+# LAUNCH-E (#20039, 2026-09-05): slowed */20 -> every 2h at :11 (offset off
+# the :00/:15/:30/:45 stampede marks) to cut DB restart load before launch.
+# Revert to a tighter cadence after 2026-09-10 if centroid enrichment still
+# needs active watchdog coverage.
 
 on:
   schedule:
-    - cron: '*/20 * * * *'
+    - cron: '11 */2 * * *'
   workflow_dispatch: {}
 
 jobs:

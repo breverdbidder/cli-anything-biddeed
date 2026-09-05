@@ -8,7 +8,9 @@ name: "S5 Meter Emission — billing_events -> Stripe Billing Meter"
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: '15 * * * *' # hourly, :15 past
+    # LAUNCH-E (#20039, 2026-09-05): :15 -> :19, off the :00/:15/:30/:45
+    # stampede marks (still hourly).
+    - cron: '19 * * * *'
 
 jobs:
   emit:

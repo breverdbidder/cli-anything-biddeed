@@ -16,14 +16,16 @@ on:
   # runs in a single 5-minute window (2026-09-03 00:34:50-00:39:50 UTC),
   # nearly all `skipped`.
   schedule:
-    # Deliberately kept at 5 min — added 2026-05-27 (204491f3) as the
-    # cron-driven backstop for cooldown-marker enforcement after a stale
-    # SUPABASE_SERVICE_KEY secret silently broke sb_insert() and caused a
-    # 10x dispatch flood. That failure mode is orthogonal to the workflow_run
-    # fan-out fixed here — the cron is now Sentinel's ONLY failure-detection
-    # path (see above), so shortening it would add real latency, not just
-    # remove noise. Kept as-is.
-    - cron: '*/5 * * * *'
+    # LAUNCH-E (#20039, 2026-09-05): consolidated to the canonical schedule
+    # for the sentinel.yml / sentinel-v2.yml / everest-sentinel-5-repos-deploy.yml
+    # trio — this file now carries the only `schedule:` of the three (the
+    # other two are workflow_dispatch-only, see their headers). Moved
+    # */5 -> 7,37 * * * * (twice/hour, off the :00/:15/:30/:45 stampede marks)
+    # to cut scheduled Supabase load ahead of launch. This is a real latency
+    # increase for the cooldown-marker backstop described above (was 5 min
+    # worst-case, now up to 30 min) — accepted as the explicit tradeoff this
+    # issue authorizes.
+    - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:
       run_id:

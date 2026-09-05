@@ -10,7 +10,7 @@ on:
       page_size:
         description: 'Records per API page'
         required: false
-        default: '1000'
+        default: '500'
       max_pages:
         description: 'Max pages per worker'
         required: false
@@ -25,8 +25,10 @@ concurrency:
 jobs:
   pick-counties:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
+      skip_reason: ${{ steps.pick.outputs.skip_reason }}
     steps:
       - name: Resolve live service_role key
         id: key
@@ -60,6 +62,31 @@ jobs:
           manual = os.environ["MANUAL_CO_NO"]
           hdrs = {"apikey": key, "Authorization": f"Bearer {key}"}
 
+          # Pre-flight: skip this run entirely if the DB restarted in the last
+          # 10 minutes — an 8-way (now 2-way) matrix hitting PostgREST right
+          # after a restart is exactly the load pattern LAUNCH-E is cutting.
+          restart_req = urllib.request.Request(
+              f"{url}/rest/v1/db_restart_log?select=observed_at&order=observed_at.desc&limit=1",
+              headers=hdrs
+          )
+          try:
+              with urllib.request.urlopen(restart_req) as r:
+                  restart_rows = json.loads(r.read())
+          except Exception as e:
+              restart_rows = []
+              print(f"db_restart_log check failed (proceeding): {e}")
+
+          if restart_rows:
+              latest = datetime.datetime.fromisoformat(restart_rows[0]["observed_at"].replace("Z", "+00:00"))
+              age_s = (datetime.datetime.now(datetime.timezone.utc) - latest).total_seconds()
+              print(f"Latest db restart: {restart_rows[0]['observed_at']} ({age_s:.0f}s ago)")
+              if age_s < 600:
+                  print(f"SKIP — DB restarted {age_s:.0f}s ago (<600s threshold)")
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                      f.write('matrix={"include":[]}\n')
+                      f.write(f"skip_reason=db_restart_{int(age_s)}s_ago\n")
+                  raise SystemExit(0)
+
           def patch(path, body):
               urllib.request.urlopen(urllib.request.Request(
                   f"{url}/rest/v1/{path}",
@@ -85,7 +112,7 @@ jobs:
               counties = [{"co_no": manual, "slot": 1}]
           else:
               req = urllib.request.Request(
-                  f"{url}/rest/v1/fl_parcel_centroid_progress?status=eq.pending&centroids_needed=gt.0&order=centroids_needed.desc&limit=8&select=co_no,county_name",
+                  f"{url}/rest/v1/fl_parcel_centroid_progress?status=eq.pending&centroids_needed=gt.0&order=centroids_needed.desc&limit=2&select=co_no,county_name",
                   headers=hdrs
               )
               with urllib.request.urlopen(req) as r:
@@ -145,7 +172,7 @@ jobs:
           SUPABASE_URL: "https://mocerqjnksmhcjzxrewo.supabase.co"
           SUPABASE_SERVICE_KEY: ${{ steps.key.outputs.service_key }}
           CO_NO: ${{ matrix.co_no }}
-          PAGE_SIZE: ${{ github.event.inputs.page_size || '1000' }}
+          PAGE_SIZE: ${{ github.event.inputs.page_size || '500' }}
           MAX_PAGES: ${{ github.event.inputs.max_pages || '300' }}
         run: python scripts/fl_parcel_centroids_all.py
 

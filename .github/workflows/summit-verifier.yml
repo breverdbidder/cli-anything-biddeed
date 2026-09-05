@@ -1,5 +1,13 @@
 name: SUMMIT Spec Fulfillment Verifier
 
+# LAUNCH-E (#20039, 2026-09-05): schedule retired — consolidated into
+# supabase-summit-verifier.yml, which now carries the canonical `41 * * * *`
+# hourly schedule for this two-workflow SUMMIT verifier group. This file is
+# workflow_dispatch + repository_dispatch only; its hourly "patrol" mode
+# (scanning recently-closed SUMMIT issues) will only run when manually
+# dispatched or via repository_dispatch(verify-summit) until re-added to a
+# schedule.
+
 on:
   workflow_dispatch:
     inputs:
@@ -8,8 +16,6 @@ on:
         required: true
   repository_dispatch:
     types: [verify-summit]
-  schedule:
-    - cron: '0 * * * *'  # Hourly patrol
 
 jobs:
   verify:
