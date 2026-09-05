@@ -1171,6 +1171,7 @@ async function handleXCallback(env, request, searchParams) {
 // --- Tile rendering --------------------------------------------------------
 
 function connTileStatus(healthy, detail) {
+  if (/^Manual/.test(detail || '')) return { cls: 'not-configured', label: 'Manual / Typefully' };
   if (!healthy && /NOT_CONFIGURED/.test(detail || '')) return { cls: 'not-configured', label: 'Not configured' };
   if (!healthy) return { cls: 'needs-reauth', label: 'Needs re-auth' };
   if (/audit pending/i.test(detail || '')) return { cls: 'audit-pending', label: 'Audit pending' };
