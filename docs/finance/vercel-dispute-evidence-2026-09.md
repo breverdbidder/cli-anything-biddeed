@@ -4,6 +4,15 @@ This document supports a billing dispute for a Vercel invoice on the `brevardbid
 Pro account. It is split into a customer-facing section (safe to share externally, no internal
 tooling/process detail) and an internal appendix (full technical trail).
 
+**Update, 2026-09-05T12:41Z (added after the initial write-up below):** the Vercel account itself
+has since been **suspended for non-payment** (its own billing status shows `overdue`). Both
+`mcp.biddeed.ai` and `zonewise.ai` returned `HTTP 402 DEPLOYMENT_DISABLED` from Vercel within the
+hour this pack was assembled — one was already fixed with an emergency Cloudflare cutover by a
+sibling effort, the other was confirmed down and flagged as a live outage (not a future risk) to
+the team responsible for its own Cloudflare cutover. This changes the framing of the underlying
+dispute from "stop a build-minute overcharge" to "the account relationship itself failed in a way
+that took production down" — worth stating plainly in the dispute conversation.
+
 ---
 
 ## Customer-facing summary
