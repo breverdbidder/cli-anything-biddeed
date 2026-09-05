@@ -5,10 +5,15 @@
   "main": "mcp-worker.mjs",
   "compatibility_date": "2025-09-23",
   "compatibility_flags": ["nodejs_compat", "enable_nodejs_http_server_modules"],
-  // Plan probe (issue guardrail #7): Workers Free caps CPU at 10ms/req, which
-  // PDF generation will exceed. If `wrangler deploy` rejects this block, the
-  // account is on Free — STOP before cutover and report the $5/mo Paid
-  // requirement as Ariel's decision, per the issue plan.
-  "limits": { "cpu_ms": 30000 },
+  // Plan probe result (run 33965846032, 2026-09-05 12:22 UTC): Cloudflare rejected
+  // `limits.cpu_ms` with code 100328 "CPU limits are not supported for the Free plan".
+  // The account is on Workers FREE. Vercel disabled the deployment the same minute
+  // (402 DEPLOYMENT_DISABLED on mcp.biddeed.ai), so the block is removed to restore
+  // service on Free now; the $5/mo Workers Paid decision (needed for reliable PDF
+  // generation under the 10 ms CPU cap) is surfaced to Ariel, not taken here.
+  "vars": {
+    // Same value the Vercel function carried (public URL, not a secret).
+    "MCP_PUBLIC_URL": "https://mcp.biddeed.ai"
+  },
   "observability": { "enabled": true }
 }
