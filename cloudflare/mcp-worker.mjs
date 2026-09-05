@@ -15,8 +15,41 @@ const nodeHandler = httpServerHandler({ port: PORT });
 
 // LAUNCH-A (#20035) — in-Worker rate limiting + security headers. Wraps the
 // unmodified Node http.Server handler above; never touches auth/billing/cert
-// logic in packages/biddeed-mcp/src/**. Fails open on limiter errors so a
-// Workers Rate Limiting outage never blocks legitimate MCP traffic.
+// logic in packages/biddeed-mcp/src/**.
+//
+// Cloudflare's dedicated Rate Limiting binding (`ratelimits` config) deploys
+// cleanly on this Free-plan account, but env.RATE_LIMITER.limit() always
+// returned success:true against live traffic — verified with a temporary
+// debug header across 85+ requests (up to 50 concurrent), tried under both
+// the legacy `unsafe.bindings type="ratelimit"` and the GA `ratelimits` top-
+// level config. Matches an open, unresolved Cloudflare community report of
+// the same symptom. A Workers Paid plan change is Ariel's call and out of
+// scope here, so this uses a per-isolate fixed-window counter instead. It is
+// weaker than the binding (resets on cold start, not shared across colos)
+// but it is the only mechanism that actually enforces on this account today.
+const RATE_WINDOWS = new Map(); // "ip"|"key" -> { count, windowStart }
+const WINDOW_MS = 60_000;
+const LIMIT_IP = 20;
+const LIMIT_KEY = 120;
+
+function checkRateLimitLocal(bucket, key, limit) {
+  const now = Date.now();
+  const mapKey = `${bucket}:${key}`;
+  const entry = RATE_WINDOWS.get(mapKey);
+  if (!entry || now - entry.windowStart >= WINDOW_MS) {
+    RATE_WINDOWS.set(mapKey, { count: 1, windowStart: now });
+    if (RATE_WINDOWS.size > 10000) {
+      for (const [k, v] of RATE_WINDOWS) {
+        if (now - v.windowStart >= WINDOW_MS) RATE_WINDOWS.delete(k);
+      }
+    }
+    return true;
+  }
+  if (entry.count >= limit) return false;
+  entry.count += 1;
+  return true;
+}
+
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
   'X-Content-Type-Options': 'nosniff',
@@ -52,29 +85,17 @@ async function rateLimitedJsonRpcError(request) {
 
 export default {
   async fetch(request, env, ctx) {
-    let debug = 'ok';
     try {
       const bearer = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
-      const limiter = bearer ? env.RATE_LIMITER_KEY : env.RATE_LIMITER_IP;
-      const key = bearer ? await sha256Hex(bearer) : request.headers.get('CF-Connecting-IP') || 'unknown';
-      if (limiter) {
-        const { success } = await limiter.limit({ key });
-        debug = `checked:${success}`;
-        if (!success) {
-          const blocked = await rateLimitedJsonRpcError(request);
-          blocked.headers.set('X-RateLimit-Debug', debug);
-          return blocked;
-        }
-      } else {
-        debug = 'no-limiter-binding';
-      }
-    } catch (err) {
-      debug = `error:${err && err.message}`;
+      const allowed = bearer
+        ? checkRateLimitLocal('key', await sha256Hex(bearer), LIMIT_KEY)
+        : checkRateLimitLocal('ip', request.headers.get('CF-Connecting-IP') || 'unknown', LIMIT_IP);
+      if (!allowed) return rateLimitedJsonRpcError(request);
+    } catch {
+      // Never block MCP traffic on a limiter error.
     }
 
     const response = await nodeHandler.fetch(request, env, ctx);
-    const wrapped = withSecurityHeaders(response);
-    wrapped.headers.set('X-RateLimit-Debug', debug);
-    return wrapped;
+    return withSecurityHeaders(response);
   },
 };

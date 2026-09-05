@@ -2565,27 +2565,40 @@ window.chatwootSettings={position:"right",type:"standard",launcherTitle:"Ask Bid
 export { renderS5ReportHtml };
 
 // ── LAUNCH-A (#20035): in-Worker rate limiting + edge cache ─────────────────
-// Workers Rate Limiting bindings (Free-plan compatible, unlike WAF custom
-// rules). One binding per distinct limit — the binding's limit/period is
-// fixed at wrangler.toml config time, not passable at call time. Fails open
-// on a missing/erroring binding so a limiter outage never blocks checkout or
-// chat traffic.
+// Per-isolate fixed-window counter, not a Cloudflare Rate Limiting binding.
+// Verified live on the sibling biddeed-mcp-production Worker that
+// env.RATE_LIMITER.limit() always returns success:true on this Free-plan
+// account — under both the legacy `unsafe.bindings` and current GA
+// `ratelimits` config — matching an open, unresolved Cloudflare community
+// report. A Workers Paid plan change is Ariel's call and out of scope here.
+// This is weaker than the binding (resets on cold start, not shared across
+// colos) but is the only mechanism that actually enforces on this account.
 const RATE_LIMIT_RULES = [
-  { test: (p, m) => p === '/chat/api' && m === 'POST', binding: 'RATE_LIMITER_CHAT_API' },
-  { test: (p, m) => p === '/chat/lead' && m === 'POST', binding: 'RATE_LIMITER_CHAT_LEAD' },
-  { test: (p, m) => p === '/auctions' && m === 'GET', binding: 'RATE_LIMITER_AUCTIONS' },
-  { test: (p) => p.startsWith('/subscribe') || p.startsWith('/buy-report'), binding: 'RATE_LIMITER_CHECKOUT' },
+  { test: (p, m) => p === '/chat/api' && m === 'POST', bucket: 'chat_api', limit: 30 },
+  { test: (p, m) => p === '/chat/lead' && m === 'POST', bucket: 'chat_lead', limit: 5 },
+  { test: (p, m) => p === '/auctions' && m === 'GET', bucket: 'auctions', limit: 60 },
+  { test: (p) => p.startsWith('/subscribe') || p.startsWith('/buy-report'), bucket: 'checkout', limit: 20 },
 ];
 
-async function checkRateLimit(env, bindingName, ip) {
-  const limiter = env[bindingName];
-  if (!limiter) return true;
-  try {
-    const { success } = await limiter.limit({ key: ip });
-    return success;
-  } catch {
+const RATE_WINDOW_MS = 60_000;
+const RATE_WINDOWS = new Map(); // "bucket:ip" -> { count, windowStart }
+
+function checkRateLimit(bucket, ip, limit) {
+  const now = Date.now();
+  const mapKey = `${bucket}:${ip}`;
+  const entry = RATE_WINDOWS.get(mapKey);
+  if (!entry || now - entry.windowStart >= RATE_WINDOW_MS) {
+    RATE_WINDOWS.set(mapKey, { count: 1, windowStart: now });
+    if (RATE_WINDOWS.size > 10000) {
+      for (const [k, v] of RATE_WINDOWS) {
+        if (now - v.windowStart >= RATE_WINDOW_MS) RATE_WINDOWS.delete(k);
+      }
+    }
     return true;
   }
+  if (entry.count >= limit) return false;
+  entry.count += 1;
+  return true;
 }
 
 // GET /auctions JSON and GET /county/:slug HTML (not the /lots JSON sub-route,
@@ -2611,7 +2624,7 @@ export default {
       const rule = RATE_LIMIT_RULES.find((r) => r.test(path, method));
       if (rule) {
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-        const allowed = await checkRateLimit(env, rule.binding, ip);
+        const allowed = checkRateLimit(rule.bucket, ip, rule.limit);
         if (!allowed) {
           return withSecurityHeaders(new Response(JSON.stringify({ error: 'Too many requests' }), {
             status: 429,
