@@ -491,7 +491,7 @@ def main():
     print(f"rows={len(results)} pending_approval={n_ok} error={n_err} skipped_has_video={n_skip}")
     print(f"image_calls_total={total_images} tts_chars_total={total_tts_chars} wall_time_sec={wall_time:.1f}")
     print(f"shortlisted={len(shortlisted)}")
-    for r in sorted(shortlisted, key=lambda x: x.get("rank_score") or 0, reverse=True):
+    for r in sorted(shortlisted, key=lambda x: float(x.get("rank_score") or 0), reverse=True):
         print(f"  #{r['case_number']} / {r['county']} rank_score={r['rank_score']} video_url={r['video_url']}")
 
     geocoded = [r for r in results if r.get("geocode_fallback")]
