@@ -1,12 +1,12 @@
 # Winner Data — Auction Flash Batch 2026-09-05
 
-Generated: 2026-09-05T00:47:23.410345+00:00Z (live-queried, org=Protection Partners)
+Generated: 2026-09-05T04:34:37.970640+00:00Z (live-queried, org=Protection Partners)
 
-Total leads: 30 | Producers: 1
+Total leads: 34 | Producers: 1
 
 **Scope note:** Bright Data winner harvest (Sprint 1b) not run this session (set BRIGHTDATA_HARVEST_STATUS=live once verified working). This batch only includes signals with a real (non-placeholder) winning_bidder already captured by other harvesters — many completed auctions are excluded until harvest lands. Honest volume for today, not the full pipeline ceiling.
 
-## Mariam Shapira (30 leads)
+## Mariam Shapira (34 leads)
 
 ### Resi Prestige Worldwide, LLC — 3331 ALENA CT, WINTER PARK, FL- 32792
 
@@ -248,6 +248,21 @@ Total leads: 30 | Producers: 1
 - **Contact phone/email:** none on file — SKIP_TRACE_PENDING
 - **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 7983 EXETER BLVD E 103, TAMARAC, 33321 at the foreclosure auction in Broward County on 2026-09-03 for $42,500. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
 
+### Florida Investors Capital LLC 70% Bay Living Inc. 30% — 145 JUNIPER LAKE DR, DEFUNIAK SPRINGS, FL- 32433
+
+**MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
+**NO PHONE ON FILE — Sunbiz registered-agent lookup pending. Do not call; research contact before outreach.**
+
+- **Entity type:** business
+- **Parcel ID:** 09-3N-19-19700-00N-0660
+- **County:** Walton
+- **Auction:** Foreclosure, case 25CA000534, closed 2026-09-04, sold $61,300
+- **Product line:** dwelling_landlord (default — entity name suggests possible commercial_bop/builders_risk cross-sell, producer to confirm)
+- **Quote-draft completeness:** 50.00% — open gaps: year_built, square_footage, bed_bath_count, occupancy_status, construction_type, roof_type, protection_class
+- **Valuation:** assessed $43,998, market unknown
+- **Contact phone/email:** none on file — SKIP_TRACE_PENDING
+- **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 145 JUNIPER LAKE DR, DEFUNIAK SPRINGS, FL- 32433 at the foreclosure auction in Walton County on 2026-09-04 for $61,300. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
+
 ### Josephine C. Casillas — address unknown
 
 **MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
@@ -278,6 +293,21 @@ Total leads: 30 | Producers: 1
 - **Contact phone/email:** none on file — SKIP_TRACE_PENDING
 - **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 2500 HARN BLVD # A2, CLEARWATER, FL- 33764 at the foreclosure auction in Pinellas County on 2026-09-03 for $11,700. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
 
+### Donaster Shirley — 343 SW 183 TER, PEMBROKE PINES, 33029
+
+**MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
+**DNC_UNSCRUBBED — DO NOT CALL until DNC scrub completed. Contact info not yet available.**
+
+- **Entity type:** person
+- **Parcel ID:** 514018111070
+- **County:** Broward
+- **Auction:** Foreclosure, case COWE-12-011377, closed 2026-09-04, sold $182,000
+- **Product line:** dwelling_landlord (default — entity name suggests possible commercial_bop/builders_risk cross-sell, producer to confirm)
+- **Quote-draft completeness:** 40.00% — open gaps: year_built, square_footage, bed_bath_count, occupancy_status, construction_type, roof_type, protection_class
+- **Valuation:** assessed unknown, market unknown
+- **Contact phone/email:** none on file — SKIP_TRACE_PENDING
+- **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 343 SW 183 TER, PEMBROKE PINES, 33029 at the foreclosure auction in Broward County on 2026-09-04 for $182,000. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
+
 ### Josephine C. Casillas — address unknown
 
 **MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
@@ -307,6 +337,21 @@ Total leads: 30 | Producers: 1
 - **Valuation:** assessed $350, market unknown
 - **Contact phone/email:** none on file — SKIP_TRACE_PENDING
 - **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 433 MARINA RD, SATSUMA, FL- 32189 at the tax deed auction in Putnam County on 2026-09-02 for $1,200. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
+
+### AMERICA STAFFING JOB AGENCY, LLC — 107 BERKSHIRE A
+
+**MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
+**NO PHONE ON FILE — Sunbiz registered-agent lookup pending. Do not call; research contact before outreach.**
+
+- **Entity type:** business
+- **Parcel ID:** None
+- **County:** Broward
+- **Auction:** Foreclosure, case COCE-25-032080, closed 2026-09-04, sold $45,000
+- **Product line:** dwelling_landlord (default — entity name suggests possible commercial_bop/builders_risk cross-sell, producer to confirm)
+- **Quote-draft completeness:** 20.00% — open gaps: year_built, square_footage, bed_bath_count, occupancy_status, construction_type, roof_type, protection_class
+- **Valuation:** assessed unknown, market unknown
+- **Contact phone/email:** none on file — SKIP_TRACE_PENDING
+- **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 107 BERKSHIRE A at the foreclosure auction in Broward County on 2026-09-04 for $45,000. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
 
 ### JM Ocala Investments LLC, a Florida limited liability company, as Trustee of the JM Ocala Investments Trust with full power to sell convey and encumber — 3962 NE 58TH CIR, SILVER SPRINGS, FL- 34488
 
@@ -457,3 +502,18 @@ Total leads: 30 | Producers: 1
 - **Valuation:** assessed unknown, market unknown
 - **Contact phone/email:** none on file — SKIP_TRACE_PENDING
 - **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up a property at the foreclosure auction in Miami_Dade County on 2026-09-03 for $6,000. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
+
+### Fresh Legal Perspective PL as Trustee only, under the May 13 2025 Land Trust, with full power and authority to protect,conserve,sell,lease,encumber or otherwise manage and dispose of said property pursuant to Florida Statute 689.071 & .073 — 187 WHETHERBINE WAY W, TALLAHASSEE, FL- 32301
+
+**MANUAL DIAL ONLY — NO SMS / NO AUTODIAL / NO EMAIL DRIP (no consent on file)**
+**NO PHONE ON FILE — Sunbiz registered-agent lookup pending. Do not call; research contact before outreach.**
+
+- **Entity type:** business
+- **Parcel ID:** 113302 B0431
+- **County:** Leon
+- **Auction:** Foreclosure, case 2025 CC 003163, closed 2026-09-04, sold $7,100
+- **Product line:** dwelling_landlord (default — entity name suggests possible commercial_bop/builders_risk cross-sell, producer to confirm)
+- **Quote-draft completeness:** 50.00% — open gaps: year_built, square_footage, bed_bath_count, occupancy_status, construction_type, roof_type, protection_class
+- **Valuation:** assessed $89,502, market unknown
+- **Contact phone/email:** none on file — SKIP_TRACE_PENDING
+- **Suggested opener:** "Hi, this is Mariam Shapira with Protection Partners — I noticed you picked up 187 WHETHERBINE WAY W, TALLAHASSEE, FL- 32301 at the foreclosure auction in Leon County on 2026-09-04 for $7,100. Want to make sure the property's covered before anything happens to it — got 5 minutes?"
