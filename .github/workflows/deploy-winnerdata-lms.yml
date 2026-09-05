@@ -413,7 +413,23 @@ jobs:
           Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
           EOF
           )"
-            git push origin HEAD:main
+            # main gets concurrent commits from other in-flight GTM issue
+            # dispatches (e.g. docs/intent/*.md updates) -- a bare push can
+            # race and get rejected even though this commit only touches a
+            # file this workflow owns. Rebase-and-retry instead of failing
+            # the whole job over an unrelated concurrent commit.
+            for attempt in 1 2 3 4 5; do
+              if git push origin HEAD:main; then
+                break
+              fi
+              echo "Push rejected (attempt $attempt) -- rebasing onto latest main and retrying"
+              git fetch origin main
+              git rebase origin/main
+              if [ "$attempt" = "5" ]; then
+                echo "::error::Could not push screenshot evidence after 5 rebase-retries"
+                exit 1
+              fi
+            done
           fi
 
       - name: Playwright — real LMS login + FF batch approve click-through
