@@ -1,0 +1,14 @@
+{
+  // biddeed-mcp-production — #20025 EXIT VERCEL A
+  // mcp.biddeed.ai byte-equivalent replacement for the retired Vercel function.
+  "name": "biddeed-mcp-production",
+  "main": "mcp-worker.mjs",
+  "compatibility_date": "2025-09-23",
+  "compatibility_flags": ["nodejs_compat", "enable_nodejs_http_server_modules"],
+  // Plan probe (issue guardrail #7): Workers Free caps CPU at 10ms/req, which
+  // PDF generation will exceed. If `wrangler deploy` rejects this block, the
+  // account is on Free — STOP before cutover and report the $5/mo Paid
+  // requirement as Ariel's decision, per the issue plan.
+  "limits": { "cpu_ms": 30000 },
+  "observability": { "enabled": true }
+}

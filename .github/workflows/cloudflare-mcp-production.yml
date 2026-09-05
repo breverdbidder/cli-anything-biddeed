@@ -1,0 +1,138 @@
+name: "MCP HTTP — Deploy to Cloudflare Worker (biddeed-mcp-production)"
+# EXIT VERCEL A (#20025) — replaces mcp-vercel-deploy.yml as the live deploy
+# path for mcp.biddeed.ai. Deploys cloudflare/mcp-worker.mjs, which wraps the
+# unchanged packages/biddeed-mcp/src/http.js Node http server via
+# cloudflare:node's httpServerHandler.
+#
+# Before the first cutover, wrangler.mcp.jsonc has no `routes` block, so this
+# deploys to workers.dev only. Once chat performs the DNS cutover (issue plan
+# step 6) and adds the custom_domain route to that config, this same workflow
+# starts deploying to the real hostname automatically — no workflow edit
+# needed for that transition.
+#
+# Requires repo secrets: CF_ACCOUNT_ID, CF_API_TOKEN, and every process.env.X
+# packages/biddeed-mcp/src/**/*.js reads (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+# STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, WORKOS_API_KEY, WORKOS_CLIENT_ID,
+# EXA_API_KEY, MCP_PUBLIC_URL, etc — see step below for the full list).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/biddeed-mcp/**"
+      - "api/**"
+      - "cloudflare/**"
+  workflow_dispatch: {}
+
+concurrency:
+  group: cloudflare-mcp-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: "Deploy biddeed-mcp-production to Cloudflare Workers"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install biddeed-mcp deps
+        working-directory: packages/biddeed-mcp
+        run: npm install
+
+      - name: Credential gate (names only, never values)
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ACCOUNT_ID:-}" ]; then
+            echo "::error::CF_API_TOKEN / CF_ACCOUNT_ID missing — cannot deploy"
+            exit 1
+          fi
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/workers/scripts" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}")
+          echo "GET /accounts/:id/workers/scripts -> ${HTTP}"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::CF token cannot list Worker scripts (HTTP ${HTTP})"
+            exit 1
+          fi
+
+      - name: Bind secrets (temp file, deleted same step)
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          BATCHDATA_API_KEY: ${{ secrets.BATCHDATA_API_KEY }}
+          REISKIP_API_KEY: ${{ secrets.REISKIP_API_KEY }}
+          ZONEWISE_API_KEY: ${{ secrets.ZONEWISE_API_KEY }}
+          ENSEMBLE_WORKER_SECRET: ${{ secrets.ENSEMBLE_WORKER_SECRET }}
+          ROUTER_PROXY_KEY: ${{ secrets.ROUTER_PROXY_KEY }}
+          CLAUDE_ROUTER_URL: ${{ secrets.CLAUDE_ROUTER_URL }}
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          python3 -c "
+          import json, os
+          keys = ['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','STRIPE_SECRET_KEY',
+                   'STRIPE_WEBHOOK_SECRET','WORKOS_API_KEY','WORKOS_CLIENT_ID',
+                   'EXA_API_KEY','BATCHDATA_API_KEY','REISKIP_API_KEY',
+                   'ZONEWISE_API_KEY','ENSEMBLE_WORKER_SECRET','ROUTER_PROXY_KEY',
+                   'CLAUDE_ROUTER_URL']
+          out = {k: os.environ[k] for k in keys if os.environ.get(k)}
+          print('Binding keys:', list(out.keys()))
+          json.dump(out, open('$TMP/secrets.json', 'w'))
+          "
+          npx --yes wrangler secret bulk "$TMP/secrets.json" \
+            --config cloudflare/wrangler.mcp.jsonc \
+            --name biddeed-mcp-production
+        working-directory: .
+
+      - name: Deploy
+        id: deploy
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          npx --yes wrangler deploy --config cloudflare/wrangler.mcp.jsonc 2>&1 | tee /tmp/wrangler-deploy.log
+          WORKERS_DEV_URL=$(grep -Eo 'https://[a-zA-Z0-9._-]+\.workers\.dev' /tmp/wrangler-deploy.log | tail -1)
+          echo "workers_dev_url=${WORKERS_DEV_URL}" >> "$GITHUB_OUTPUT"
+          echo "Deployed: ${WORKERS_DEV_URL}"
+
+      - name: Gate table — workers.dev (negative/no-auth checks only, zero billing risk)
+        run: |
+          set -uo pipefail
+          URL="${{ steps.deploy.outputs.workers_dev_url }}"
+          sleep 5
+          echo "GET /api/mcp (no auth):"
+          curl -s -o /dev/null -w "  -> %{http_code}\n" "${URL}/api/mcp"
+          echo "OPTIONS /api/mcp:"
+          curl -s -o /dev/null -w "  -> %{http_code}\n" -X OPTIONS "${URL}/api/mcp"
+          echo "GET /.well-known/oauth-protected-resource:"
+          curl -s -o /dev/null -w "  -> %{http_code}\n" "${URL}/.well-known/oauth-protected-resource"
+          echo "GET /report/pdf (no auth, negative test):"
+          curl -s -o /dev/null -w "  -> %{http_code}\n" "${URL}/report/pdf"
+          echo "POST /api/mcp bogus bearer (negative test):"
+          curl -s -o /dev/null -w "  -> %{http_code}\n" -X POST "${URL}/api/mcp" \
+            -H "Authorization: Bearer bd_live_bogus" -H "Content-Type: application/json" \
+            -H "Accept: application/json, text/event-stream" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+
+      - name: Gate table — mcp.biddeed.ai (only meaningful once cutover has happened)
+        if: always()
+        run: |
+          set -uo pipefail
+          echo "GET https://mcp.biddeed.ai/api/mcp:"
+          curl -s -D - -o /dev/null --max-time 10 "https://mcp.biddeed.ai/api/mcp" || echo "  (not reachable yet — expected until DNS cutover lands)"

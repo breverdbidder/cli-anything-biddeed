@@ -6,7 +6,11 @@
 // Brand: navy #1E3A5F · orange #F59E0B · void #020617 · green #16A34A · red #DC2626 · amber #D97706
 // Patent Claim 8 — SUMMIT-B V4
 
-import PDFDocument from 'pdfkit';
+// Cloudflare Workers import-compat shim (#20025): the default 'pdfkit' entry
+// reads AFM font files via fs at runtime, which doesn't exist in workerd.
+// The standalone build embeds font metrics inline — same API, zero logic
+// change here, works unchanged under Node (Vercel) too.
+import PDFDocument from 'pdfkit/js/pdfkit.standalone.js';
 import { get as defaultGet } from '../supabase.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
 

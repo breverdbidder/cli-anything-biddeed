@@ -8,6 +8,7 @@ import { get as sbGet, storagePut } from './supabase.js';
 import { resolveApiKey, validateKey } from './auth.js';
 import { isJwtLike } from './oauth.js';
 import { buildReport } from './report/composer.js';
+import { handleStripeWebhook } from './webhook.js';
 
 // GTM-22 REPORT PDF ENDPOINT — GET /report/pdf. Delivers the same billable
 // $25 artifact as the predict_auction_outcome tool (issue #12853) over plain
@@ -245,6 +246,24 @@ export async function startHttp(port = parseInt(process.env.PORT || '3000', 10))
 
 async function handleRequest(req, res) {
   const path = (req.url || '/').split('?')[0];
+
+  // CORS — previously set by the Vercel wrapper (api/mcp.js) for every route
+  // it fronted (all of vercel.json's rewrites point at that one function).
+  // The Cloudflare Worker (#20025) has no separate per-route wrapper, so this
+  // is the single place all routes funnel through — set unconditionally here
+  // instead so Worker behaviour matches Vercel byte-for-byte on every route.
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, mcp-session-id');
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  // Stripe webhook (#20025) — Vercel served this from the separate
+  // api/stripe/webhook.js serverless function; the Worker's single Node
+  // http server needs the route handled here instead.
+  if (req.method === 'POST' && path === '/api/stripe/webhook') {
+    await handleStripeWebhook(req, res);
+    return;
+  }
 
   // Health / info
   if (req.method === 'GET' && (path === '/health' || path === '/')) {
