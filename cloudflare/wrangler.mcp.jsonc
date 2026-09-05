@@ -11,6 +11,14 @@
   // (402 DEPLOYMENT_DISABLED on mcp.biddeed.ai), so the block is removed to restore
   // service on Free now; the $5/mo Workers Paid decision (needed for reliable PDF
   // generation under the 10 ms CPU cap) is surfaced to Ariel, not taken here.
+  //
+  // Cutover 2026-09-05 (chat, DNS-scoped token): the Vercel CNAME on mcp.biddeed.ai was
+  // replaced by a proxied placeholder A record (192.0.2.1) so this zone route receives
+  // the traffic — same pattern biddeed.ai itself uses (proxied record + Worker route).
+  // Rollback: docs/spec/20025-rollback.md.
+  "routes": [
+    { "pattern": "mcp.biddeed.ai/*", "zone_name": "biddeed.ai" }
+  ],
   "vars": {
     // Same value the Vercel function carried (public URL, not a secret).
     "MCP_PUBLIC_URL": "https://mcp.biddeed.ai"
