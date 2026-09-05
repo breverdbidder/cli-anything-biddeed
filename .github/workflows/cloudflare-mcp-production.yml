@@ -107,11 +107,17 @@ jobs:
         run: |
           set -o pipefail
           npx --yes wrangler deploy --config cloudflare/wrangler.mcp.jsonc 2>&1 | tee /tmp/wrangler-deploy.log
-          WORKERS_DEV_URL=$(grep -Eo 'https://[a-zA-Z0-9._-]+\.workers\.dev' /tmp/wrangler-deploy.log | tail -1)
+          # LAUNCH-A (#20035): the `ratelimit` unsafe binding is zone/custom-domain
+          # only — Cloudflare drops the workers.dev preview URL once it's present,
+          # so this grep legitimately finds nothing post-20035. `|| true` keeps
+          # that a non-fatal, empty-URL case instead of failing the whole deploy
+          # step under this workflow's `bash -e -o pipefail`.
+          WORKERS_DEV_URL=$(grep -Eo 'https://[a-zA-Z0-9._-]+\.workers\.dev' /tmp/wrangler-deploy.log | tail -1 || true)
           echo "workers_dev_url=${WORKERS_DEV_URL}" >> "$GITHUB_OUTPUT"
-          echo "Deployed: ${WORKERS_DEV_URL}"
+          echo "Deployed: ${WORKERS_DEV_URL:-<no workers.dev preview — ratelimit binding requires custom domain>}"
 
       - name: Gate table — workers.dev (negative/no-auth checks only, zero billing risk)
+        if: steps.deploy.outputs.workers_dev_url != ''
         run: |
           set -uo pipefail
           URL="${{ steps.deploy.outputs.workers_dev_url }}"
