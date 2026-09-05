@@ -1,3 +1,10 @@
+import { RateLimiterCounter, checkRateLimitDO } from '../cloudflare/rate-limit-do.mjs';
+
+// Re-exported so wrangler can bind the `RATE_LIMIT_DO` Durable Object
+// (class_name: "RateLimiterCounter" in wrangler.toml) to this Worker's own
+// script — see #20041 in the rate-limit section near the bottom of this file.
+export { RateLimiterCounter };
+
 /**
  * BidDeed.AI Cloudflare Worker — src/worker.js
  * SSOT established: 2026-07-29
@@ -2564,20 +2571,18 @@ window.chatwootSettings={position:"right",type:"standard",launcherTitle:"Ask Bid
 // the Cloudflare Worker itself (wrangler only invokes the default export).
 export { renderS5ReportHtml };
 
-// ── LAUNCH-A (#20035): in-Worker rate limiting + edge cache ─────────────────
+// ── LAUNCH-A2 (#20041): in-Worker rate limiting + edge cache ────────────────
 // Not a Cloudflare Rate Limiting binding: verified live on the sibling
 // biddeed-mcp-production Worker that env.RATE_LIMITER.limit() always returns
 // success:true on this Free-plan account (both the legacy `unsafe.bindings`
 // and current GA `ratelimits` config — open, unresolved Cloudflare community
-// report). A per-isolate in-memory counter was tried next and also failed
-// live — Cloudflare does not give one client session affinity to a single
-// isolate, so state never accumulated across sequential requests. A Workers
-// Paid plan change (for Durable Objects) is Ariel's call and out of scope
-// here, so this uses `caches.default` (the Cache API, colo-shared and
-// already proven live via the /auctions cf-cache-status: HIT test below) as
-// a best-effort shared counter. Read-then-write is not atomic, so concurrent
-// requests can under-count — acceptable for abuse mitigation, not a hard
-// guarantee.
+// report). The #20035 fallback (`caches.default` as a counter) was also
+// proven non-functional live on 2026-09-05: Cache API writes are per-colo
+// and non-atomic, so a burst spread across colos (or racing within one) is
+// undercounted. This uses the RATE_LIMIT_DO Durable Object instead — one
+// strongly-consistent, single-threaded counter instance per (bucket, IP),
+// regardless of which colo the request lands in. SQLite-backed DOs are
+// available on the Workers Free plan. See cloudflare/rate-limit-do.mjs.
 const RATE_LIMIT_RULES = [
   { test: (p, m) => p === '/chat/api' && m === 'POST', bucket: 'chat_api', limit: 30 },
   { test: (p, m) => p === '/chat/lead' && m === 'POST', bucket: 'chat_lead', limit: 5 },
@@ -2587,34 +2592,8 @@ const RATE_LIMIT_RULES = [
 
 const RATE_WINDOW_MS = 60_000;
 
-async function checkRateLimit(bucket, ip, limit) {
-  const cache = caches.default;
-  const cacheKey = new Request(`https://rl.internal.biddeed.ai/${bucket}/${encodeURIComponent(ip)}`);
-  const now = Date.now();
-  let count = 1;
-  let windowStart = now;
-  try {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const data = await cached.json();
-      if (data && typeof data.windowStart === 'number' && now - data.windowStart < RATE_WINDOW_MS) {
-        windowStart = data.windowStart;
-        count = (data.count || 0) + 1;
-      }
-    }
-  } catch {
-    // treat as a fresh window on any read error
-  }
-  const allowed = count <= limit;
-  try {
-    const ttlSeconds = Math.max(1, Math.ceil((windowStart + RATE_WINDOW_MS - now) / 1000));
-    await cache.put(cacheKey, new Response(JSON.stringify({ count, windowStart }), {
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${ttlSeconds}` },
-    }));
-  } catch {
-    // best-effort — a failed write just means the next request re-reads stale/missing state
-  }
-  return allowed;
+async function checkRateLimit(env, bucket, ip, limit) {
+  return checkRateLimitDO(env, 'RATE_LIMIT_DO', bucket, ip, limit, RATE_WINDOW_MS);
 }
 
 // GET /auctions JSON and GET /county/:slug HTML (not the /lots JSON sub-route,
@@ -2640,7 +2619,7 @@ export default {
       const rule = RATE_LIMIT_RULES.find((r) => r.test(path, method));
       if (rule) {
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-        const allowed = await checkRateLimit(rule.bucket, ip, rule.limit);
+        const allowed = await checkRateLimit(env, rule.bucket, ip, rule.limit);
         if (!allowed) {
           return withSecurityHeaders(new Response(JSON.stringify({ error: 'Too many requests' }), {
             status: 429,

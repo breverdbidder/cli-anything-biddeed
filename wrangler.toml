@@ -13,13 +13,25 @@ routes = [
   { pattern = "biddeed.ai/data-retention*", zone_name = "biddeed.ai" },
 ]
 
-# LAUNCH-A (#20035): rate limiting (/chat/api 30/60s, /chat/lead 5/60s,
+# LAUNCH-A2 (#20041): rate limiting (/chat/api 30/60s, /chat/lead 5/60s,
 # /auctions 60/60s, /subscribe*+/buy-report* 20/60s, all per-IP) is enforced
-# in src/worker.js via a per-isolate in-Worker counter, not a `ratelimits`
-# binding here — verified live that Cloudflare's dedicated Rate Limiting
-# binding always returns success:true on this Free-plan account (both the
-# legacy unsafe.bindings and current GA config paths on biddeed-mcp-
-# production), matching an open, unresolved Cloudflare community report.
+# in src/worker.js via the RATE_LIMIT_DO SQLite-backed Durable Object below,
+# not a `ratelimits` binding — verified live (#20035) that Cloudflare's
+# dedicated Rate Limiting binding always returns success:true on this
+# Free-plan account (both the legacy unsafe.bindings and current GA config
+# paths on biddeed-mcp-production), matching an open, unresolved Cloudflare
+# community report. The #20035 fallback (a `caches.default` counter) was
+# also proven non-functional live on 2026-09-05 — Cache API writes are
+# per-colo and non-atomic, so a burst is undercounted. A Durable Object
+# gives one strongly-consistent instance per (bucket, IP) regardless of
+# colo, which is what a real counter needs.
+[[durable_objects.bindings]]
+name = "RATE_LIMIT_DO"
+class_name = "RateLimiterCounter"
+
+[[migrations]]
+tag = "v1-rate-limit-do"
+new_sqlite_classes = ["RateLimiterCounter"]
 
 [vars]
 # Non-secret config here. Secrets live in encrypted CF Worker secret bindings:

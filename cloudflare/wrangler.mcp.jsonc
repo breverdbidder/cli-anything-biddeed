@@ -23,12 +23,23 @@
     // Same value the Vercel function carried (public URL, not a secret).
     "MCP_PUBLIC_URL": "https://mcp.biddeed.ai"
   },
-  "observability": { "enabled": true }
-  // LAUNCH-A (#20035): rate limiting (per-IP unauth 20/60s, per-key 120/60s)
-  // is enforced in mcp-worker.mjs via a per-isolate in-Worker counter, not a
-  // `ratelimits` binding here — verified live that Cloudflare's dedicated
-  // Rate Limiting binding always returns success:true on this Free-plan
-  // account (both the legacy unsafe.bindings and current GA config paths),
-  // matching an open, unresolved Cloudflare community report. See
-  // mcp-worker.mjs for the full rationale.
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "RATE_LIMIT_DO", "class_name": "RateLimiterCounter" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1-rate-limit-do", "new_sqlite_classes": ["RateLimiterCounter"] }
+  ]
+  // LAUNCH-A2 (#20041): rate limiting (per-IP unauth 20/60s, per-key 120/60s)
+  // is enforced in mcp-worker.mjs via the RATE_LIMIT_DO SQLite-backed
+  // Durable Object above, not a `ratelimits` binding — verified live
+  // (#20035) that Cloudflare's dedicated Rate Limiting binding always
+  // returns success:true on this Free-plan account (both the legacy
+  // unsafe.bindings and current GA config paths), matching an open,
+  // unresolved Cloudflare community report. The #20035 fallback (a
+  // `caches.default` counter) was also proven non-functional live on
+  // 2026-09-05 (25 unauth POSTs -> 25x401, zero 429). See mcp-worker.mjs
+  // and cloudflare/rate-limit-do.mjs for the full rationale.
 }
