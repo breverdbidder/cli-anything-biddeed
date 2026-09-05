@@ -52,19 +52,29 @@ async function rateLimitedJsonRpcError(request) {
 
 export default {
   async fetch(request, env, ctx) {
+    let debug = 'ok';
     try {
       const bearer = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
       const limiter = bearer ? env.RATE_LIMITER_KEY : env.RATE_LIMITER_IP;
       const key = bearer ? await sha256Hex(bearer) : request.headers.get('CF-Connecting-IP') || 'unknown';
       if (limiter) {
         const { success } = await limiter.limit({ key });
-        if (!success) return rateLimitedJsonRpcError(request);
+        debug = `checked:${success}`;
+        if (!success) {
+          const blocked = await rateLimitedJsonRpcError(request);
+          blocked.headers.set('X-RateLimit-Debug', debug);
+          return blocked;
+        }
+      } else {
+        debug = 'no-limiter-binding';
       }
-    } catch {
-      // Rate limiter binding unavailable/erroring — fail open, never block MCP traffic on this.
+    } catch (err) {
+      debug = `error:${err && err.message}`;
     }
 
     const response = await nodeHandler.fetch(request, env, ctx);
-    return withSecurityHeaders(response);
+    const wrapped = withSecurityHeaders(response);
+    wrapped.headers.set('X-RateLimit-Debug', debug);
+    return wrapped;
   },
 };
