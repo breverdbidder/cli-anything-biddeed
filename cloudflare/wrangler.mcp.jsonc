@@ -27,10 +27,13 @@
   // LAUNCH-A (#20035): Workers Rate Limiting binding (available on Free plan,
   // unlike WAF custom rules which need Pro+). Per-IP unauth 20 req/60s,
   // per-API-key (sha256 of bearer) 120 req/60s. Enforced in mcp-worker.mjs.
-  "unsafe": {
-    "bindings": [
-      { "name": "RATE_LIMITER_IP", "type": "ratelimit", "namespace_id": "20035001", "simple": { "limit": 20, "period": 60 } },
-      { "name": "RATE_LIMITER_KEY", "type": "ratelimit", "namespace_id": "20035002", "simple": { "limit": 120, "period": 60 } }
-    ]
-  }
+  // GA top-level `ratelimits` config (wrangler >=4.36.0) — the older
+  // `unsafe.bindings type=ratelimit` path deployed clean but its limit()
+  // calls always returned success:true against live traffic (verified via a
+  // temporary debug header, 85 requests, zero throttling); this is the
+  // documented-current, non-experimental config.
+  "ratelimits": [
+    { "name": "RATE_LIMITER_IP", "namespace_id": "20035001", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RATE_LIMITER_KEY", "namespace_id": "20035002", "simple": { "limit": 120, "period": 60 } }
+  ]
 }

@@ -14,28 +14,29 @@ routes = [
 ]
 
 # LAUNCH-A (#20035): Workers Rate Limiting bindings (Free-plan compatible).
-# One namespace per distinct per-IP limit; enforced in src/worker.js.
-[[unsafe.bindings]]
+# One namespace per distinct per-IP limit; enforced in src/worker.js. GA
+# top-level [[ratelimits]] config (wrangler >=4.36.0) — the older
+# [[unsafe.bindings]] type="ratelimit" path deployed clean but its limit()
+# calls always returned success:true against live traffic on
+# biddeed-mcp-production (verified via a temporary debug header, 85
+# requests, zero throttling); this is the documented-current config.
+[[ratelimits]]
 name = "RATE_LIMITER_CHAT_API"
-type = "ratelimit"
 namespace_id = "20035011"
 simple = { limit = 30, period = 60 }
 
-[[unsafe.bindings]]
+[[ratelimits]]
 name = "RATE_LIMITER_CHAT_LEAD"
-type = "ratelimit"
 namespace_id = "20035012"
 simple = { limit = 5, period = 60 }
 
-[[unsafe.bindings]]
+[[ratelimits]]
 name = "RATE_LIMITER_AUCTIONS"
-type = "ratelimit"
 namespace_id = "20035013"
 simple = { limit = 60, period = 60 }
 
-[[unsafe.bindings]]
+[[ratelimits]]
 name = "RATE_LIMITER_CHECKOUT"
-type = "ratelimit"
 namespace_id = "20035014"
 simple = { limit = 20, period = 60 }
 
