@@ -11,4 +11,60 @@ const PORT = 8080;
 
 await startHttp(PORT);
 
-export default httpServerHandler({ port: PORT });
+const nodeHandler = httpServerHandler({ port: PORT });
+
+// LAUNCH-A (#20035) — in-Worker rate limiting + security headers. Wraps the
+// unmodified Node http.Server handler above; never touches auth/billing/cert
+// logic in packages/biddeed-mcp/src/**. Fails open on limiter errors so a
+// Workers Rate Limiting outage never blocks legitimate MCP traffic.
+const SECURITY_HEADERS = {
+  'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+
+function withSecurityHeaders(response) {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) headers.set(key, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function sha256Hex(input) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function rateLimitedJsonRpcError(request) {
+  let id = null;
+  try {
+    if (request.method === 'POST') {
+      const body = await request.clone().json();
+      id = body?.id ?? null;
+    }
+  } catch {
+    // no/invalid JSON body — id stays null
+  }
+  return new Response(
+    JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Rate limit exceeded' } }),
+    { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '60', ...SECURITY_HEADERS } }
+  );
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      const bearer = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+      const limiter = bearer ? env.RATE_LIMITER_KEY : env.RATE_LIMITER_IP;
+      const key = bearer ? await sha256Hex(bearer) : request.headers.get('CF-Connecting-IP') || 'unknown';
+      if (limiter) {
+        const { success } = await limiter.limit({ key });
+        if (!success) return rateLimitedJsonRpcError(request);
+      }
+    } catch {
+      // Rate limiter binding unavailable/erroring — fail open, never block MCP traffic on this.
+    }
+
+    const response = await nodeHandler.fetch(request, env, ctx);
+    return withSecurityHeaders(response);
+  },
+};

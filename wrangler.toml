@@ -13,6 +13,32 @@ routes = [
   { pattern = "biddeed.ai/data-retention*", zone_name = "biddeed.ai" },
 ]
 
+# LAUNCH-A (#20035): Workers Rate Limiting bindings (Free-plan compatible).
+# One namespace per distinct per-IP limit; enforced in src/worker.js.
+[[unsafe.bindings]]
+name = "RATE_LIMITER_CHAT_API"
+type = "ratelimit"
+namespace_id = "20035011"
+simple = { limit = 30, period = 60 }
+
+[[unsafe.bindings]]
+name = "RATE_LIMITER_CHAT_LEAD"
+type = "ratelimit"
+namespace_id = "20035012"
+simple = { limit = 5, period = 60 }
+
+[[unsafe.bindings]]
+name = "RATE_LIMITER_AUCTIONS"
+type = "ratelimit"
+namespace_id = "20035013"
+simple = { limit = 60, period = 60 }
+
+[[unsafe.bindings]]
+name = "RATE_LIMITER_CHECKOUT"
+type = "ratelimit"
+namespace_id = "20035014"
+simple = { limit = 20, period = 60 }
+
 [vars]
 # Non-secret config here. Secrets live in encrypted CF Worker secret bindings:
 #   GEMINI_API_KEY — OPTIONAL. set via: wrangler secret put GEMINI_API_KEY

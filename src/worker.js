@@ -2564,11 +2564,77 @@ window.chatwootSettings={position:"right",type:"standard",launcherTitle:"Ask Bid
 // the Cloudflare Worker itself (wrangler only invokes the default export).
 export { renderS5ReportHtml };
 
+// ── LAUNCH-A (#20035): in-Worker rate limiting + edge cache ─────────────────
+// Workers Rate Limiting bindings (Free-plan compatible, unlike WAF custom
+// rules). One binding per distinct limit — the binding's limit/period is
+// fixed at wrangler.toml config time, not passable at call time. Fails open
+// on a missing/erroring binding so a limiter outage never blocks checkout or
+// chat traffic.
+const RATE_LIMIT_RULES = [
+  { test: (p, m) => p === '/chat/api' && m === 'POST', binding: 'RATE_LIMITER_CHAT_API' },
+  { test: (p, m) => p === '/chat/lead' && m === 'POST', binding: 'RATE_LIMITER_CHAT_LEAD' },
+  { test: (p, m) => p === '/auctions' && m === 'GET', binding: 'RATE_LIMITER_AUCTIONS' },
+  { test: (p) => p.startsWith('/subscribe') || p.startsWith('/buy-report'), binding: 'RATE_LIMITER_CHECKOUT' },
+];
+
+async function checkRateLimit(env, bindingName, ip) {
+  const limiter = env[bindingName];
+  if (!limiter) return true;
+  try {
+    const { success } = await limiter.limit({ key: ip });
+    return success;
+  } catch {
+    return true;
+  }
+}
+
+// GET /auctions JSON and GET /county/:slug HTML (not the /lots JSON sub-route,
+// which already has its own 120s Cache-Control) are edge-cached 60s via
+// caches.default, keyed on the full URL. Bypassed whenever the request
+// carries Authorization or a Cookie so per-user/authenticated responses are
+// never served from a shared cache.
+function isEdgeCacheable(path, method, request) {
+  if (method !== 'GET') return false;
+  if (request.headers.get('Authorization') || request.headers.get('Cookie')) return false;
+  if (path === '/auctions') return true;
+  if (path.startsWith('/county/') && !/^\/county\/[^/]+\/lots$/.test(path)) return true;
+  return false;
+}
+
 // ── Main fetch handler ────────────────────────────────────────────────────────
 export default {
   async fetch(request, env, ctx) {
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
     try {
+      const rule = RATE_LIMIT_RULES.find((r) => r.test(path, method));
+      if (rule) {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const allowed = await checkRateLimit(env, rule.binding, ip);
+        if (!allowed) {
+          return withSecurityHeaders(new Response(JSON.stringify({ error: 'Too many requests' }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json', 'Retry-After': '60' }
+          }), path);
+        }
+      }
+
+      if (isEdgeCacheable(path, method, request)) {
+        const cache = caches.default;
+        const cacheKey = new Request(url.toString(), request);
+        const cached = await cache.match(cacheKey);
+        if (cached) return cached;
+        const response = withSecurityHeaders(await handleRequest(request, env, ctx), path);
+        if (response.status === 200) {
+          const cacheHeaders = new Headers(response.headers);
+          cacheHeaders.set('Cache-Control', 'public,max-age=60');
+          const toCache = new Response(response.clone().body, { status: response.status, statusText: response.statusText, headers: cacheHeaders });
+          ctx.waitUntil(cache.put(cacheKey, toCache));
+        }
+        return response;
+      }
+
       return withSecurityHeaders(await handleRequest(request, env, ctx), path);
     } catch (error) {
       ctx.waitUntil(captureError(error, request, env));

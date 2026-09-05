@@ -23,5 +23,14 @@
     // Same value the Vercel function carried (public URL, not a secret).
     "MCP_PUBLIC_URL": "https://mcp.biddeed.ai"
   },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // LAUNCH-A (#20035): Workers Rate Limiting binding (available on Free plan,
+  // unlike WAF custom rules which need Pro+). Per-IP unauth 20 req/60s,
+  // per-API-key (sha256 of bearer) 120 req/60s. Enforced in mcp-worker.mjs.
+  "unsafe": {
+    "bindings": [
+      { "name": "RATE_LIMITER_IP", "type": "ratelimit", "namespace_id": "20035001", "simple": { "limit": 20, "period": 60 } },
+      { "name": "RATE_LIMITER_KEY", "type": "ratelimit", "namespace_id": "20035002", "simple": { "limit": 120, "period": 60 } }
+    ]
+  }
 }
