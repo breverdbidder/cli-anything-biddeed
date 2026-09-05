@@ -1,4 +1,12 @@
-// Shared SQLite-backed Durable Object rate-limit counter (#20041, LAUNCH-A2).
+// Durable Object rate-limit counter for worker-damp-snowflake-cead (#20041,
+// LAUNCH-A2). Duplicated from cloudflare/rate-limit-do.mjs (same content,
+// used by biddeed-mcp-production) rather than imported across directories:
+// this Worker deploys with `wrangler deploy --no-bundle` (deploy-worker.yml),
+// and Cloudflare's module upload rejects a `../` parent-directory module
+// specifier at the API level (error 10021 "Invalid module specifier"), even
+// though it resolves fine in a local dry-run. Keeping one copy per Worker's
+// own directory tree avoids that without switching this Worker to bundled
+// mode, which is out of scope for this fix.
 //
 // Replaces the `caches.default` "counter" from #20035, which is not a real
 // counter: Cache API writes are per-colo and non-atomic, so a burst spread
@@ -14,15 +22,6 @@
 // — the actual correctness property a rate limiter needs. SQLite-backed DOs
 // are available on the Workers Free plan (no Durable Objects Paid/Workers
 // Paid plan required), unlike the classic KV-backed DO storage class.
-//
-// Used by biddeed-mcp-production (cloudflare/mcp-worker.mjs, same directory
-// import). worker-damp-snowflake-cead (src/worker.js) uses an identical
-// duplicate at src/rate-limit-do.mjs instead of importing this file directly
-// — it deploys with `wrangler deploy --no-bundle`, and Cloudflare's module
-// upload rejects a `../` parent-directory module specifier at the API level
-// (error 10021), even though it resolves in a local dry-run. Each Worker
-// gets its own isolated DO namespace regardless, so bucket names only need
-// to be unique within one Worker's binding, not globally.
 export class RateLimiterCounter {
   constructor(state) {
     this.sql = state.storage.sql;
@@ -52,7 +51,7 @@ export class RateLimiterCounter {
 
 // Fails OPEN (allowed=true) on any DO error, matching the fail-open behavior
 // the caches.default counter had — a limiter outage must never take down
-// MCP/chat/checkout traffic.
+// chat/auctions/checkout traffic.
 export async function checkRateLimitDO(env, bindingName, bucket, key, limit, windowMs) {
   try {
     const binding = env[bindingName];

@@ -1,4 +1,4 @@
-import { RateLimiterCounter, checkRateLimitDO } from '../cloudflare/rate-limit-do.mjs';
+import { RateLimiterCounter, checkRateLimitDO } from './rate-limit-do.mjs';
 
 // Re-exported so wrangler can bind the `RATE_LIMIT_DO` Durable Object
 // (class_name: "RateLimiterCounter" in wrangler.toml) to this Worker's own
