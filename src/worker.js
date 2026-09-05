@@ -2565,14 +2565,19 @@ window.chatwootSettings={position:"right",type:"standard",launcherTitle:"Ask Bid
 export { renderS5ReportHtml };
 
 // ── LAUNCH-A (#20035): in-Worker rate limiting + edge cache ─────────────────
-// Per-isolate fixed-window counter, not a Cloudflare Rate Limiting binding.
-// Verified live on the sibling biddeed-mcp-production Worker that
-// env.RATE_LIMITER.limit() always returns success:true on this Free-plan
-// account — under both the legacy `unsafe.bindings` and current GA
-// `ratelimits` config — matching an open, unresolved Cloudflare community
-// report. A Workers Paid plan change is Ariel's call and out of scope here.
-// This is weaker than the binding (resets on cold start, not shared across
-// colos) but is the only mechanism that actually enforces on this account.
+// Not a Cloudflare Rate Limiting binding: verified live on the sibling
+// biddeed-mcp-production Worker that env.RATE_LIMITER.limit() always returns
+// success:true on this Free-plan account (both the legacy `unsafe.bindings`
+// and current GA `ratelimits` config — open, unresolved Cloudflare community
+// report). A per-isolate in-memory counter was tried next and also failed
+// live — Cloudflare does not give one client session affinity to a single
+// isolate, so state never accumulated across sequential requests. A Workers
+// Paid plan change (for Durable Objects) is Ariel's call and out of scope
+// here, so this uses `caches.default` (the Cache API, colo-shared and
+// already proven live via the /auctions cf-cache-status: HIT test below) as
+// a best-effort shared counter. Read-then-write is not atomic, so concurrent
+// requests can under-count — acceptable for abuse mitigation, not a hard
+// guarantee.
 const RATE_LIMIT_RULES = [
   { test: (p, m) => p === '/chat/api' && m === 'POST', bucket: 'chat_api', limit: 30 },
   { test: (p, m) => p === '/chat/lead' && m === 'POST', bucket: 'chat_lead', limit: 5 },
@@ -2581,24 +2586,35 @@ const RATE_LIMIT_RULES = [
 ];
 
 const RATE_WINDOW_MS = 60_000;
-const RATE_WINDOWS = new Map(); // "bucket:ip" -> { count, windowStart }
 
-function checkRateLimit(bucket, ip, limit) {
+async function checkRateLimit(bucket, ip, limit) {
+  const cache = caches.default;
+  const cacheKey = new Request(`https://rl.internal.biddeed.ai/${bucket}/${encodeURIComponent(ip)}`);
   const now = Date.now();
-  const mapKey = `${bucket}:${ip}`;
-  const entry = RATE_WINDOWS.get(mapKey);
-  if (!entry || now - entry.windowStart >= RATE_WINDOW_MS) {
-    RATE_WINDOWS.set(mapKey, { count: 1, windowStart: now });
-    if (RATE_WINDOWS.size > 10000) {
-      for (const [k, v] of RATE_WINDOWS) {
-        if (now - v.windowStart >= RATE_WINDOW_MS) RATE_WINDOWS.delete(k);
+  let count = 1;
+  let windowStart = now;
+  try {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const data = await cached.json();
+      if (data && typeof data.windowStart === 'number' && now - data.windowStart < RATE_WINDOW_MS) {
+        windowStart = data.windowStart;
+        count = (data.count || 0) + 1;
       }
     }
-    return true;
+  } catch {
+    // treat as a fresh window on any read error
   }
-  if (entry.count >= limit) return false;
-  entry.count += 1;
-  return true;
+  const allowed = count <= limit;
+  try {
+    const ttlSeconds = Math.max(1, Math.ceil((windowStart + RATE_WINDOW_MS - now) / 1000));
+    await cache.put(cacheKey, new Response(JSON.stringify({ count, windowStart }), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${ttlSeconds}` },
+    }));
+  } catch {
+    // best-effort — a failed write just means the next request re-reads stale/missing state
+  }
+  return allowed;
 }
 
 // GET /auctions JSON and GET /county/:slug HTML (not the /lots JSON sub-route,
@@ -2624,7 +2640,7 @@ export default {
       const rule = RATE_LIMIT_RULES.find((r) => r.test(path, method));
       if (rule) {
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-        const allowed = checkRateLimit(rule.bucket, ip, rule.limit);
+        const allowed = await checkRateLimit(rule.bucket, ip, rule.limit);
         if (!allowed) {
           return withSecurityHeaders(new Response(JSON.stringify({ error: 'Too many requests' }), {
             status: 429,

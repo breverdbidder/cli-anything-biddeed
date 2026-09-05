@@ -21,33 +21,49 @@ const nodeHandler = httpServerHandler({ port: PORT });
 // cleanly on this Free-plan account, but env.RATE_LIMITER.limit() always
 // returned success:true against live traffic — verified with a temporary
 // debug header across 85+ requests (up to 50 concurrent), tried under both
-// the legacy `unsafe.bindings type="ratelimit"` and the GA `ratelimits` top-
-// level config. Matches an open, unresolved Cloudflare community report of
-// the same symptom. A Workers Paid plan change is Ariel's call and out of
-// scope here, so this uses a per-isolate fixed-window counter instead. It is
-// weaker than the binding (resets on cold start, not shared across colos)
-// but it is the only mechanism that actually enforces on this account today.
-const RATE_WINDOWS = new Map(); // "ip"|"key" -> { count, windowStart }
+// the legacy `unsafe.bindings type="ratelimit"` and the GA `ratelimits`
+// top-level config. Matches an open, unresolved Cloudflare community report
+// of the same symptom. A per-isolate in-memory counter was tried next and
+// also failed live (25 sequential requests, zero throttling) — Cloudflare
+// does not give a single client session affinity to one isolate, so state
+// never accumulated. A Workers Paid plan change (for Durable Objects) is
+// Ariel's call and out of scope here, so this uses `caches.default` (the
+// Cache API, colo-shared and already proven live in this same issue via the
+// /auctions cf-cache-status: HIT test) as a best-effort shared counter.
+// Read-then-write is not atomic, so concurrent requests can under-count —
+// acceptable for abuse mitigation, not a hard guarantee.
 const WINDOW_MS = 60_000;
 const LIMIT_IP = 20;
 const LIMIT_KEY = 120;
 
-function checkRateLimitLocal(bucket, key, limit) {
+async function checkRateLimitCache(bucket, key, limit) {
+  const cache = caches.default;
+  const cacheKey = new Request(`https://rl.internal.biddeed.ai/${bucket}/${encodeURIComponent(key)}`);
   const now = Date.now();
-  const mapKey = `${bucket}:${key}`;
-  const entry = RATE_WINDOWS.get(mapKey);
-  if (!entry || now - entry.windowStart >= WINDOW_MS) {
-    RATE_WINDOWS.set(mapKey, { count: 1, windowStart: now });
-    if (RATE_WINDOWS.size > 10000) {
-      for (const [k, v] of RATE_WINDOWS) {
-        if (now - v.windowStart >= WINDOW_MS) RATE_WINDOWS.delete(k);
+  let count = 1;
+  let windowStart = now;
+  try {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const data = await cached.json();
+      if (data && typeof data.windowStart === 'number' && now - data.windowStart < WINDOW_MS) {
+        windowStart = data.windowStart;
+        count = (data.count || 0) + 1;
       }
     }
-    return true;
+  } catch {
+    // treat as a fresh window on any read error
   }
-  if (entry.count >= limit) return false;
-  entry.count += 1;
-  return true;
+  const allowed = count <= limit;
+  try {
+    const ttlSeconds = Math.max(1, Math.ceil((windowStart + WINDOW_MS - now) / 1000));
+    await cache.put(cacheKey, new Response(JSON.stringify({ count, windowStart }), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${ttlSeconds}` },
+    }));
+  } catch {
+    // best-effort — a failed write just means the next request re-reads stale/missing state
+  }
+  return allowed;
 }
 
 const SECURITY_HEADERS = {
@@ -88,8 +104,8 @@ export default {
     try {
       const bearer = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
       const allowed = bearer
-        ? checkRateLimitLocal('key', await sha256Hex(bearer), LIMIT_KEY)
-        : checkRateLimitLocal('ip', request.headers.get('CF-Connecting-IP') || 'unknown', LIMIT_IP);
+        ? await checkRateLimitCache('key', await sha256Hex(bearer), LIMIT_KEY)
+        : await checkRateLimitCache('ip', request.headers.get('CF-Connecting-IP') || 'unknown', LIMIT_IP);
       if (!allowed) return rateLimitedJsonRpcError(request);
     } catch {
       // Never block MCP traffic on a limiter error.
