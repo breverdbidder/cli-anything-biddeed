@@ -353,6 +353,7 @@ function layout(title, activeNav, orgId, body) {
     ['producers', '/producers', 'Producers'],
     ['billing', '/billing', 'Billing'],
     ['ff-batches', '/ff-batches', 'FF Batches'],
+    ['reels', '/reels', 'Reels'],
   ].map(([key, path, label]) => {
     const href = orgId ? `${path}?org_id=${encodeURIComponent(orgId)}` : path;
     const active = key === activeNav ? ' style="color:#F59E0B;border-bottom:2px solid #F59E0B"' : '';
@@ -366,10 +367,12 @@ function layout(title, activeNav, orgId, body) {
 <style>
   *{box-sizing:border-box}
   body{font-family:Inter,Arial,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:0}
-  header{background:#1E3A5F;padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between}
+  header{background:#1E3A5F;padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
   header h1{color:#F59E0B;font-size:1.1rem;margin:0}
+  nav{display:flex;flex-wrap:wrap}
   nav a{color:#94a3b8;text-decoration:none;margin-left:1.25rem;font-size:.9rem;padding-bottom:.2rem}
   nav a:hover{color:#e2e8f0}
+  @media (max-width:480px){ nav a{margin-left:0;margin-right:.9rem} main{padding:.85rem} }
   main{padding:1.5rem;max-width:1200px;margin:0 auto}
   table{width:100%;border-collapse:collapse;margin-top:1rem}
   th{background:#1E3A5F;color:#F59E0B;text-align:left;padding:.55rem .75rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em}
@@ -389,6 +392,19 @@ function layout(title, activeNav, orgId, body) {
   .filters label{display:block;font-size:.72rem;color:#64748b;margin-bottom:.25rem}
   .empty{color:#64748b;text-align:center;padding:2rem}
   .footer-note{color:#475569;font-size:.75rem;margin-top:1.5rem}
+  .reel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem;margin-top:1rem}
+  .reel-card{background:#0f172a;border:1px solid #1e3a5f;border-radius:8px;padding:.85rem;display:flex;flex-direction:column;gap:.5rem}
+  .reel-card video{width:100%;border-radius:6px;background:#000;max-height:320px}
+  .reel-card h3{margin:0;font-size:.95rem;line-height:1.35;color:#e2e8f0}
+  .reel-meta{font-size:.75rem;color:#94a3b8}
+  .reel-actions{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.25rem}
+  .reel-actions button{flex:1;min-width:80px}
+  .btn-approve{background:#14532d;color:#4ade80}
+  .btn-reject{background:#450a0a;color:#f87171}
+  .btn-improve{background:#1E3A5F;color:#F59E0B}
+  .day-group{margin-top:2rem}
+  .day-group h2{color:#F59E0B;font-size:1rem;border-bottom:1px solid #1e3a5f;padding-bottom:.4rem}
+  @media (max-width:480px){ .reel-grid{grid-template-columns:1fr} }
 </style>
 </head><body>
 <header>
@@ -703,6 +719,127 @@ async function viewFFBatchDetail(env, batchDate) {
   return layout(`Batch ${batch.batch_date}`, 'ff-batches', null, body);
 }
 
+// --- Reel/variant review (issue #20029) ---------------------------------
+// Same authenticated-approval posture as FF batches (issue #19745): reads go
+// through the shared service-role rpc() helper (public.lms_reel_variants_list,
+// EXECUTE granted to service_role only); every write (approve/reject/
+// improvement, single or batch) goes through rpcAsAuthenticatedAdmin() so the
+// resulting winnerdata.reel_variant_review row carries a real auth.email(),
+// never a service-role-forged decided_by (see
+// supabase/migrations/20260905a_lms_reel_variant_review_20029.sql).
+// winnerdata.reel_variant_review is Ariel's ground truth -- this Worker is
+// the only place a row is ever written, and only when a real click hits one
+// of the two POST routes below.
+
+function decisionBadge(decision) {
+  if (decision === 'approved') return '<span style="color:#22c55e;font-weight:600">APPROVED</span>';
+  if (decision === 'rejected') return '<span style="color:#f87171;font-weight:600">REJECTED</span>';
+  if (decision === 'improvement_requested') return '<span style="color:#F59E0B;font-weight:600">IMPROVEMENT REQUESTED</span>';
+  return '<span style="color:#64748b">unreviewed</span>';
+}
+
+function qaSummary(v) {
+  if (v.is_draft) return '<span style="color:#94a3b8">draft (pre-final-voice)</span>';
+  if (v.qa_pass === true) return '<span style="color:#22c55e;font-weight:600">QA PASS</span>';
+  if (v.qa_pass === false) {
+    const failed = Object.entries(v.qa_scores || {}).filter(([, s]) => s && s.pass === false).map(([k]) => k);
+    return `<span style="color:#f87171;font-weight:600">QA FAIL</span>${failed.length ? `<br><span style="color:#64748b;font-size:.7rem">${esc(failed.join(', '))}</span>` : ''}`;
+  }
+  return '<span style="color:#64748b">no QA yet</span>';
+}
+
+async function viewReelVariants(env) {
+  const data = await rpc(env, 'lms_reel_variants_list', {});
+  const variants = data.variants || [];
+
+  const groups = new Map();
+  for (const v of variants) {
+    const key = `${v.auction_date}|${v.county}|${v.sale_type}|${v.reel_id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(v);
+  }
+
+  const pendingIds = variants.filter((v) => !v.decision).map((v) => v.variant_id);
+
+  const body = Array.from(groups.entries()).map(([key, vs]) => {
+    const [auctionDate, county, saleType] = key.split('|');
+    const cards = vs.map((v) => `
+      <div class="reel-card">
+        <video src="${esc(v.video_url)}" preload="metadata" controls playsinline muted></video>
+        <h3>${esc(v.title)}</h3>
+        <div class="reel-meta">variant ${esc(v.variant_key)} &middot; ${esc(v.archetype)} &middot; <a class="link" href="${esc(v.short_url)}" target="_blank" rel="noopener">${esc(v.short_url)}</a></div>
+        <div class="reel-meta">QA: ${qaSummary(v)}</div>
+        <div class="reel-meta">Status: ${decisionBadge(v.decision)}${v.decided_by ? `<br><span style="color:#64748b;font-size:.7rem">${esc(v.decided_by)}, ${fmtDate(v.decided_at)}</span>` : ''}</div>
+        <form class="reel-actions" method="POST" action="/reels/${esc(v.variant_id)}/review">
+          <input type="hidden" name="decision" value="approved">
+          <button type="submit" class="btn-approve">Approve</button>
+        </form>
+        <form class="reel-actions" method="POST" action="/reels/${esc(v.variant_id)}/review">
+          <input type="hidden" name="decision" value="rejected">
+          <button type="submit" class="btn-reject">Reject</button>
+        </form>
+        <form class="reel-actions" method="POST" action="/reels/${esc(v.variant_id)}/review">
+          <input type="hidden" name="decision" value="improvement_requested">
+          <button type="submit" class="btn-improve">Request improvement</button>
+        </form>
+      </div>`).join('');
+
+    return `
+      <div class="day-group">
+        <h2>${esc(fmtDate(auctionDate))} &middot; ${esc(county)} &middot; ${esc(saleType)}</h2>
+        <div class="reel-grid">${cards}</div>
+      </div>`;
+  }).join('') || '<p class="empty">No reel variants on file.</p>';
+
+  const batchForm = pendingIds.length
+    ? `<form method="POST" action="/reels/batch-approve" onsubmit="return confirm('Approve all ${pendingIds.length} unreviewed variants shown below?');">
+         ${pendingIds.map((id) => `<input type="hidden" name="variant_id" value="${esc(id)}">`).join('')}
+         <button type="submit">Batch approve all ${pendingIds.length} unreviewed</button>
+       </form>`
+    : '<span class="footer-note">Every variant on this page already has a decision.</span>';
+
+  const header = `
+    <h2>Reels &amp; Variants — Review</h2>
+    <p class="footer-note">Approve/reject/request-improvement here signs in as the same dedicated admin identity used for FF batches (issue #19745 pattern) and calls public.reel_variant_review_authenticated() — the resulting winnerdata.reel_variant_review row cannot be forged by any service-role/automated call. Only variants marked <b>Approve</b> can ever reach winnerdata.youtube_publish_queue (also requires qa_pass=true, a non-draft render, and a live 200 deal page — see docs/gtm/GTM_SOP_v1.md §5).</p>
+    <div>${batchForm}</div>`;
+
+  return layout('Reels & Variants', 'reels', null, header + body);
+}
+
+async function handleReelVariantReview(env, request, variantId) {
+  const form = await request.formData();
+  const decision = String(form.get('decision') || '');
+  let result;
+  try {
+    result = await rpcAsAuthenticatedAdmin(env, 'reel_variant_review_authenticated', { p_variant_id: variantId, p_decision: decision, p_note: null });
+  } catch (err) {
+    return new Response(`Review failed: could not establish an authenticated admin session (${esc(String(err))}). Nothing was recorded.`, {
+      status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' },
+    });
+  }
+  if (!result || !result.ok) {
+    return new Response(`Review rejected: ${esc(JSON.stringify(result))}`, { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  }
+  return Response.redirect(new URL('/reels', request.url).toString(), 303);
+}
+
+async function handleReelVariantBatchApprove(env, request) {
+  const form = await request.formData();
+  const variantIds = form.getAll('variant_id').map(String);
+  let result;
+  try {
+    result = await rpcAsAuthenticatedAdmin(env, 'reel_variant_batch_approve_authenticated', { p_variant_ids: variantIds });
+  } catch (err) {
+    return new Response(`Batch approve failed: could not establish an authenticated admin session (${esc(String(err))}). Nothing was recorded.`, {
+      status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' },
+    });
+  }
+  if (!result || !result.ok) {
+    return new Response(`Batch approve rejected: ${esc(JSON.stringify(result))}`, { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  }
+  return Response.redirect(new URL('/reels', request.url).toString(), 303);
+}
+
 // --- Handlers ----------------------------------------------------------
 
 async function handleFlag(env, request, leadId) {
@@ -808,6 +945,7 @@ export default {
       if (pathname === '/producers' && request.method === 'GET') return new Response(await viewProducers(env, orgId), { headers: { 'content-type': 'text/html; charset=utf-8' } });
       if (pathname === '/billing' && request.method === 'GET') return new Response(await viewBilling(env, orgId, searchParams), { headers: { 'content-type': 'text/html; charset=utf-8' } });
       if (pathname === '/ff-batches' && request.method === 'GET') return new Response(await viewFFBatches(env), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      if (pathname === '/reels' && request.method === 'GET') return new Response(await viewReelVariants(env), { headers: { 'content-type': 'text/html; charset=utf-8' } });
 
       const flagMatch = pathname.match(/^\/leads\/([0-9a-fA-F-]{36})\/flag$/);
       if (flagMatch && request.method === 'POST') return handleFlag(env, request, flagMatch[1]);
@@ -823,6 +961,11 @@ export default {
 
       const ffBatchReviewMatch = pathname.match(/^\/ff-batches\/(\d{4}-\d{2}-\d{2})\/leads\/([^/]+)\/review$/);
       if (ffBatchReviewMatch && request.method === 'POST') return handleFFBatchLeadReview(env, request, ffBatchReviewMatch[1], decodeURIComponent(ffBatchReviewMatch[2]));
+
+      if (pathname === '/reels/batch-approve' && request.method === 'POST') return handleReelVariantBatchApprove(env, request);
+
+      const reelReviewMatch = pathname.match(/^\/reels\/([0-9a-fA-F-]{36})\/review$/);
+      if (reelReviewMatch && request.method === 'POST') return handleReelVariantReview(env, request, reelReviewMatch[1]);
 
       return new Response('Not found', { status: 404 });
     } catch (err) {
