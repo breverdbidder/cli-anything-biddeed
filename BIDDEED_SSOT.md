@@ -49,11 +49,28 @@ CANON 01 summary (Winner Data):
 
 ## 1. INFRASTRUCTURE INVENTORY
 
+**Topology as of 2026-09-05 (VERIFIED live this session — see `docs/ops/LAUNCH_READINESS_T60_2026-09-05.md` for the full
+audit): all product surfaces run on Cloudflare Workers. The Vercel exit
+completed 2026-09-05 13:40 UTC (domains detached, projects paused). Dell and
+Hetzner are retired-historical and are not in any serving path — see their
+rows below.** Cloudflare account `83ab3f2f…` is on the **Workers FREE plan**:
+100,000 requests/day account-wide (shared across all ~20 Workers) and 10 ms
+CPU/request; confirmed live by a rejected deploy (`limits.cpu_ms`, code
+100328) and R2 not enabled (code 10042). Tracked as a known gap in §5 — the
+Workers Paid upgrade ($5/mo) is Ariel's decision, not made here.
+
 | Component | What it is | What it is NOT |
 |---|---|---|
-| **Local Dell** | The biddeed.ai MCP **product serving machine**. Runs the MCP HTTP server from this repo on open-source infrastructure, exposed as `mcp.biddeed.ai` via Cloudflare Tunnel (`cloudflared`). See `docs/DELL_MCP_RUNBOOK.md`. | Not a dev toy. This is production. |
-| **Hetzner `87.99.129.125`** | The **CC runner / dispatch box**, set up March 2026 at owner direction as the permanent Claude Code home. | **NOT a product surface.** The MCP HTTP service formerly on `:3031` is legacy (deployed 2026-06-26 in error, refreshed 2026-07-20 in error, stopped 2026-07-20). Never deploy product services here. Never cite `:3031` as a live endpoint. |
-| **Cloudflare Pages** | Serves `biddeed.ai` (marketing/site). | `biddeed.ai/api/mcp` does **NOT** serve MCP — it returns site HTML. Do not "fix" it to; the MCP surface is `mcp.biddeed.ai`. |
+| **Local Dell** | **HISTORICAL (retired 2026-09-05):** served the biddeed.ai MCP product (`mcp.biddeed.ai` via Cloudflare Tunnel, `cloudflared`) until the Vercel/Cloudflare Workers migrations superseded it. See `docs/DELL_MCP_RUNBOOK.md` for the retired runbook. | **Not in any current serving path.** Do not deploy to it; do not cite it as production. |
+| **Hetzner `87.99.129.125`** | **RETIRED (GHA-ONLY mandate, Ariel 2026-09-02): no external SSH boxes.** Was the CC runner / dispatch box, set up March 2026. Dispatch now runs entirely on `cc-runner-ghonly.yml` (workflow id 297104962) on GitHub-hosted `ubuntu-latest` runners. | **NOT a product surface, NOT a dispatch box any more.** The MCP HTTP service formerly on `:3031` was already legacy before the retirement (deployed 2026-06-26 in error, refreshed 2026-07-20 in error, stopped 2026-07-20). Never deploy anything here; never cite it as a live endpoint. |
+| **Cloudflare Worker `biddeed-mcp-production`** (this repo, `cloudflare/mcp-worker.mjs` wrapping `packages/biddeed-mcp/src/http.js`; deploy via `.github/workflows/cloudflare-mcp-production.yml`) | Serves `mcp.biddeed.ai` — **VERIFIED live 2026-09-05**: created 12:18 UTC, DNS flipped 12:36 UTC, `server: cloudflare` header, no tunnel in the path. `/api/mcp` returns 401-with-auth-hint unauthenticated, 200 on an authenticated `initialize`/`tools/list` handshake (see §7 for the registry reconciliation). `/.well-known/oauth-protected-resource` (WorkOS) and `/health` both 200. | Not fronted by a tunnel or the Dell box (see historical row above). Has **no HSTS/security headers today** — flagged in §5. |
+| **Cloudflare Worker `worker-damp-snowflake-cead`** (this repo, `src/worker.js`, deploy via `.github/workflows/deploy-worker.yml`) | Serves `biddeed.ai` apex — proxies `/`, `/radar*`, `/_next/*`, `/api/*`, `/success*`, `/order*` to Worker `biddeed-web-production` (Next.js/OpenNext); retains checkout, 67 county SEO pages, legal, `/report/:id`, `/auctions` JSON, `/chat*`, `/unsubscribe` directly. Full CSP (nonce + strict-dynamic), HSTS preload, X-Frame DENY. See §1.1 for the cutover history. | **Not Cloudflare Pages** — the previous "Cloudflare Pages serves biddeed.ai" claim in this row was wrong; corrected 2026-09-05 (originally flagged as a conflict in §6.1's predecessor note, 2026-08-03). `biddeed.ai/api/mcp` still does **NOT** serve MCP — it returns site HTML; the MCP surface is `mcp.biddeed.ai` (`biddeed-mcp-production`, row above). |
+| **Cloudflare Worker `zonewise-web-production`** (`breverdbidder/zonewise-web`, OpenNext, branch `cf-exit` / PR #113) | Serves `zonewise.ai` and `www.zonewise.ai` — **VERIFIED live 2026-09-05**, 200, `cf-cache-status: HIT` on `/`. | Has **no security headers at all** on the prerendered `/` — known follow-up from the cutover, tracked in §5. |
+| **Cloudflare Worker `biddeed-web-production`** (`breverdbidder/biddeed-web`, Next.js/OpenNext) | The app Worker that `worker-damp-snowflake-cead` proxies to for `biddeed.ai`'s `/`, `/radar*`, `/_next/*`, `/api/*` routes (see §1.1). | Not directly customer-facing — reached only via the apex Worker's proxy rules. |
+| **Cloudflare Worker `winnerdata-ff`** (`ff.winnerdataai.com`) | Serves the Fact Finder producer portal (`/portal`, `/ff/<uuid>`) via SECURITY DEFINER RPCs (`ff_portal_leads`, `ff_get_lead`, `ff_record_bind`, `ff_upsert_response`, `ff_healthz`). | **Not authenticated as of 2026-09-05** — `/portal` and `/ff/<uuid>` serve full producer PII (name/phone/email) to any caller with the URL. Cloudflare Access lockdown is Ariel's decision (§5, CC issue #20038); do not treat this as fixed until that lands. |
+| **Cloudflare Worker `winnerdata-lms`** (`lms.winnerdataai.com`) | Serves the LMS (FF batch approval, `ff-batches` table per M1) behind Cloudflare Access. **VERIFIED live**: unauthenticated request 302s to the Access login. | — |
+| **`everest-cfo-agent` Worker** | CFO agent surface, behind the same Cloudflare Access pattern as the LMS. | Not product-customer-facing. |
+| **`status.biddeed.ai`** | **Does not exist yet** — no status page, no public uptime, as of 2026-09-05 15:15 UTC (`curl` does not resolve). Tracked in §5; build is CC issue #20036, not landed as of this SSOT edit — do not mark this row done until an independent check of `status.biddeed.ai` returns 200. | — |
 | **Supabase `mocerqjnksmhcjzxrewo`** | Data plane: auctions, billing, cert system, dispatch guard, ops log. | Not a place for secrets in row data. |
 | **GitHub Actions** | Dispatch (`cc-runner-ghonly.yml` id 297104962), crons, deploys. Guard table `public.cc_redispatch_guard` + reconciler drive the loop; a brief without a guard row has no retry and no DoD enforcement. | `mcp-vercel-deploy.yml` is dead: no Vercel project exists for biddeed (verified 2026-07-20); Vercel secrets absent. Do not chase it. |
 | **Stripe** | LIVE mode only: 4 products, 2 payment links, S5 meter. No test-mode path exists (known gap). | Not yet carrying real customer traffic. |
@@ -298,9 +315,9 @@ re-run — first attempt `33130461510` failed with the full-download
 
 ## 2. SERVING MODEL (the one answer to "where does the MCP run")
 
-Customer → `mcp.biddeed.ai` → Cloudflare Tunnel → **local Dell** → MCP HTTP server (this repo, `main`) → Supabase.
-Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → idempotency claim → cert gate → allowance → execute → `recordBilling` → `billing_events` → hourly `s5-meter-emit` → Stripe meters.
-**Proven end-to-end 2026-07-20** (first verified traffic: idempotency +1-not-+2, `mcp_charge_events` outcome=charged, `last_used_at` updated, tier-gate refusal left billing unchanged).
+Customer → `mcp.biddeed.ai` → **Cloudflare Worker `biddeed-mcp-production`** (this repo, `cloudflare/mcp-worker.mjs` → `packages/biddeed-mcp/src/http.js`, `main`) → Supabase. No tunnel, no Dell, no Hetzner in this path as of 2026-09-05 (see §1's historical rows and `docs/ops/LAUNCH_READINESS_T60_2026-09-05.md`).
+Auth: API key (`bd_live_…`, sha256-hashed against `mcp_api_keys.key_hash`) or WorkOS OAuth per `packages/biddeed-mcp/src/auth.js`/`oauth.js`. Billing chain: `handleToolCall` → idempotency claim → cert gate → allowance → execute → `recordBilling` → `billing_events` → hourly `s5-meter-emit` → Stripe meters.
+**Proven end-to-end 2026-07-20** (first verified traffic: idempotency +1-not-+2, `mcp_charge_events` outcome=charged, `last_used_at` updated, tier-gate refusal left billing unchanged). **Re-verified live 2026-09-05** on the Worker (not the old Dell/Tunnel path): authenticated `initialize` → 200 (`protocolVersion 2025-06-18`, `serverInfo biddeed-mcp v1.0.0`); authenticated `tools/list` → 200, 25 tools returned — matches `packages/biddeed-mcp/src/server.js`'s `HANDLERS` map (25 entries) and `packages/biddeed-mcp/package.json`'s own description ("25 tools") exactly. See §7 for the `mcp_server_registry` reconciliation this session made from that observation.
 
 ## 3. PROTECTED OBJECTS (read freely, write only when a brief names them)
 `gold_standard_*`, `insights`, `taxi_meter_*`, `multi_county_auctions`. Ops outcomes go to `public.agent_ops_log`; auction/anomaly data to `public.insights`. `gold_standard_scoreboard` is untrustworthy — never cite as proof.
@@ -309,6 +326,36 @@ Auth: API key / OAuth per `src/server.js`. Billing chain: `handleToolCall` → i
 `gold_standard_certify()` with N=3 strike hysteresis, persisted `revocation_reason` + `last_evaluated_run`, warn-before-revoke (GTM-22H, 2026-07-19). Cert gates S5 (`predict_auction_outcome`, $25). A county with empty enrichment data will and should fail cert — fix the data, not the gate.
 
 ## 5. KNOWN GAPS (open, owner-visible)
+- **Cloudflare Workers FREE plan caps the whole product** (added 2026-09-05,
+  T-60h launch audit): 100,000 requests/day shared across all ~20 Workers on
+  the account, 10 ms CPU/request — confirmed live by a rejected deploy
+  (`limits.cpu_ms`, code 100328) and R2 not enabled (code 10042). Over the
+  daily cap, Cloudflare fails closed (HTTP 1027) for the rest of the UTC day;
+  the $25 S5 PDF render on `biddeed-mcp-production` is the specific CPU-cap
+  risk. Workers Paid ($5/mo, 10M req + 30M CPU-ms included, 30s CPU) removes
+  both limits and unlocks Cloudflare Queues/R2 — Ariel's decision, not made
+  here. See `docs/ops/LAUNCH_READINESS_T60_2026-09-05.md` §4.1, §7.1.
+- **Supabase compute instance (`mocerqjnksmhcjzxrewo`, Large/8GB) has been
+  rebooting the whole instance every 10-15 minutes since ≥2026-09-03**
+  (`db_restart_log`: 95 restarts in 24h, 96 the day before) — PgBouncer,
+  PostgREST, GoTrue, and Postgres all restart in the same second, so this is
+  instance-level, not a Postgres crash. Cause is INFERRED (memory exhaustion
+  on the 8GB Large) but not provable from inside the database; needs Ariel's
+  Dashboard → Reports → Database memory/CPU graph and a Supabase support
+  ticket. Cron stagger + hot-path caching + anon/authenticated statement
+  timeouts (10min → 15s/30s) were applied 2026-09-05 to cut load but have
+  **not yet been proven to stop the restarts** (one more occurred at
+  14:59:58 UTC, after the mitigations). See `docs/ops/LAUNCH_READINESS_T60_2026-09-05.md`
+  §2.3, §7.5.
+- **`ff.winnerdataai.com/portal` and `/ff/<uuid>` have no authentication**
+  as of 2026-09-05: any caller with the URL sees all 436 Protection Partners
+  producer leads (name/phone/email) — same-day confirmed still returning a
+  transient `500`/error-1101 rather than the portal on a spot re-check
+  (server-side, unrelated to the auth gap). Fix is a Cloudflare Access
+  application on `ff.winnerdataai.com` (same pattern as the LMS/CFO agent),
+  5 minutes, $0 — Ariel's decision (CC issue #20038 removes the `workers.dev`
+  bypass route in parallel). Do not mark this closed until Access is
+  confirmed live and `/portal` 401s/redirects for an unauthenticated caller.
 - **`breverdbidder` cannot receive org forks**: it is a personal GitHub user
   account (zero org memberships), so `gh repo fork --org breverdbidder`
   always fails HTTP 422. Blocks the `juriscraper`/`eyecite` fork step in §1.4
@@ -466,9 +513,13 @@ Investor/enterprise due-diligence security documentation lives at
 `VENDOR_SUB_PROCESSOR_LIST.md`, `EXTERNAL_SCAN_SUMMARY.md` alongside it and
 `docs/legal/DATA_RETENTION_POLICY.md` (live at `biddeed.ai/data-retention`).
 Public summary at `biddeed.ai/security`. Built 2026-08-03; that session's scan
-found `mcp.biddeed.ai` serving Vercel response headers, which conflicts with
-§1's "no Vercel project exists for biddeed" — flagged there as unresolved,
-not corrected in §1 without a dedicated verification session.
+found `mcp.biddeed.ai` serving Vercel response headers, which conflicted with
+§1's "no Vercel project exists for biddeed" — flagged there as unresolved at
+the time. **Resolved 2026-09-05**: the Vercel exit completed 13:40 UTC and
+`mcp.biddeed.ai` is now served entirely by Cloudflare Worker
+`biddeed-mcp-production` (`server: cloudflare` header, no tunnel, no Vercel
+in the path — re-verified live this session, see §1/§2). No Vercel headers
+remain to reconcile; this note is kept for history, not as an open finding.
 
 ## 6.2 ENTERPRISE TRUST PORTAL (CAIQ / AI-CAIQ)
 Self-serve vendor-security-review documentation, added 2026-08-03:
@@ -587,6 +638,18 @@ narrative/topology layer. For component lists, counts, and facts, query — do n
 Precedence: for INVENTORY AND COUNTS, Supabase wins over this file. For TOPOLOGY AND
 SERVING MODEL (§1–2), this file wins. A conflict between the two is a finding to report,
 not a thing to silently resolve.
+
+**2026-09-05 reconciliation (issue #20037):** `mcp_server_registry.biddeed-mcp`
+carried `declared_tool_count=36` with `is_live=false` since registry creation.
+An authenticated `initialize` + `tools/list` handshake against
+`https://mcp.biddeed.ai/api/mcp` this session returned **25 tools**, matching
+`packages/biddeed-mcp/src/server.js`'s `HANDLERS` map (25 entries) and
+`packages/biddeed-mcp/package.json`'s own "25 tools" description exactly —
+confirming 25 was always the correct count and 36 was wrong at creation, not
+a build regression (the same conclusion two prior sessions reached from the
+source code alone, `docs/spec/20025.md` and `docs/spec/20030.md`, without an
+observed handshake to prove it). Row updated: `declared_tool_count=25`,
+`probed_tool_count=25`, `last_probed_at=2026-09-05T15:14:00Z`, `is_live=true`.
 
 Amended by MAS_SOP_ADDENDUM_A.md (Execution Substrate Standard, adopted
 2026-08-22): substrates = Claude Agent SDK + LangGraph + MCP transport;
