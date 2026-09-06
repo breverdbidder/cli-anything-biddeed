@@ -242,8 +242,8 @@ def upsert(rows: list[dict]) -> int:
 
 def promote_mca(county: str) -> dict:
     request = urllib.request.Request(
-        f"{SUPABASE_URL}/rest/v1/rpc/realforeclose_aids_to_mca_patch",
-        data=json.dumps({"p_dispatch_id": None, "p_county_slug": county}).encode(),
+        f"{SUPABASE_URL}/rest/v1/rpc/realforeclose_aids_to_mca_insert",
+        data=json.dumps({"p_county_slug": county}).encode(),
         method="POST",
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
     )
