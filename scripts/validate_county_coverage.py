@@ -26,28 +26,42 @@ def key(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
 
 
-def fetch(table: str, query: dict[str, str]) -> list[dict]:
+def fetch(table: str, query: dict[str, str], *, page_size: int = 1000) -> list[dict]:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
-    url = f"{SUPABASE_URL}/rest/v1/{table}?{urllib.parse.urlencode(query)}"
     retryable = {500, 502, 503, 504, 520, 521, 522, 523, 524, 525}
-    last_error: Exception | None = None
-    for attempt, delay in enumerate((0, 5, 15, 45), start=1):
-        if delay:
-            time.sleep(delay)
-        req = urllib.request.Request(url, headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"})
-        try:
-            with urllib.request.urlopen(req, timeout=60) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            last_error = exc
-            if exc.code not in retryable or attempt == 4:
-                raise
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-            last_error = exc
-            if attempt == 4:
-                raise
-    raise RuntimeError(f"Supabase coverage query failed after retries: {last_error}")
+    all_rows: list[dict] = []
+    offset = 0
+    while True:
+        page_query = dict(query)
+        page_query["limit"] = str(page_size)
+        page_query["offset"] = str(offset)
+        url = f"{SUPABASE_URL}/rest/v1/{table}?{urllib.parse.urlencode(page_query)}"
+        last_error: Exception | None = None
+        for attempt, delay in enumerate((0, 5, 15, 45), start=1):
+            if delay:
+                time.sleep(delay)
+            req = urllib.request.Request(url, headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    page = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                last_error = exc
+                if exc.code not in retryable or attempt == 4:
+                    raise
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                last_error = exc
+                if attempt == 4:
+                    raise
+        else:
+            raise RuntimeError(f"Supabase coverage query failed after retries: {last_error}")
+        if not isinstance(page, list):
+            raise RuntimeError(f"Unexpected Supabase response for {table}: {type(page).__name__}")
+        all_rows.extend(page)
+        if len(page) < page_size:
+            return all_rows
+        offset += page_size
 
 
 def main() -> int:
@@ -60,7 +74,6 @@ def main() -> int:
     rows = fetch("multi_county_auctions", {
         "select": "county,auction_date,judgment_amount",
         "auction_date": f"gte.{today}",
-        "limit": "10000",
     })
     by_county: dict[str, dict[str, int]] = {}
     for row in rows:
@@ -78,6 +91,7 @@ def main() -> int:
     amount_rows = sum(item["amount_rows"] for item in coverage)
     report = {
         "as_of": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "supabase_host": urllib.parse.urlparse(SUPABASE_URL).hostname,
         "today": today,
         "registry_count": len(coverage),
         "counties_with_future_rows": len(covered),
