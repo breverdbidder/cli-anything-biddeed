@@ -5,10 +5,13 @@ Requires: pip install playwright && playwright install --with-deps chromium
 """
 import asyncio, json, re, sys, os, argparse
 from playwright.async_api import async_playwright
-# Canon = biddeed-web app/globals.css :root (HSL) and its hex renderings. Two hex sets exist today because the Worker hand-converted the HSL (#f5f0e8 vs #f4efe6); #19845 collapses them to one generated file.
-CANON = {"#fdf8f5","#fdf9f6","#f7f3ef","#f6f2ee","#f2ede9","#1c1b19","#1b1a18","#55433d","#56443e","#e6e2de","#e6e2df",  # Claude reading palette (PARITY_PRD s8) and its HSL renderings
-         "#fbfaf7","#fcfbf7","#f5f0e8","#f4efe6","#ede3d7","#ede5d9","#1f1b16","#1e1a15","#6e655e","#746b61","#ddd5c9","#b5a9a0",  # Worker interim palette until the token PR lands
-         "#9f4d32","#823f29","#1f7a3f","#14532d","#b42318","#ffffff","#000000"}
+# Canon resolved 2026-09-06 (#20060): Ariel did not answer the memo-vs-shipped
+# question before this ran, so per the issue's explicit default this is the
+# memo seven, not the blue tones biddeed-web/the Worker actually shipped
+# (#0073cf #222222 #002a54 #cccccc #005daa) and not the older PARITY_PRD s8
+# cream/terracotta set. Re-run this file's diff against #20060 if Ariel picks
+# "shipped" instead - it is a straight value swap, same seven roles.
+CANON = {"#005eb8","#1a1a1a","#0a2540","#d7e3f1","#004a92","#657786","#e6f0fa","#ffffff","#000000"}
 RETIRED = ["before the gavel","know your number"]
 BUZZ = ["comprehensive solution","comprehensive intelligence","next-gen","cutting-edge","streamlined","seamless","revolutionary","industry-leading","best-in-class","leverage","synergy","robust platform"]
 CONTEMPT = ["you're doing it wrong","still using spreadsheets","if you're still","amateur","rookie mistake","too lazy","too dumb"]
