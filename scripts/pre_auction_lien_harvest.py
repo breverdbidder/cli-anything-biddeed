@@ -129,9 +129,20 @@ THROTTLE = 2.5
 # -> 1 unrelated doc, no lien/judgment match). This needs either a UCN <->
 # internal-docket crosswalk or an owner-name data source before it can
 # harvest -- not attempted this session.
+# brevard added (issue #20045, SIGNAL$ section 16 Title Tiers 1-2): base URL
+# + platform lifted directly from scripts/acclaim_case_lookup.py's proven-
+# working BASE constant (same classic ASP.NET MVC AcclaimWeb build family as
+# santa_rosa/highlands -- lowercase {"data":[...],"total":N} GridResults
+# shape, already handled by _extract_grid_data's dual-case check). Live-
+# verified reachable this session (HTTP 200, 2026-09-06). Brevard was never
+# in this dict before -- acclaim_case_lookup.py/acclaim_ct_sweep.py only ever
+# used case_lookup() for parcel-linkage/CT-sweep, never ran classify_docs()
+# against Brevard, so lien_results/title_defects had zero Brevard rows prior
+# to this session (confirmed live: 0 of 76 lien_results rows tagged brevard).
 COUNTY_ACCLAIM = {
     "duval": {"base": "https://or.duvalclerk.com", "prefix": ""},
     "santa_rosa": {"base": "https://acclaim.srccol.com", "prefix": "/AcclaimWeb"},
+    "brevard": {"base": "http://vaclmweb1.brevardclerk.us", "prefix": "/AcclaimWeb"},
     # highlands added (issue #19661, targeted 13-case title/lien pull): base
     # URL + platform from clerk_official_records_subdomains (honesty_marker
     # VERIFIED, classic ASP.NET AcclaimWeb -- same /AcclaimWeb prefix family
@@ -347,6 +358,50 @@ def normalize_name_search_docs(docs):
     return out
 
 
+_ASPNET_DATE_RE = re.compile(r"/Date\((-?\d+)\)/")
+
+
+def _parse_aspnet_date(raw):
+    """ASP.NET JSON date ('/Date(1725460460000)/', epoch ms) -> 'YYYY/MM/DD'
+    string, matching the shape classify_docs()/tier1_rows() already expect
+    from Duval/Highlands. Passes non-matching strings through unchanged."""
+    if not raw:
+        return None
+    m = _ASPNET_DATE_RE.match(raw)
+    if not m:
+        return raw
+    try:
+        ms = int(m.group(1))
+        return dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).date().strftime("%Y/%m/%d")
+    except Exception:
+        return None
+
+
+def normalize_brevard_docs(docs):
+    """Brevard's classic AcclaimWeb build (live-verified 2026-09-06, issue
+    #20045, real case_lookup() response against case 05-2024-CA-044972-XXCA-BC)
+    serializes RecordDate as an ASP.NET JSON date -- epoch ms, the same
+    format scripts/acclaim_ct_sweep.py already parses for this exact
+    instance -- not the 'YYYY/MM/DD'-shaped string Duval/Highlands return.
+    Without this, classify_docs()'s senior/junior priority comparison
+    (string comparison of rec_date vs lp_date) would silently misclassify
+    Tier 2 survival for Brevard, and tier1_rows()'s '/' -> '-' date
+    normalization would write garbage into the `date`-typed recording_date
+    column (confirmed live: raw insert attempt 400'd on this exact payload
+    shape before this fix). Also renames 'Bookpage' (Brevard's actual key,
+    lowercase p) to 'BookPage' (what classify_docs()/tier1_rows() read).
+    Normalizing here keeps the shared functions -- used by all 4 counties --
+    untouched; Brevard-only quirks stay Brevard-only."""
+    out = []
+    for d in docs:
+        nd = dict(d)
+        nd["RecordDate"] = _parse_aspnet_date(d.get("RecordDate"))
+        if "BookPage" not in nd and "Bookpage" in nd:
+            nd["BookPage"] = nd["Bookpage"]
+        out.append(nd)
+    return out
+
+
 def classify_docs(case_number, parcel_id, county, docs, source="duval_acclaimweb_case_search", lp_date_override=None):
     """Split a case's recorded documents into (title_defects rows, lien_results rows).
 
@@ -419,6 +474,95 @@ def already_exists(table, case_number, key_field, key_value):
     return bool(rows)
 
 
+# ── Title Tier 1 (issue #20045) — full recorded-instrument list ────────────
+# public.lien_results only keeps documents that regex-matched a lien-type
+# pattern (see LIEN_TYPE_PATTERNS above) -- that's Tier 2's input, not the
+# Tier 1 "every recorded instrument on this case" table the DoD asks for
+# (instrument type, recording date, book/page, creditor, amount if on the
+# face, status). This writes ALL of a case's case_lookup() documents,
+# including the case's own Lis Pendens/Judgment, to title_tier1_results.
+def tier1_statuses(docs):
+    """Best-effort status per document via same-case-index cross-reference:
+    a SATISFACTION/RELEASE doc's DirectName is the releasing party (usually
+    the original lienholder). If another doc in the SAME case search shares
+    that party as its own DirectName, mark it satisfied. This is a same-case
+    heuristic, not a full grantor/grantee statewide cross-reference -- the
+    status string discloses that limit rather than asserting exhaustive
+    verification (BLANK > WRONG)."""
+    release_parties = set()
+    for d in docs:
+        doc_type = (d.get("DocTypeDescription") or d.get("DocType") or "").upper()
+        if re.search(r"SATIS|RELEASE", doc_type):
+            party = (d.get("DirectName") or "").strip().upper()
+            if party:
+                release_parties.add(party)
+
+    statuses = {}
+    for d in docs:
+        txn = d.get("TransactionItemId")
+        doc_type = (d.get("DocTypeDescription") or d.get("DocType") or "").upper()
+        party = (d.get("DirectName") or "").strip().upper()
+        if re.search(r"SATIS|RELEASE", doc_type):
+            statuses[txn] = "released (this instrument is itself a satisfaction/release)"
+        elif party and party in release_parties:
+            statuses[txn] = "satisfied — a satisfaction/release recorded by the same party was found in this case-index search"
+        else:
+            statuses[txn] = "open — no satisfaction/release of record found in this case-index search"
+    return statuses
+
+
+def tier1_rows(mca_id, case_number, county, parcel_id, docs, source):
+    statuses = tier1_statuses(docs)
+    rows = []
+    for d in docs:
+        doc_type = (d.get("DocTypeDescription") or d.get("DocType") or "").strip() or None
+        rec_date = d.get("RecordDate")
+        rec_date = rec_date.replace("/", "-") if rec_date else None
+        consideration = d.get("Consideration")
+        rows.append({
+            "mca_id": mca_id,
+            "case_number": case_number,
+            "county": county,
+            "parcel_id": parcel_id,
+            "instrument_type": doc_type,
+            "recording_date": rec_date,
+            "book_page": d.get("BookPage") or None,
+            "instrument_number": str(d["InstrumentNumber"]) if d.get("InstrumentNumber") is not None else None,
+            "transaction_item_id": str(d["TransactionItemId"]) if d.get("TransactionItemId") is not None else None,
+            "direct_name": (d.get("DirectName") or "").strip() or None,
+            "indirect_name": (d.get("IndirectName") or "").strip() or None,
+            "amount": consideration if isinstance(consideration, (int, float)) else None,
+            "status": statuses.get(d.get("TransactionItemId"), "open — no satisfaction/release of record found in this case-index search"),
+            "source": source,
+            "raw_data": d,
+        })
+    return rows
+
+
+def write_tier1_results(rows):
+    """Idempotent insert keyed on (mca_id, transaction_item_id) -- checks
+    title_tier1_results directly rather than reusing already_exists() (that
+    helper is scoped to case_number+one key field on tables that don't carry
+    mca_id)."""
+    written = skipped = failed = 0
+    for row in rows:
+        txn = row.get("transaction_item_id")
+        if txn:
+            existing = sb_get(
+                f"title_tier1_results?mca_id=eq.{row['mca_id']}&transaction_item_id=eq.{urllib.parse.quote(txn)}&select=id&limit=1"
+            )
+            if existing:
+                skipped += 1
+                continue
+        try:
+            sb_insert("title_tier1_results", row)
+            written += 1
+        except Exception as e:
+            print(f"  {row['case_number']}: title_tier1_results insert failed — {e}")
+            failed += 1
+    return written, skipped, failed
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--county", default="duval")
@@ -458,19 +602,56 @@ def main():
     session = AcclaimSession(cfg["base"], cfg["prefix"], cfg.get("results_endpoint", "GridResults"))
 
     n_title_defects = n_lien_results = n_skipped_dupe = n_cases_no_docs = 0
+    n_tier1_written = n_tier1_skipped = 0
+    t1_source = f"{county}_acclaimweb_case_search"
     for a in auctions:
         case_number = a["case_number"]
         try:
             docs = session.case_lookup(case_number)
+            if county == "brevard":
+                docs = normalize_brevard_docs(docs)
         except Exception as e:
             print(f"  {case_number}: FETCH FAILED — {e}")
             continue
         if not docs:
             n_cases_no_docs += 1
             print(f"  {case_number}: 0 recorded documents on file")
+            # Tier 1 (issue #20045): a real search that found zero documents
+            # is a different, honest state from "never harvested" -- persist
+            # a marker row so the report renders "No instruments found ...
+            # verify" instead of a bare re-scrape-pending Pending. Checked
+            # once per mca_id (not per-transaction, since there is no
+            # transaction_item_id on a zero-result search) to stay idempotent
+            # across reruns.
+            if not sb_get(f"title_tier1_results?mca_id=eq.{a['id']}&select=id&limit=1"):
+                try:
+                    sb_insert("title_tier1_results", {
+                        "mca_id": a["id"], "case_number": case_number, "county": county,
+                        "parcel_id": a.get("parcel_id"), "instrument_type": "NO_DOCUMENTS_FOUND",
+                        "status": "searched_clean — 0 recorded documents found for this case number in this search",
+                        "source": t1_source, "raw_data": {"case_lookup_result": "empty"},
+                    })
+                except Exception as e:
+                    print(f"  {case_number}: no-docs tier1 marker insert failed — {e}")
             continue
 
-        title_rows, lien_rows = classify_docs(case_number, a.get("parcel_id"), county, docs)
+        # FIX (issue #20045, found while wiring brevard): this call previously
+        # omitted `source`, so every non-Duval county's title_defects/
+        # lien_results rows were mislabeled with the function's default
+        # "duval_acclaimweb_case_search" citation regardless of which county
+        # actually produced them (confirmed live: 3 pre-existing Brevard
+        # title_defects rows from this session's own first harvest attempt
+        # carry that wrong source string). Additive for Duval (whose real
+        # source string is the same value the default already produced).
+        title_rows, lien_rows = classify_docs(case_number, a.get("parcel_id"), county, docs, source=t1_source)
+
+        # Tier 1 (issue #20045): write the FULL recorded-instrument list for
+        # this case (every doc type, not just the lien-type subset above) to
+        # title_tier1_results, so section 16's Tier 1 table reads a cached
+        # result instead of re-scraping on render.
+        t1w, t1s, t1f = write_tier1_results(tier1_rows(a["id"], case_number, county, a.get("parcel_id"), docs, t1_source))
+        n_tier1_written += t1w
+        n_tier1_skipped += t1s
 
         # Owner/party-name sweep (follow-on to #19657's disclosed gap): the
         # case's own JUDGMENT (or, before judgment, its LIS PENDENS) names
@@ -478,7 +659,21 @@ def main():
         # name to catch independent third-party liens never cross-filed into
         # this litigation. Real "nobody by this name" or "no owner name found
         # yet" results return [] / None, not an error.
-        owner_name = next(
+        #
+        # SKIPPED for brevard (issue #20045): name_lookup()'s 3-step flow
+        # (SearchTypeName -> SearchTypePreName -> GridResults, SearchOnName/
+        # BookTypes field names) is reverse-engineered from Duval's Kendo-UI
+        # AcclaimWeb build. Highlands -- the other classic ASP.NET MVC build
+        # in this family -- was confirmed live (#19728) to use DIFFERENT
+        # field names/flow for name search and required a separate Playwright
+        # driver (scripts/highlands_owner_name_lien_harvest.py) rather than
+        # this shared method. Brevard is the same classic-ASP.NET family as
+        # Highlands, not Duval's Kendo build, so calling name_lookup()
+        # unverified risks either a silent-wrong result or a false "0 liens"
+        # read -- disclosed gap, not attempted this session (case-number
+        # search via case_lookup() is proven live for Brevard via
+        # scripts/acclaim_case_lookup.py; the name-search sweep is not).
+        owner_name = None if county == "brevard" else next(
             (d.get("IndirectName") for d in docs
              if re.search(r"\bJUDG(E|MENT)?\b", d.get("DocTypeDescription") or "", re.I) and d.get("IndirectName")),
             None,
@@ -527,10 +722,15 @@ def main():
             except Exception as e:
                 print(f"  {case_number}: lien_results insert failed — {e}")
 
-        name_note = f", name search on {owner_name!r}: +{n_name_search_docs} new docs" if owner_name else ", no owner name found for name search"
-        print(f"  {case_number}: {len(docs)} case docs -> {len(title_rows)} case-filing, {len(lien_rows)} lien-type{name_note}")
+        if county == "brevard":
+            name_note = ", name-search sweep skipped (brevard: unverified against this AcclaimWeb build, see comment above)"
+        else:
+            name_note = f", name search on {owner_name!r}: +{n_name_search_docs} new docs" if owner_name else ", no owner name found for name search"
+        print(f"  {case_number}: {len(docs)} case docs -> {len(title_rows)} case-filing, {len(lien_rows)} lien-type, "
+              f"{t1w} tier1 instruments (+{t1s} already on file){name_note}")
 
     print(f"[pre_auction_lien_harvest] done: +{n_title_defects} title_defects, +{n_lien_results} lien_results, "
+          f"+{n_tier1_written} title_tier1_results ({n_tier1_skipped} already on file), "
           f"{n_skipped_dupe} already on file, {n_cases_no_docs} cases with zero recorded documents")
 
 

@@ -66,6 +66,13 @@ function baseItem(lien) {
     creditor: lien.creditor || 'Pending — not on file',
     recording_date: lien.recording_date || null,
     book_page: lien.book_page || null,
+    // amount-on-face (issue #20045): composer.js's max-bid deduction may
+    // only subtract a surviving lien when its dollar amount is on the face
+    // of the recorded instrument -- this was read from lien_results by
+    // classify()'s own select= list but never surfaced on the returned
+    // item, so the deduction logic downstream had no way to tell "$0 known"
+    // from "amount not on file" apart from re-querying lien_results itself.
+    amount: typeof lien.amount === 'number' ? lien.amount : null,
     source: lien.source || 'lien_results',
   };
 }

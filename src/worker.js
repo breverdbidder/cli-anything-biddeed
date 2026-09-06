@@ -1149,6 +1149,8 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
   const flags = report.red_flags || [];
   const composition = report.composition || {};
   const lienSurvival = report.lien_survival || {};
+  const titleTier1 = report.title_tier1 || {};
+  const titleChain = report.title_chain || null;
   const prov = report.provenance || {};
   const outcome = report.auction_outcome || {};
   const disclaimer = report.disclaimer || 'Informational only — not legal, financial, or investment advice.';
@@ -1385,6 +1387,65 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
   } else {
     lienSurvivalHtml = `<div class="pending">${escHtml(lienGate.status || 'Pending — Title Tier 2 (lien survival) not yet live for this county')}</div>`;
   }
+
+  // ── §16 Title Tier 1 — Lien Search (issue #20045) ─────────────────────────
+  // Same internal/production split as Tier 2 above: production requires
+  // BOTH composition.lien_search.status === 'delivered' (ship_status='live')
+  // AND real data; internal=true shows the real title_tier1 content
+  // (public.title_tier1_results, via composer.js's buildLienSearch())
+  // regardless of ship_status.
+  const lienSearchGate = composition.lien_search || {};
+  const tier1Delivered = internal ? titleTier1.available === true : (lienSearchGate.status === 'delivered' && titleTier1.available);
+  let titleTier1Html;
+  if (tier1Delivered && titleTier1.n_items > 0) {
+    const rowsHtml = (titleTier1.items || []).map(item => {
+      const amt = item.amount != null ? `$${Number(item.amount).toLocaleString()}` : 'Pending — not on face of instrument';
+      return `<div class="flag flag-info"><b>${escHtml(item.instrument_type)}</b> recorded ${escHtml(item.recording_date || 'Pending')}, book/page ${escHtml(item.book_page || 'Pending')} — ${escHtml(item.creditor)} — amount ${amt} — ${escHtml(item.status)}</div>`;
+    }).join('');
+    titleTier1Html = `
+      <div class="lien-survival">
+        <div class="row"><span class="row-l">Instruments On File</span><span class="row-v">${titleTier1.n_items} (as of ${escHtml(titleTier1.as_of_date || 'Pending')})</span></div>
+        <div class="flags">${rowsHtml}</div>
+        ${internal ? `<div class="model-disclosure" style="margin-top:6px;font-size:10px;color:#0073CF">INTERNAL PREVIEW: real ship_status for this section in production is "${escHtml(lienSearchGate.status || 'unknown')}" — this content is withheld from every customer-facing report until a human flips that flag.</div>` : ''}
+      </div>`;
+  } else if (internal && titleTier1.available && titleTier1.n_items === 0) {
+    // Searched-clean (issue #20045 DoD): a real search ran and found zero
+    // recorded instruments — a different, honest state from "never
+    // harvested for this county at all" (the else branch below).
+    titleTier1Html = `
+      <div class="lien-survival">
+        <div class="row"><span class="row-l">Status</span><span class="row-v">${escHtml(titleTier1.reason)}</span></div>
+      </div>`;
+  } else {
+    titleTier1Html = `<div class="pending">${escHtml(lienSearchGate.status || 'Pending — Title Tier 1 (lien search) not yet live for this county')}</div>`;
+  }
+
+  // ── §16 Title Tier 3 — Title Search / Chain of Title (issue #20045) ──────
+  // Internal-preview only this dispatch: two_owner P1 depth is inherently
+  // partial (docs/plans/title-chain-pull-P1-build-brief.md), so this never
+  // claims "delivered" even in production once ship_status flips — it
+  // renders what was actually pulled and how many gaps remain, per the
+  // issue's own DoD, sourced from public.title_chain_pull/owner/gap via
+  // composer.js's buildTitleChain().
+  const titleSearchGate = composition.title_search || {};
+  let titleChainHtml;
+  if (internal && titleChain) {
+    const ownersHtml = (titleChain.owners || []).map(o =>
+      `<div class="flag flag-info"><b>seq ${escHtml(o.seq)}</b> ${escHtml(o.owner_name || 'Pending')} — ${escHtml(o.deed_type || 'Pending')} ${escHtml(o.deed_date || '')} (${escHtml(o.honesty_marker || 'UNKNOWN')})</div>`
+    ).join('');
+    const gapsHtml = (titleChain.gaps || []).map(g =>
+      `<div class="flag flag-pending"><b>GAP</b> ${escHtml(g.reason || 'unresolved')}</div>`
+    ).join('');
+    titleChainHtml = `
+      <div class="lien-survival">
+        <div class="row"><span class="row-l">Chain Pulled To</span><span class="row-v">${escHtml(titleChain.as_of_date || 'Pending')} — ${titleChain.n_gaps} gap${titleChain.n_gaps === 1 ? '' : 's'} unresolved (status: ${escHtml(titleChain.status || 'partial')})</span></div>
+        <div class="flags">${ownersHtml}${gapsHtml}</div>
+        <div class="model-disclosure" style="margin-top:6px;font-size:10px;color:#0073CF">INTERNAL PREVIEW: real ship_status for this section in production is "${escHtml(titleSearchGate.status || 'unknown')}" — this content is withheld from every customer-facing report until a human flips that flag.</div>
+      </div>`;
+  } else {
+    titleChainHtml = `<div class="pending">${escHtml(titleSearchGate.status || 'Pending — Title Tier 3 (title search) not yet live for this county')}</div>`;
+  }
+
   // Sale-type-aware (issue #19662, sweep of the judgment-labeled fields):
   // a tax deed has no final judgment, so this must never render
   // "Judgment Amount: Pending" — render the real Chapter 197 fields instead.
@@ -1402,8 +1463,12 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
   const sec16 = [
     ...sec16TopRows,
     flags.length ? `<div class="flags">${flags.map(f => `<div class="flag flag-${escHtml(f.severity || 'info')}"><b>${escHtml(f.code || 'FLAG')}</b> ${escHtml(f.text || '')}</div>`).join('')}</div>` : '',
+    `<div class="model-disclosure" style="margin:10px 0 4px;font-weight:600">Lien Search — Title Tier 1</div>`,
+    titleTier1Html,
     `<div class="model-disclosure" style="margin:10px 0 4px;font-weight:600">Lien Survival — Title Tier 2</div>`,
     lienSurvivalHtml,
+    `<div class="model-disclosure" style="margin:10px 0 4px;font-weight:600">Title Search / Chain of Title — Title Tier 3</div>`,
+    titleChainHtml,
   ].join('');
 
   // ── §17 Provenance ────────────────────────────────────────────────────────

@@ -1,0 +1,384 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>BidDeed.AI SIGNAL$ Property Report | 5400 PINA VISTA DR, MELBOURNE, FL 32934</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html{print-color-adjust:exact;-webkit-print-color-adjust:exact;color-scheme:light}
+body{background:#ffffff;color:#222222;font-family:'Inter',system-ui,sans-serif;padding:0 20px 80px;min-height:100vh;-webkit-font-smoothing:antialiased}
+a{color:#0073CF;text-decoration:none}a:hover{color:#005DAA;text-decoration:underline}
+::selection{background:#0073CF;color:#ffffff}
+/* ── Layout ── */
+.wrap{max-width:900px;margin:0 auto}
+/* ── Top header ── */
+.rpt-top{padding:28px 0 0;display:flex;flex-direction:column;gap:14px}
+.rpt-brand-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.wordmark{font-size:19px;font-weight:700;letter-spacing:-.02em}
+.wordmark span{color:#0073CF}
+.tagline{color:#002A54;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap}
+.btn-toolbar{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:999px;padding:8px 18px;cursor:pointer;border:1px solid #CCCCCC;background:transparent;color:#002A54;transition:.15s}
+.btn-toolbar:hover{border-color:#0073CF;color:#0073CF}
+.btn-toolbar.primary{background:#0073CF;border-color:#0073CF;color:#ffffff}
+.btn-toolbar.primary:hover{background:#005DAA;border-color:#005DAA}
+.rpt-divider-top{height:2px;background:linear-gradient(90deg,#0073CF 0%,#0073CF 30%,rgba(0,115,207,.15) 100%)}
+.rpt-addr-row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.rpt-addr-main{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+.rpt-addr-city{font-size:15px;color:#002A54;margin-top:2px}
+.rpt-meta{text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#002A54;line-height:1.9}
+.rpt-meta-county{color:#222222;font-weight:700;letter-spacing:.08em}
+.rpt-divider-sub{height:1px;background:rgba(0,115,207,.4)}
+/* ── Summary grid ── */
+.summary-grid{background:#ffffff;border:1px solid #CCCCCC;border-radius:10px;padding:20px 22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:18px;margin-bottom:16px}
+.sg-label{font-size:10px;letter-spacing:.1em;color:#002A54;text-transform:uppercase}
+.sg-verdict{margin-top:8px;display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;padding:5px 14px;border-radius:999px}
+.sg-verdict.bid{background:#0073CF;color:#ffffff}
+.sg-verdict.skip{background:#002A54;color:#ffffff}
+.sg-verdict.review{background:#0073CF;color:#ffffff}
+.sg-val{margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700}
+.sg-val.orange{color:#0073CF}
+.sg-val.amber{color:#005DAA}
+/* ── Sections ── */
+.sections{display:flex;flex-direction:column;gap:16px;margin-top:24px}
+.sec{background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #CCCCCC}
+.sec-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;background:#E8F4FC;border-left:4px solid #0073CF;padding:12px 14px;cursor:pointer;user-select:none;list-style:none}
+.sec-h::-webkit-details-marker{display:none}
+.sec-h-left{display:contents}
+.sec-h-right{display:contents}
+.sec-badge{font-family:'JetBrains Mono',monospace;font-size:11px;color:#ffffff;background:#0073CF;border-radius:4px;padding:2px 7px;font-weight:700;flex-shrink:0;order:1}
+.sec-badge.zw{background:#0073CF}
+.sec-badge.green{background:#0073CF}
+.sec-title{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;line-height:1.35;flex:1;min-width:0;order:2}
+.sec-pill{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#222222;border:1px solid #CCCCCC;border-radius:999px;padding:5px 12px;white-space:nowrap;background:#ffffff;flex-shrink:0;order:3;margin-left:auto}
+.sec-tag{font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0;order:4;flex-basis:100%;margin-left:calc(11px + 2*7px + 8px + 4px)}
+.sec-tag.verified{background:rgba(20,83,45,.10);color:#005DAA}
+.sec-tag.gold{background:rgba(130,63,41,.12);color:#005DAA}
+.sec-tag.conf{background:rgba(0,115,207,.12);color:#005DAA}
+.sec-tag.comps{background:rgba(20,83,45,.10);color:#005DAA}
+.sec-body{padding:18px 22px 22px}
+/* ── Rows ── */
+.row{display:grid;grid-template-columns:1fr auto;gap:16px;padding:9px 0;border-bottom:1px solid #CCCCCC;font-size:13px}
+.row:last-child{border-bottom:none}
+.row-l{color:#002A54}
+.row-v{font-family:'JetBrains Mono',monospace;text-align:right;color:#222222}
+.pending{color:#002A54;font-style:italic;font-size:13px;padding:8px 0}
+/* ── Value bands ── */
+.bands-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.band-card{border-radius:10px;padding:18px}
+.band-card.clearing{border:1px solid #005DAA}
+.band-card.market{border:1px solid #0073CF}
+.band-card-label{font-size:11px;letter-spacing:.08em;font-weight:700;text-transform:uppercase;line-height:1.5}
+.band-card-label.clearing{color:#005DAA}
+.band-card-label.market{color:#0073CF}
+.band-card-sub{color:#002A54;font-weight:400;letter-spacing:.02em;text-transform:none;font-size:12px}
+.band-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0 12px;text-align:center}
+.band-num-label{font-size:10px;color:#002A54;letter-spacing:.08em}
+.band-num-label.mid.clearing{color:#005DAA}
+.band-num-label.mid.market{color:#0073CF}
+.band-num-val{font-family:'JetBrains Mono',monospace;font-size:15px;margin-top:4px}
+.band-num-val.mid{font-size:20px;font-weight:700}
+.band-num-val.mid.clearing{color:#005DAA}
+.band-num-val.mid.market{color:#0073CF}
+.band-meta{font-size:12px;color:#002A54;font-family:'JetBrains Mono',monospace}
+.band-desc{margin:12px 0 0;font-size:13px;line-height:1.6;color:#222222}
+.spread-bar{margin-top:16px;background:rgba(0,115,207,.08);border:1px solid #0073CF;border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.spread-label{font-size:12px;font-weight:700;letter-spacing:.08em;color:#0073CF}
+.spread-val{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:#0073CF}
+.spread-desc{font-size:13px;color:#222222;flex:1;min-width:240px;text-align:right}
+.net-equity-bar{margin-top:10px;background:#ffffff;border:1px solid #CCCCCC;border-radius:10px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.net-equity-label{font-size:12px;font-weight:700;letter-spacing:.08em;color:#002A54}
+.net-equity-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700}
+.net-equity-desc{font-size:13px;color:#002A54;flex:1;min-width:240px;text-align:right}
+/* ── Comps ── */
+.subhead{color:#0073CF;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:20px 0 10px;padding-left:14px;border-left:3px solid #0073CF}
+.comp-table{width:100%;border-collapse:collapse;font-size:13px}
+.comp-table th{text-align:left;color:#002A54;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:6px 8px;font-weight:500;border-bottom:1px solid #CCCCCC}
+.comp-table td{padding:10px 8px;border-bottom:1px solid #E8F4FC;font-family:'JetBrains Mono',monospace;color:#222222}
+.comp-table td:first-child{font-family:'Inter',sans-serif;font-weight:500;color:#222222}
+/* ── Flags ── */
+.flags{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.flag{padding:10px 14px;border-radius:6px;font-size:13px;display:flex;gap:10px}
+.flag-risk{background:rgba(0,42,84,.08);border-left:3px solid #002A54}
+.flag-pending{background:rgba(130,63,41,.08);border-left:3px solid #005DAA}
+.flag-info{background:rgba(0,115,207,.08);border-left:3px solid #0073CF}
+.flag-code{font-weight:700;flex-shrink:0}
+.flag-risk .flag-code{color:#002A54}
+.flag-pending .flag-code{color:#005DAA}
+.flag-info .flag-code{color:#0073CF}
+/* ── Bid Card ── */
+.bidcard-wrap{background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid rgba(0,115,207,.4);box-shadow:0 0 24px rgba(0,115,207,.10)}
+.bidcard-header{display:flex;align-items:center;gap:12px;background:#E8F4FC;border-left:4px solid #0073CF;padding:14px 18px}
+.bidcard-body{padding:22px 24px}
+.verdict{font-size:28px;font-weight:800;letter-spacing:-.01em}
+.verdict.bid{color:#0073CF}
+.verdict.skip{color:#002A54}
+.verdict.review{color:#005DAA}
+.grade{color:#002A54;font-size:13px;margin-top:2px}
+.maxbid-block{margin-top:20px;padding:20px;background:rgba(0,115,207,.06);border:1px solid #0073CF;border-radius:10px;text-align:center}
+.maxbid-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#002A54;margin-bottom:8px}
+.maxbid{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:52px;color:#0073CF;line-height:1}
+.maxbid-sub{font-size:12px;color:#002A54;margin-top:6px;font-style:italic}
+.bidcard-rows{margin-top:16px}
+/* ── Outcome ── */
+.outcome-pending{background:rgba(0,115,207,.06);border:1px solid #0073CF;border-radius:8px;padding:14px 18px;color:#005DAA;font-size:13px}
+.outcome-captured{background:rgba(0,115,207,.06);border:1px solid #0073CF;border-radius:8px;padding:14px 18px}
+/* ── Footer ── */
+.rpt-footer{color:#002A54;font-size:11px;text-align:center;margin-top:32px;line-height:1.7;padding:20px 0;border-top:1px solid #CCCCCC}
+/* ── Print ── */
+@media print{
+  [data-noprint]{display:none!important}
+  body{background:#fff;color:#000;padding:0}
+  .sec,.bidcard-wrap{break-inside:avoid}
+  .summary-grid{background:#ffffff;border:1px solid #222222}
+  .sec-h{background:#ffffff !important}
+}
+</style></head><body>
+<div style="background:#DC2626;color:#fff;font-weight:800;text-align:center;padding:14px;font-size:16px;letter-spacing:1px">&#9888; INTERNAL PREVIEW — NOT FOR CUSTOMER DELIVERY</div><div style="background:#7F1D1D;color:#FEE2E2;text-align:center;padding:8px;font-size:12px">Generated for internal review only. Title/lien sections may carry biddeed_report_composition.ship_status=blocked in production and are not shipped to any paying customer — see the note inline on §16 below.</div>
+<div class="wrap">
+  <div class="rpt-top">
+    <div class="rpt-brand-row">
+      <div>
+        <span class="wordmark">BidDeed<span>.AI</span></span>
+        <span class="tagline" style="margin-left:10px">Shapira Auction Intelligence</span>
+      </div>
+      <div class="toolbar" data-noprint>
+        <a class="btn-toolbar" href="/chat?new_project_county=brevard&amp;case=05-2024-CA-044972-XXCA-BC&amp;source=report_page">📁 Add to project</a>
+        <button class="btn-toolbar" id="collapse-all">Collapse all</button>
+        <button class="btn-toolbar primary" id="dl-pdf">&darr; Download PDF</button>
+      </div>
+    </div>
+    <div class="rpt-divider-top"></div>
+    <div class="rpt-addr-row">
+      <div>
+        <div class="rpt-addr-main">5400 PINA VISTA DR</div>
+        <div class="rpt-addr-city">MELBOURNE, FL 32934</div>
+      </div>
+      <div class="rpt-meta">
+        <div class="rpt-meta-county">BREVARD COUNTY</div>
+        <div>Case 05-2024-CA-044972-XXCA-BC</div>
+        <div>Sale — &middot; FORECLOSURE</div>
+      </div>
+    </div>
+    <div class="rpt-divider-sub"></div>
+  </div>
+  <div style="margin-top:24px"><div class="summary-grid">
+    <div>
+      <div class="sg-label">Verdict</div>
+      <div class="sg-verdict skip">SKIP</div>
+    </div>
+    <div>
+      <div class="sg-label">Shapira Max Bid</div>
+      <div class="sg-val orange">$805,204</div>
+    </div>
+    <div>
+      <div class="sg-label">Equity at Entry Bid</div>
+      <div class="sg-val">$0</div>
+    </div>
+    
+  </div></div>
+  <div class="sections">
+    
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">01</span>
+      <span class="sec-title">Subject Property Identification</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      <span class="sec-tag verified">✓ PLATFORM VERIFIED</span>
+    </summary>
+    <div class="sec-body"><div class="row"><span class="row-l">Address</span><span class="row-v">5400 PINA VISTA DR, MELBOURNE, FL 32934</span></div><div class="row"><span class="row-l">County</span><span class="row-v">Brevard County, Florida</span></div><div class="row"><span class="row-l">Case Number</span><span class="row-v">05-2024-CA-044972-XXCA-BC</span></div><div class="row"><span class="row-l">Auction Date</span><span class="row-v">2026-09-16</span></div><div class="row"><span class="row-l">Plaintiff</span><span class="row-v">CHANNELSIDE</span></div><div class="row"><span class="row-l">Assessed Value</span><span class="row-v">$550,460</span></div><div class="row"><span class="row-l">Final Judgment</span><span class="row-v">Pending — no value on file</span></div><div class="row"><span class="row-l">Plaintiff Max Bid</span><span class="row-v">Hidden</span></div></div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">02–03</span>
+      <span class="sec-title">Value Estimate — Clearing Band &amp; Market Band</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      <span class="sec-tag conf">LOW ±10%</span>
+    </summary>
+    <div class="sec-body">
+      <div class="bands-grid">
+        <div class="band-card clearing">
+          <div class="band-card-label clearing">Auction clearing range<br><span class="band-card-sub">What this property typically sells for at courthouse</span></div>
+          <div class="band-nums">
+            <div><div class="band-num-label">LOW</div><div class="band-num-val">—</div></div>
+            <div><div class="band-num-label mid clearing">MIDPOINT</div><div class="band-num-val mid clearing">—</div></div>
+            <div><div class="band-num-label">HIGH</div><div class="band-num-val">—</div></div>
+          </div>
+          
+          <p class="band-desc">Based on county auction history — properties like this clear at the distressed courthouse price.</p>
+        </div>
+        <div class="band-card market">
+          <div class="band-card-label market">Open market value<br><span class="band-card-sub">What this sells for retail after acquisition</span></div>
+          <div class="band-nums">
+            <div><div class="band-num-label">LOW</div><div class="band-num-val">$881,875</div></div>
+            <div><div class="band-num-label mid market">MIDPOINT</div><div class="band-num-val mid market">$1,037,500</div></div>
+            <div><div class="band-num-label">HIGH</div><div class="band-num-val">$1,193,125</div></div>
+          </div>
+          <div class="band-meta">CMA comps n = 6</div>
+          <p class="band-desc">The open market retail value — the gap over clearing is your day-1 equity surface.</p>
+        </div>
+      </div>
+      
+      <div class="spread-bar">
+        <span class="spread-label">DAY-1 EQUITY SURFACE</span>
+        <span class="spread-val">$1,037,500</span>
+        <span class="spread-desc">The gap between what you pay at auction and what it&rsquo;s worth on the open market.</span>
+      </div>
+      
+      <div class="net-equity-bar">
+        <span class="net-equity-label">EQUITY AT ENTRY BID</span>
+        <span class="net-equity-val">$0</span>
+        <span class="net-equity-desc">At the entry bid — before rehab. This is the number the Bid Card grades.</span>
+      </div></div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">04–07</span>
+      <span class="sec-title">Market Comparables</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      <span class="sec-tag comps">3 LAYERS</span>
+    </summary>
+    <div class="sec-body">
+    <div class="subhead">County Clearance Priors</div>
+    <div class="pending">Insufficient county sales history for reliable priors.</div>
+    <div class="subhead">Layer 1 &mdash; Auction Market Comps (Distressed)</div>
+    <div class="pending">No distressed comps found in brevard county (2024→). Layer 1 clearing ratio unavailable — Shapira formula falls back to county-level priors.</div>
+    <div class="subhead">Layer 2 &mdash; Retail Market Comps (Open Market ARV)</div>
+    
+      <div class="row"><span class="row-l">Median Sale Price</span><span class="row-v">$1,037,500</span></div>
+      <div class="row"><span class="row-l">Comp Count</span><span class="row-v">6</span></div>
+      <table class="comp-table"><thead><tr><th>Address</th><th>Sold</th><th>Sqft</th><th>Year Built</th></tr></thead><tbody><tr><td>3877 PROVINCE DR</td><td>$1,177,500</td><td>&amp;mdash;</td><td>2016</td></tr><tr><td>3587 PROVINCE DR</td><td>$1,075,000</td><td>&amp;mdash;</td><td>2016</td></tr><tr><td>4240 WINDOVER WAY</td><td>$1,000,000</td><td>&amp;mdash;</td><td>2000</td></tr><tr><td>3920 TURKEY POINT DR</td><td>$910,000</td><td>&amp;mdash;</td><td>1992</td></tr><tr><td>3145 HILLIARD CT</td><td>$786,000</td><td>&amp;mdash;</td><td>1987</td></tr><tr><td>2585 PIMLICO LN</td><td>$1,265,000</td><td>&amp;mdash;</td><td>2019</td></tr></tbody></table>
+    
+  </div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">08</span>
+      <span class="sec-title">Transaction History</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      
+    </summary>
+    <div class="sec-body"><div class="row"><span class="row-l">Prior Transfer Date</span><span class="row-v">Pending</span></div><div class="row"><span class="row-l">Prior Transfer Price</span><span class="row-v">Pending — no prior sale on file</span></div></div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">09–10</span>
+      <span class="sec-title">Property Record &amp; Listing Details</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      
+    </summary>
+    <div class="sec-body"><div class="row"><span class="row-l">Property Type</span><span class="row-v">DOR use code 001 (fl_parcels)</span></div><div class="row"><span class="row-l">Beds / Baths</span><span class="row-v">Pending / Pending</span></div><div class="row"><span class="row-l">Living Area</span><span class="row-v">6305 sqft</span></div><div class="row"><span class="row-l">Year Built</span><span class="row-v">1973</span></div><div class="row"><span class="row-l">Lot Size</span><span class="row-v">0.69 ac</span></div><div class="row"><span class="row-l">Homestead</span><span class="row-v">non-homestead (fl_parcels jv_hmstd=0)</span></div></div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">11–14</span>
+      <span class="sec-title">Context Layers — Neighborhood · Schools · Flood · Market</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      
+    </summary>
+    <div class="sec-body"><div class="row"><span class="row-l">Neighborhood</span><span class="row-v">Pending &mdash; layer not yet wired for this county</span></div><div class="row"><span class="row-l">Schools</span><span class="row-v">Pending &mdash; GreatSchools layer not yet wired</span></div><div class="row"><span class="row-l">Flood Zone</span><span class="row-v">Pending &mdash; FEMA layer not yet wired; verify Zone X vs AE independently</span></div><div class="row"><span class="row-l">Median Income</span><span class="row-v">Pending &mdash; layer not yet wired for this county</span></div></div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">ML</span>
+      <span class="sec-title">Shapira Models — Third-Party Purchase Classifier</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      
+    </summary>
+    <div class="sec-body"><div class="row"><span class="row-l">Model</span><span class="row-v">v4.0-20260802-015242</span></div><div class="row"><span class="row-l">3rd-Party Purchase Probability</span><span class="row-v">Withheld &mdash; artifact not deployed at scoring time</span></div></div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge zw">ZW</span>
+      <span class="sec-title">ZoneWise.AI Land &amp; Zoning Intelligence</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      
+    </summary>
+    <div class="sec-body"><div class="row"><span class="row-l">State Parcel (DOR)</span><span class="row-v">27 3615-02-*-37</span></div><div class="row"><span class="row-l">Jurisdiction</span><span class="row-v">MELBOURNE</span></div><div class="row"><span class="row-l">DOR Land Use</span><span class="row-v">Single family</span></div><div class="row"><span class="row-l">DOR Just Value</span><span class="row-v">$495,340</span></div><div class="row"><span class="row-l">Land Value</span><span class="row-v">$135,000 ($4.49/sqft)</span></div><div class="row"><span class="row-l">Zoning District</span><span class="row-v">EU</span></div><div class="row"><span class="row-l">Conforming-Use Read</span><span class="row-v">Presumptively conforming under EU, subject to district confirmation.</span></div><div class="verdict-line">Land value $135,000 on 30,056 sqft ($4.49/sqft), 27% of DOR just value.</div></div>
+  </details>
+    
+    <div class="bidcard-wrap">
+      <div class="bidcard-header">
+        <span class="sec-badge">15</span>
+        <span class="sec-title">Shapira Bid Card &mdash; Opinion of Price</span>
+      </div>
+      <div class="bidcard-body">
+        <div class="verdict skip">SKIP</div>
+        <div class="grade">Investment Grade D</div>
+        <div class="maxbid-block">
+          <div class="maxbid-label">SHAPIRA MAX BID</div>
+          <div class="maxbid">$805,204</div>
+          <div class="maxbid-sub">Walk away above this number. No exceptions.</div>
+        </div>
+        <div class="bidcard-rows" style="margin-top:16px">
+          <div class="row"><span class="row-l">Entry Bid</span><span class="row-v">Pending — no value on file</span></div>
+          <div class="row"><span class="row-l">Value Midpoint</span><span class="row-v">$1,037,500</span></div>
+          <div class="row"><span class="row-l">Walk Away Above</span><span class="row-v">$805,204</span></div>
+        </div>
+        <div style="color:#002A54;font-size:12px;margin-top:14px;font-style:italic">Calibrated on 525 verified Brevard County sales.</div>
+      </div>
+    </div>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">16</span>
+      <span class="sec-title">Judgment &amp; Encumbrance Summary</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      
+    </summary>
+    <div class="sec-body"><div class="row"><span class="row-l">Judgment Amount</span><span class="row-v">Pending</span></div><div class="row"><span class="row-l">Opening Bid</span><span class="row-v">Pending</span></div><div class="row"><span class="row-l">Bid/Judgment Ratio</span><span class="row-v">Pending</span></div><div class="flags"><div class="flag flag-pending"><b>OCCUPANCY</b> Pending — no occupancy inspection data available for this property.</div><div class="flag flag-pending"><b>CONDITION</b> Pending — no condition/inspection report available; assume as-is, unseen-interior risk.</div><div class="flag flag-pending"><b>MECHANIC_LIEN_RISK</b> Pending — mechanic/construction lien search not run. Mechanic liens filed within 90 days of work completion may survive both foreclosure and tax deed sales regardless of sale date (FL FS 713.07 / 713.10). Visible signs of recent construction, renovation, or unpermitted work elevate this risk. Order a mechanic lien search independently before closing.</div><div class="flag flag-pending"><b>FEDERAL_LIENS</b> Pending — federal tax lien search not run (survives foreclosure if IRS not properly joined, FL FS 45).</div><div class="flag flag-pending"><b>HIDDEN_CAP</b> Hidden — plaintiff max bid not disclosed on the docket/render as of report time.</div></div><div class="model-disclosure" style="margin:10px 0 4px;font-weight:600">Lien Search — Title Tier 1</div>
+      <div class="lien-survival">
+        <div class="row"><span class="row-l">Instruments On File</span><span class="row-v">3 (as of 2026-09-06)</span></div>
+        <div class="flags"><div class="flag flag-info"><b>LIS PENDENS</b> recorded 2024-09-04, book/page 10148/2646 — CHANNELSIDE MORTGAGES LLC — amount Pending — not on face of instrument — open — no satisfaction/release of record found in this case-index search</div><div class="flag flag-info"><b>ORDER</b> recorded 2026-05-22, book/page 10632/2893 — CHANNELSIDE MORTGAGES LLC — amount Pending — not on face of instrument — open — no satisfaction/release of record found in this case-index search</div><div class="flag flag-info"><b>JUDGMENT REAL PROPERTY</b> recorded 2026-07-27, book/page 10686/1176 — CHANNELSIDE MORTGAGES LLC — amount Pending — not on face of instrument — open — no satisfaction/release of record found in this case-index search</div></div>
+        <div class="model-disclosure" style="margin-top:6px;font-size:10px;color:#0073CF">INTERNAL PREVIEW: real ship_status for this section in production is "Pending — Title Tier 1 (lien search) internal-preview-only, not yet shipped to customers (ship_status=blocked)" — this content is withheld from every customer-facing report until a human flips that flag.</div>
+      </div><div class="model-disclosure" style="margin:10px 0 4px;font-weight:600">Lien Survival — Title Tier 2</div>
+      <div class="lien-survival">
+        <div class="row"><span class="row-l">Status</span><span class="row-v">Recorded-document search completed — zero third-party lien instruments found</span></div>
+        <div class="model-disclosure" style="margin-top:6px;font-size:10px;color:#0073CF">INTERNAL PREVIEW: Recorded-document search completed via brevard_acclaimweb_case_search — this case&#39;s own foreclosure judgment; zero third-party lien instruments found. Disclosed limits: This was a name/case-index search against the county&#39;s recorded-document system, not exhaustive title abstraction — a lien recorded under a differently spelled name variant (e.g. an LLC&#39;s old name), or not yet indexed by the source system, would not appear here.</div>
+      </div><div class="model-disclosure" style="margin:10px 0 4px;font-weight:600">Title Search / Chain of Title — Title Tier 3</div>
+      <div class="lien-survival">
+        <div class="row"><span class="row-l">Chain Pulled To</span><span class="row-v">2026-09-06 — 1 gap unresolved (status: partial)</span></div>
+        <div class="flags"><div class="flag flag-pending"><b>GAP</b> Deed into current owner not resolvable via this case&#39;s own court-filing search (case documents were Lis Pendens/Judgment/Order only, no recorded deed) — a grantee-name index search against Brevard AcclaimWeb was not attempted this session (unverified for Brevard&#39;s classic AcclaimWeb build, same disclosed gap as scripts/pre_auction_lien_harvest.py&#39;s owner-name sweep).</div></div>
+        <div class="model-disclosure" style="margin-top:6px;font-size:10px;color:#0073CF">INTERNAL PREVIEW: real ship_status for this section in production is "Pending — Title Tier 3 (title search) internal-preview-only, not yet shipped to customers (ship_status=blocked)" — this content is withheld from every customer-facing report until a human flips that flag.</div>
+      </div></div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">17</span>
+      <span class="sec-title">Provenance &amp; Methodology</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      
+    </summary>
+    <div class="sec-body"><div class="row"><span class="row-l">Data Sources</span><span class="row-v">multi_county_auctions (live), fl_parcels (live), zoning_assignments (live), shapira_models (Supabase — V4 stacked ensemble when in production, v14.0 XGBoost fallback otherwise)</span></div><div class="row"><span class="row-l">Certification</span><span class="row-v">Delivered under Gold Standard certification gating (v_certified_counties) — this report tool is CERT_REQUIRED and will refuse an uncertified county before any charge is made.</span></div><div class="model-disclosure">Verdict/value-estimate math is a deterministic prior/anchor framework (county clearance priors + prior sale + judgment ratio), NOT the ML model. This is informational, not the deal verdict driver.
+
+ML Stack: SUMMIT-B V4 Stacked Ensemble (Patent Claim 8), model_version=v4.0-20260802-015242. Ran on the primary path: XGBoost + LightGBM + CatBoost base learners, Random Forest meta-learner, native Python inference on Modal (ensemble.pkl). Ensemble AUC: 0.9468.</div></div>
+  </details>
+    <details class="sec">
+    <summary class="sec-h">
+      <span class="sec-badge">18</span>
+      <span class="sec-title">Auction Outcome &amp; Prediction Scorecard</span>
+      <span class="sec-pill" data-noprint>Expand &#9662;</span>
+      
+    </summary>
+    <div class="sec-body"><div class="pending">Scheduled — sale has not yet occurred (2026-09-16)</div></div>
+  </details>
+  
+  </div>
+  <div class="rpt-footer">
+    Generated 2026-09-06 05:01:08 UTC &nbsp;&middot;&nbsp; Key: ....INTERNAL &nbsp;&middot;&nbsp; Report ID: b93f8ca0-20260906<br>
+    Informational only &mdash; not legal, financial, or investment advice. Not the unauthorized practice of law.<br>
+    Verify independently and consult a licensed Florida attorney before bidding.<br>
+    &copy; 2026 BidDeed.AI &middot; Everest Capital USA
+  </div>
+</div>
+<script>
+document.getElementById('collapse-all').addEventListener('click',function(){
+  document.querySelectorAll('details.sec').forEach(function(d){d.open=false;});
+  this.textContent='Expand all';
+  this.onclick=function(){document.querySelectorAll('details.sec').forEach(function(d){d.open=true;});this.textContent='Collapse all';this.onclick=null;};
+});
+document.getElementById('dl-pdf').addEventListener('click',function(){
+  document.querySelectorAll('details.sec').forEach(function(d){d.open=true;});
+  setTimeout(function(){window.print();},400);
+});
+</script>
+</body></html>

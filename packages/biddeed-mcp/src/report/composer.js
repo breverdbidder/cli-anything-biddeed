@@ -23,6 +23,8 @@ import { buildOutcomeSection } from './outcome.js';
 import { fetchFemaFloodZone, fetchNeighborhoodAcs } from './context-layers.js';
 import { buildPlaintiffDiscountBand } from './plaintiff-discount.js';
 import { classify as classifyLienSurvival } from './lien-survival.js';
+import { buildLienSearch } from './title-tier1.js';
+import { buildTitleChain } from './title-chain.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
 
 const NO_ESTIMATE_REFUSAL = "An estimate here would be fabrication; BidDeed declines where HouseCanary would extrapolate.";
@@ -343,6 +345,8 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       { case_number: auction.case_number, parcel_id: auction.parcel_id, sale_type: auction.sale_type },
       { get }
     ).catch(() => ({ available: false, reason: 'classification failed', items: [], n_items: 0, statutory_basis: null }));
+    const titleTier1 = await buildLienSearch({ mca_id: auction.id, county }, { get });
+    const titleChain = await buildTitleChain({ parcel_id: auction.parcel_id, county }, { get });
     return {
       cover: {
         case_number: auction.case_number,
@@ -362,7 +366,9 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       red_flags: redFlags,
       auction_outcome: buildOutcomeSection(auction, { ceiling: null, value: null, entryBid: null }),
       lien_survival: lienSurvival,
-      composition: await sectionComposition({ locatable: false, lienSurvival }, { get }),
+      title_tier1: titleTier1,
+      title_chain: titleChain,
+      composition: await sectionComposition({ locatable: false, lienSurvival, titleTier1, titleChain, county }, { get }),
       provenance: buildProvenance(auction, { model: { available: false } }),
       disclaimer: DISCLAIMER_FULL,
     };
@@ -373,7 +379,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     matchStateParcel(county, auction.property_address, { get }),
   ]);
   const parcel = match.matched ? match.parcel : null;
-  const [zoning, cma, distressedCma, model, femaLayer, neighborhoodLayer, plaintiffDiscount] = await Promise.all([
+  const [zoning, cma, distressedCma, model, femaLayer, neighborhoodLayer, plaintiffDiscount, lienSurvival, titleTier1, titleChain] = await Promise.all([
     buildZwSection(auction, match, { get }),
     buildCma(parcel, { get }),
     buildDistressedCma(parcel, auction, { get }),
@@ -381,11 +387,50 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     fetchFemaFloodZone(auction.latitude, auction.longitude, auction.zip, { get }),
     fetchNeighborhoodAcs(auction.zip, { get }),
     buildPlaintiffDiscountBand(auction, { get }),
+    // Moved up from after the verdict block (issue #20045) so a surviving
+    // lien with a known face amount can be deducted from the max-bid ceiling
+    // BEFORE the verdict is decided, not just disclosed after the fact.
+    classifyLienSurvival(
+      { case_number: auction.case_number, parcel_id: parcel?.parcel_id || auction.parcel_id, sale_type: auction.sale_type },
+      { get }
+    ).catch(() => ({ available: false, reason: 'classification failed', items: [], n_items: 0, statutory_basis: null })),
+    buildLienSearch({ mca_id: auction.id, county }, { get }),
+    // parcel_id here is deliberately auction.parcel_id ONLY, not
+    // parcel?.parcel_id — title_chain_pull is keyed on the county-native
+    // parcel ID scheme the harvest scripts use (Brevard's numeric AcclaimWeb/
+    // GIS parcel_id, e.g. "2703255"), which is a DIFFERENT id scheme from
+    // matchStateParcel()'s fl_parcels DOR-format id (e.g. "27 3615-02-*-37")
+    // — confirmed live this session: for the same auction row these two
+    // schemes produce different strings, and preferring parcel?.parcel_id
+    // here silently missed every real title_chain_pull row.
+    buildTitleChain({ parcel_id: auction.parcel_id, county }, { get }),
   ]);
   const value = computeValueEstimate(auction, priors, cma, distressedCma);
   const sellProb = typeof model.probability_third_party_purchase === 'number' ? model.probability_third_party_purchase : 0.5;
   const shapira = await computeShapiraCeiling(auction, county, value.midpoint, sellProb, parcel?.dor_uc, { get });
   const ceiling = shapira.ceiling;
+
+  // Surviving-lien deduction (issue #20045, DoD for §15 max-bid/verdict):
+  // a lien classified "survives" by Tier 2 is a real dollar cost stacked on
+  // top of the winning bid -- it must reduce the effective ceiling used for
+  // the BID/REVIEW/SKIP call, but ONLY when the amount is on the face of the
+  // recorded instrument (never estimated). >0 (not just "a number") is the
+  // bar for "on the face" -- lien_results rows written by the harvest
+  // pipeline default `amount` to 0.0 when no consideration/amount was ever
+  // disclosed on the document (see scripts/pre_auction_lien_harvest.py), so
+  // a bare `typeof === 'number'` check would silently treat "not disclosed"
+  // as "$0 owed". A survives=true item with no usable amount is flagged
+  // UNDETERMINED and never dropped -- the deduction logic must never
+  // silently ignore a known-surviving lien just because its dollar amount
+  // isn't on file.
+  const survivingLienItems = (lienSurvival?.available ? lienSurvival.items : []).filter(i => i.survives === true);
+  const survivingLienKnownDeduction = survivingLienItems
+    .filter(i => typeof i.amount === 'number' && i.amount > 0)
+    .reduce((sum, i) => sum + i.amount, 0);
+  const survivingLienUndetermined = survivingLienItems.some(i => !(typeof i.amount === 'number' && i.amount > 0));
+  const effectiveCeiling = (ceiling != null && survivingLienKnownDeduction > 0)
+    ? Math.max(0, ceiling - survivingLienKnownDeduction)
+    : ceiling;
   // Entry bid preference: opening_bid (rare — usually null in this feed) >
   // plaintiff_max_bid (the plaintiff's disclosed credit-bid floor, when not
   // hidden) > judgment_amount (conservative fallback when no bid figure is
@@ -412,7 +457,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
 
   // hasHiddenCap: foreclosure-only concept. Tax deeds have no plaintiff.
   const hasHiddenCap = !isTaxDeed && auction.plaintiff_max_bid == null;
-  const marginPct = (ceiling != null && entryBid) ? (ceiling - entryBid) / entryBid : null;
+  const marginPct = (effectiveCeiling != null && entryBid) ? (effectiveCeiling - entryBid) / entryBid : null;
   const thinMargin = marginPct != null && marginPct >= 0 && marginPct < 0.10;
 
   // Third-party probability gate: if model says <25% chance a third party wins,
@@ -420,8 +465,8 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
   const LOW_3P_PROB = typeof sellProb === 'number' && sellProb < 0.25;
 
   let verdict = 'SKIP';
-  if (ceiling != null && entryBid != null) {
-    if (ceiling >= entryBid) verdict = (hasHiddenCap || thinMargin) ? 'BID (conditional)' : 'BID';
+  if (effectiveCeiling != null && entryBid != null) {
+    if (effectiveCeiling >= entryBid) verdict = (hasHiddenCap || thinMargin) ? 'BID (conditional)' : 'BID';
     else verdict = marginPct > -0.10 ? 'REVIEW' : 'SKIP';
   }
   // Downgrade BID → REVIEW when third-party probability is too low to justify entry
@@ -441,13 +486,26 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     redFlags.push({ code: 'THIN_MARGIN', severity: 'risk', text: `Ceiling-to-entry margin is ${marginPct != null ? Math.round(marginPct * 100) : '?'}% — thin cushion, size accordingly.` });
   }
 
-  const outcome = buildOutcomeSection(auction, { ceiling, value, entryBid });
-  if (outcome.flags?.length) redFlags.push(...outcome.flags);
+  // Surviving-lien flags (issue #20045) — never silent. A known deduction is
+  // disclosed with the dollar figure that already moved the verdict; an
+  // undetermined amount downgrades BID → REVIEW rather than either blocking
+  // the report or pretending the risk is $0.
+  if (survivingLienKnownDeduction > 0) {
+    redFlags.push({
+      code: 'SURVIVING_LIEN_DEDUCTED', severity: 'risk',
+      text: `Max-bid ceiling reduced by $${Math.round(survivingLienKnownDeduction).toLocaleString()} for lien(s) classified as surviving this sale (amount on face of the recorded instrument; see Title Tier 2 — Judgment & Encumbrance §16 for statute citations). Ceiling before deduction: ${ceiling != null ? `$${Math.round(ceiling).toLocaleString()}` : 'n/a'}; after: ${effectiveCeiling != null ? `$${Math.round(effectiveCeiling).toLocaleString()}` : 'n/a'}.`,
+    });
+  }
+  if (survivingLienUndetermined) {
+    redFlags.push({
+      code: 'SURVIVING_LIEN_AMOUNT_UNDETERMINED', severity: 'risk',
+      text: 'One or more liens are classified as surviving this sale (see §16 Title Tier 2) but the recorded instrument does not state a dollar amount on its face — surviving lien amount undetermined. NOT deducted from the max-bid ceiling above; do not treat the ceiling as inclusive of this cost.',
+    });
+    if (verdict.startsWith('BID')) verdict = 'REVIEW';
+  }
 
-  const lienSurvival = await classifyLienSurvival(
-    { case_number: auction.case_number, parcel_id: parcel?.parcel_id || auction.parcel_id, sale_type: auction.sale_type },
-    { get }
-  ).catch(() => ({ available: false, reason: 'classification failed', items: [], n_items: 0, statutory_basis: null }));
+  const outcome = buildOutcomeSection(auction, { ceiling: effectiveCeiling, value, entryBid });
+  if (outcome.flags?.length) redFlags.push(...outcome.flags);
 
   return {
     cover: {
@@ -464,7 +522,19 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
       equity_at_ceiling: (value.market_band?.midpoint != null && shapira.ceiling != null)
         ? Math.round(value.market_band.midpoint - shapira.ceiling)
         : null,
-      shapira_max_bid: { ...money(ceiling, shapira.source), bid_floor: shapira.floor, bid_ceiling: shapira.cap },
+      // net_of_surviving_liens/BID-verdict basis stays a SEPARATE field from
+      // the raw `value`/`bid_floor`/`bid_ceiling` triple above (issue
+      // #20045): checkSellability()'s self-consistency gate (sellability.js)
+      // requires shapira_max_bid.value to fall within its own formula
+      // bounds, computed off the SAME arv basis — subtracting a lien
+      // deduction from `value` directly would make a legitimate, correctly-
+      // computed ceiling fail that gate and block the whole report. The
+      // verdict/margin logic above already uses effectiveCeiling; this field
+      // just carries that same number through for display.
+      shapira_max_bid: {
+        ...money(ceiling, shapira.source), bid_floor: shapira.floor, bid_ceiling: shapira.cap,
+        net_of_surviving_liens: survivingLienKnownDeduction > 0 ? effectiveCeiling : null,
+      },
       entry_bid: money(entryBid, entryBidSource),
     },
     value_estimate: value.midpoint == null ? null : {
@@ -551,24 +621,32 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     red_flags: redFlags,
     auction_outcome: outcome,
     lien_survival: lienSurvival,
-    composition: await sectionComposition({ locatable: true, lienSurvival }, { get }),
+    title_tier1: titleTier1,
+    title_chain: titleChain,
+    composition: await sectionComposition({ locatable: true, lienSurvival, titleTier1, titleChain, county }, { get }),
     provenance: buildProvenance(auction, { model }),
     disclaimer: DISCLAIMER_FULL,
   };
 }
 
 // Maps to public.biddeed_report_composition's 6 canonical section keys.
-// FIX (ship-gate bypass, known bug since Aug 1 — this issue): lien_search,
-// lien_survival, and title_search now actually read
+// lien_search, lien_survival, and title_search read
 // biddeed_report_composition.ship_status before claiming to deliver content
-// to a paying customer. auction_intel/zoning/deal_score are UNCHANGED —
-// they are not in scope for this gate (see issue: only lien_search/
-// title_search/lien_survival are named) and already ship today.
-// Any of the three title/lien tiers still ship_status='blocked' renders as
-// internal-preview-only — the real classify() output is always computed
-// (see report.lien_survival) so it's available for internal QA/tests, but
-// it is never surfaced as 'delivered' status to a customer response until a
-// human flips ship_status in Supabase.
+// to a paying customer — this is a human-controlled legal/accuracy gate
+// (biddeed_report_composition.notes for lien_survival: "Accuracy not yet
+// proven"; Steve Spira signoff tracked separately per section) and this
+// function's 'delivered' status feeds directly into src/worker.js's
+// customer-facing renderS5ReportHtml() (internal=false path) — it must
+// never flip to 'delivered' from data presence alone, only from a human
+// setting ship_status='live'. auction_intel/zoning/deal_score are UNCHANGED.
+//
+// Real per-case Tier 1/2/3 content (titleTier1/lienSurvival/titleChain) is
+// still computed unconditionally in buildReport() regardless of ship_status
+// — that's what feeds src/worker.js's `internal=true` preview path (see
+// generate_internal_signal_report.mjs), which already renders it via
+// report.lien_survival directly (existing pattern; issue #20045 extends the
+// same internal-preview mechanism to report.title_tier1 and
+// report.title_chain rather than gating them here).
 //
 // FIX (RLS ship-gate bug, follow-on to #19657): biddeed_report_composition
 // has RLS enabled with zero policies, so the direct table read below used to
@@ -578,7 +656,7 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
 // (supabase/migrations/20260831_report_composition_gate_rpc.sql) matching the
 // existing check_s5_report_access pattern — granted to anon/authenticated
 // directly, so it returns real rows regardless of caller role.
-async function sectionComposition({ locatable, lienSurvival }, { get = defaultGet } = {}) {
+async function sectionComposition({ locatable, lienSurvival, titleTier1, titleChain, county }, { get = defaultGet } = {}) {
   const gateRows = await get(
     'rpc/get_report_composition_gate?p_section_keys=%7Blien_search,lien_survival,title_search%7D'
   ).catch(() => []);
@@ -586,8 +664,17 @@ async function sectionComposition({ locatable, lienSurvival }, { get = defaultGe
 
   const isLive = (key) => gates[key]?.ship_status === 'live';
 
+  // NOTE: the not-live status string here is what src/worker.js's
+  // CUSTOMER-facing render (internal=false) falls back to displaying
+  // verbatim — it stays the original generic sentence (no per-case
+  // instrument counts / real reasons) so customers never see harvest detail
+  // ahead of a human flipping ship_status. The real, case-specific detail
+  // (titleTier1/titleChain, already computed above regardless of
+  // ship_status) is surfaced separately via report.title_tier1/title_chain,
+  // which src/worker.js's internal=true preview path reads directly —
+  // mirroring the existing report.lien_survival pattern below.
   const lienSearch = isLive('lien_search')
-    ? { section_key: 'lien_search', status: 'delivered', disclosure: gates.lien_search.disclosure_text }
+    ? { section_key: 'lien_search', status: 'delivered', n_items: titleTier1?.n_items, as_of_date: titleTier1?.as_of_date, disclosure: gates.lien_search.disclosure_text }
     : { section_key: 'lien_search', status: `Pending — Title Tier 1 (lien search) internal-preview-only, not yet shipped to customers (ship_status=${gates.lien_search?.ship_status || 'unknown'})` };
 
   const titleSearch = isLive('title_search')
