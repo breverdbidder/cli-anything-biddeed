@@ -3307,7 +3307,10 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
 
       // ── GET /buy-report — $25 one-time report checkout page ─────────────
       // ?mca_id=&address=&county=&date= pre-fills step 3 from a property card in chat.
-      if (path === '/buy-report' && method === 'GET') {
+      if (path === '/buy-report' && (method === 'GET' || method === 'HEAD')) {
+        if (method === 'HEAD') {
+          return new Response(null, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+        }
         const pMcaId = url.searchParams.get('mca_id') || '';
         const pAddress = url.searchParams.get('address') || '';
         const pCounty = (url.searchParams.get('county') || '').toLowerCase().replace(/-/g,'_');
