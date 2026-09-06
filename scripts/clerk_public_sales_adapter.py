@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import html as html_lib
 import json
 import os
 import re
@@ -27,7 +28,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 UA = "BidDeedCalendarBot/1.0 (+https://biddeed.ai; public-record-refresh)"
 MONEY = re.compile(r"(?:\$\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)")
-DATE_PATTERNS = ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d", "%B %d, %Y", "%b %d, %Y")
+DATE_PATTERNS = ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%B %d, %Y", "%b %d, %Y %I:%M %p", "%b %d, %Y")
 
 
 def clean(value: str | None) -> str:
@@ -263,9 +264,29 @@ def parse_lafayette_taxdeed_cards(url: str, html: str, county: str, start: dt.da
     certificate number or parcel ID is used as the public-record identity;
     the page does not publish a judgment amount, so that field remains null.
     """
-    text = clean(BeautifulSoup(html, "html.parser").get_text(" ", strip=True))
+    soup = BeautifulSoup(html, "html.parser")
     rows: list[dict] = []
     evidence: list[dict] = []
+    tag = soup.find("tax-deed-sales")
+    raw_payload = tag.get(":taxdeeds") if tag else None
+    if raw_payload:
+        try:
+            payload = json.loads(html_lib.unescape(raw_payload))
+        except json.JSONDecodeError:
+            payload = []
+        for item in payload if isinstance(payload, list) else []:
+            if str(item.get("status", "")).lower() != "scheduled":
+                continue
+            sale_date = parse_date(str(item.get("sale_date", "")))
+            identity = clean(str(item.get("cert") or item.get("parcel") or ""))
+            if not sale_date or not identity or not (start <= sale_date <= end):
+                continue
+            aid = hashlib.sha256(f"{county}|tax_deed|{identity}|{sale_date.isoformat()}".encode()).hexdigest()[:40]
+            rows.append({"aid": aid, "county_slug": county, "auction_type": "tax_deed", "case_number": identity, "judgment_amount": None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": str(item.get("sale_date")), "county_subdomain": "lafayette-clerk-vue", "case_clerk_url": str(item.get("link") or url), "source_response_id": str(item.get("parcel") or identity), "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+            evidence.append({"url": url, "sale_type": "tax_deed", "identity": identity, "sale_date": sale_date.isoformat(), "parcel_id": item.get("parcel"), "certificate": item.get("cert"), "amount_present": False, "format": "lafayette-vue-taxdeeds"})
+        if rows:
+            return rows, evidence
+    text = clean(soup.get_text(" ", strip=True))
     blocks = re.split(r"(?=Status\s+scheduled\b)", text, flags=re.I)
     for block in blocks:
         if not re.match(r"Status\s+scheduled\b", block, flags=re.I):
