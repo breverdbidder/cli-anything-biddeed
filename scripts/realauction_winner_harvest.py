@@ -54,6 +54,7 @@ import time
 import datetime as dt
 import urllib.request
 import urllib.parse
+import urllib.error
 import http.cookiejar
 
 EMAIL = os.environ.get("REALFORECLOSE_EMAIL", "")
@@ -331,6 +332,35 @@ def rpc(fn, payload):
         return r.status, r.read().decode()
 
 
+_co_no_cache = {}
+
+
+def get_co_no(county_slug):
+    """One REST call per county per run (a harvest run covers a single county)."""
+    if county_slug not in _co_no_cache:
+        rows = rest_get("fl_counties", f"?slug=eq.{county_slug}&select=co_no&limit=1")
+        _co_no_cache[county_slug] = rows[0]["co_no"] if rows else None
+    return _co_no_cache[county_slug]
+
+
+def lookup_zip_by_parcel(county_slug, parcel_id):
+    """Fallback zip source (issue #20055) when the platform's own city/state
+    string carries no zip: reuse the normalized-parcel-id join against
+    fl_parcels via the mca_parcel_zip_lookup RPC (same FF normalizer as
+    scripts/property_appraiser/common.py:_norm_text — upper, alnum-only)."""
+    co_no = get_co_no(county_slug)
+    if not co_no or not parcel_id:
+        return None
+    try:
+        status, body = rpc("mca_parcel_zip_lookup", {"p_co_no": co_no, "p_parcel_id": parcel_id})
+        if status != 200:
+            return None
+        rows = json.loads(body)
+        return rows[0]["zip"] if rows else None
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
+        return None
+
+
 def record_verified_outcome(sale_type, county, case_num, source_tag, winning_bid,
                              property_address, parcel_id, auction_date):
     """Mirror a sold lot into tax_deed_outcomes/foreclosure_outcomes.
@@ -496,6 +526,11 @@ def main():
                 citystate = cd.get("city_state", "")
                 m_zip = re.search(r"(\d{5})\s*$", citystate)
                 m_city = re.match(r"^([^,]+),", citystate)
+                zip_val = m_zip.group(1) if m_zip else None
+                if not zip_val and cd.get("parcel_id"):
+                    # issue #20055: platform gave no city/state zip — fall back to
+                    # the normalized-parcel-id join against fl_parcels
+                    zip_val = lookup_zip_by_parcel(county, cd.get("parcel_id"))
                 insert_row = {
                     "county": county, "sale_type": sale_type, "auction_date": date_iso,
                     "case_number": case_num, "state": "FL", "source_platform": platform,
@@ -503,7 +538,7 @@ def main():
                     "parcel_id": cd.get("parcel_id") or None,
                     "property_address": cd.get("address") or None,
                     "city": m_city.group(1).strip() if m_city else None,
-                    "zip": m_zip.group(1) if m_zip else None,
+                    "zip": zip_val,
                     "judgment_amount": money(cd.get("judgment_amount")),
                     "assessed_value": money(cd.get("assessed_value")),
                     **patch,
