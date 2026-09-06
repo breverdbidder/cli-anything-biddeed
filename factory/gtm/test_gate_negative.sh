@@ -67,6 +67,14 @@ else
   echo "PASS: caption_with_s5.txt correctly failed gate.py (retired_lines_and_product_names_scan)"
 fi
 
+echo "--- 'Shapira Max Bid' (retired 2026-09-06, issue #20058) must FAIL ---"
+if python3 factory/gtm/gate.py --paths factory/gtm/fixtures/caption_with_shapira_max_bid.txt; then
+  echo "FAIL: caption_with_shapira_max_bid.txt passed gate.py -- retired_lines_and_product_names_scan (Shapira Max Bid) is broken"
+  FAIL=1
+else
+  echo "PASS: caption_with_shapira_max_bid.txt correctly failed gate.py (retired_lines_and_product_names_scan)"
+fi
+
 echo "--- '14 patents' phrasing must FAIL ---"
 if python3 factory/gtm/gate.py --paths factory/gtm/fixtures/caption_with_patent.txt; then
   echo "FAIL: caption_with_patent.txt passed gate.py -- patent_phrasing_scan is broken"
