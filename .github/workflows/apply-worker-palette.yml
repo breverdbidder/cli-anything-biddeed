@@ -1,0 +1,40 @@
+name: Apply worker palette sweep (one-shot)
+
+# One-shot, dispatch-only: src/worker.js is 770 KB, too large to push through
+# the Git Data API from the session that authored the mapping, so the
+# deterministic mapping script is committed instead and this workflow applies
+# it on the branch it is dispatched on, verifies the file still parses, and
+# pushes the result as a commit on that same branch. The script is idempotent
+# (exits 0 with "already applied" on a second run) and asserts that zero
+# off-palette literals remain. Delete this workflow once the sweep has landed
+# on main; scripts/ui-audit/apply_worker_palette.py stays as the record of the
+# mapping.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Map every off-palette literal in src/worker.js onto the seven canon colours
+        run: python3 scripts/ui-audit/apply_worker_palette.py src/worker.js
+      - name: Worker still parses
+        run: node --check src/worker.js
+      - name: Commit + push onto ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- src/worker.js; then echo "no change"; exit 0; fi
+          git add src/worker.js
+          git commit -m "fix(palette): map the last off-palette literals in src/worker.js onto the seven canon colours" \
+            -m "Applied by scripts/ui-audit/apply_worker_palette.py (deterministic; asserts zero off-palette hex/rgb/rgba left). Dark scorecard page carried navy text on #0a0f1a; pastel signal/status chips sat at ~1.5:1; county pages still compiled Tailwind slate/amber; the sticky CTA was #F26A36. All mapped to white/tint/ink/navy/border/brand/hover per PARITY_PRD s1 G-PALETTE." \
+            -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>" \
+            -m "Claude-Session: https://claude.ai/code/session_01JzwC1tRbEaNuh1o4vvoCpV"
+          git push origin HEAD:${{ github.ref_name }}

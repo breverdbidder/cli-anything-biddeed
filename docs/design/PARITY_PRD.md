@@ -1,6 +1,6 @@
 # biddeed.ai — Claude.ai Parity PRD + Audit SOP
 Status: v1.0 · 2026-09-04 · Owner: Ariel Shapira · Architect/Judge: Claude chat · Builders: Claude Code runs + chat-authored PRs
-Canon: docs/gtm/BIDDEED_VOICE_CONTENT_META_PROMPT_v2.md (voice, palette, M7) · docs/gtm/CONTENT_SOP.md (content DoD) · docs/design/BIDDEED_CLAUDE_UI_PARITY_ARCHITECTURE.md (C1–C5 build) · biddeed-web `app/globals.css :root` (the only source of colour)
+Canon: docs/gtm/BIDDEED_VOICE_CONTENT_META_PROMPT_v2.md (voice, palette, M7) · docs/gtm/CONTENT_SOP.md (content DoD) · docs/design/BIDDEED_CLAUDE_UI_PARITY_ARCHITECTURE.md (C1–C5 build) · biddeed-web `app/globals.css :root` + `lib/design-tokens.ts` (the only two files allowed to carry a colour literal - `scripts/palette-gate.mjs` fails any PR that adds one elsewhere)
 
 ## 0. Why this file exists
 Until 2026-09-04 every "verified" on this site meant *the string was in the HTML*. That is how seven answer pages shipped with white text on cream, the county pages ran two hours of 500s, the report kept a retired navy theme, and the map said "Mapbox token not configured" for days. Parity with Claude.ai is a **rendered, functional** standard: a human opens every route on a phone and a laptop and nothing is unreadable, off-palette, broken, empty, or lying. This PRD defines that standard per route and the harness that checks it automatically before and after every deploy.
@@ -11,7 +11,7 @@ A route is at parity when all eight gates pass in Chromium at 1440×900 and 390�
 | Gate | Check | How |
 |---|---|---|
 | G-RENDER | HTTP 200; no "Internal server error", "Not found", "not configured", "undefined", "NaN", "[object Object]" in visible text | harness |
-| G-PALETTE | every computed colour on the page resolves to a canon token value (cream `#fbfaf7/#f5f0e8/#ede3d7`, ink `#1f1b16`, muted `#6e655e`, border `#ddd5c9/#b5a9a0`, terracotta `#9f4d32/#823f29`, semantic `#1f7a3f/#b42318`, white on those) — no Tailwind red/amber/gray/slate, no navy/amber legacy | harness (computed styles) |
+| G-PALETTE | every computed colour on the page is one of the seven canon values Ariel set on 2026-09-04: white `#ffffff`, tint `#E8F4FC`, ink `#222222`, navy `#002A54` (headings + secondary text), border `#CCCCCC`, brand blue `#0073CF`, hover `#005DAA` — nothing else: no cream/terracotta (retired 2026-09-04), no Tailwind red/amber/gray/slate, no navy/amber legacy. Semantic states (sold, canceled, grade, signal) are encoded with weight and fill inside the seven, never with a new hue | harness (computed styles, `scripts/ui-audit/audit.py` CANON) |
 | G-CONTRAST | 0 visible text nodes < 4.5:1 against the effective background (gradients evaluated on their darkest stop) | harness |
 | G-COPY | canon strings exact; 0 retired lines ("before the gavel", "know your number"); 0 buzzwords (P18); 0 contempt (P17); ≤1 "!"; 0 competitor names; 0 "S5"; patent number-free; persons = Ariel Shapira only | harness + judge |
 | G-DATA | every number on the page equals the SSOT RPC queried in the same minute (`auctions_summary_ssot`, `auctions_calendar_counts`); em-dash only on RPC failure; never "no auctions" when the RPC is non-zero | harness (paired query) |
@@ -47,7 +47,9 @@ Parity for the SITE = every route in §2 passes all eight, twice (both viewports
 - Secrets required by a route (Mapbox, Chatwoot, service-role) are listed in `scripts/ui-audit/required_env.json`; the harness fails G-FUNCTION with the exact env name when a route reports "not configured".
 
 ## 5. Current gap list (2026-09-04 12:10 UTC, from the harness)
-Open: `/radar` palette (PR #27) · Mapbox token (PR #19881 + #28) · Worker site-wide palette (PR #19878) · `/buy-report` 3 H1s · `/blog` Article schema · 23 `:root` blocks → 1 token file (#19845) · C2b verified identity · C3–C5 · county pages at `/counties/*` (B3) · PDF extraction in chat uploads · Deed "no auctions" contradiction (P0).
+2026-09-06 (PR biddeed-web #45 + this PR): `/discover` rendered terracotta because the page read `var(--terracotta,#c15f3c)` fallbacks that no token defines; 431 colour literals outside the token files in biddeed-web -> 0, source gate `palette-gate.yml` added, post-deploy `ui-parity-audit` job added to `cloudflare-production.yml`; Worker `src/worker.js` residue (98 rgba + 45 hex off-palette: dark scorecard page with navy text, pastel signal chips at ~1.5:1, county-page Tailwind slate/amber, `#F26A36` sticky CTA) mapped to the seven; harness CANON updated from the retired cream/terracotta set (which flagged the CORRECT blue on 42/42 rows on 2026-09-06 15:26 UTC) to the seven; `/discover /auctions /sign-in /sign-up` added to routes.json.
+
+Open (2026-09-04): `/radar` palette (PR #27) · Mapbox token (PR #19881 + #28) · Worker site-wide palette (PR #19878) · `/buy-report` 3 H1s · `/blog` Article schema · 23 `:root` blocks → 1 token file (#19845) · C2b verified identity · C3–C5 · county pages at `/counties/*` (B3) · PDF extraction in chat uploads · Deed "no auctions" contradiction (P0).
 
 
 ## 6. The five Deed layers — Claude.ai's five sticky tools, mapped (Ariel, 2026-09-04)
@@ -99,19 +101,19 @@ Claude.ai reads the way it does because of four things we can copy exactly, and 
 
 | Role | Desktop | Phone | Weight / line-height | Colour (light) | Min contrast |
 |---|---|---|---|---|---|
-| Message / body text | 16 px | 16 px (never below - avoids iOS zoom and matches Claude) | 400 / 1.6 | ink #1f1b16 on cream | 7:1 (AAA) |
-| Secondary text (sidebar rows, chat list, meta) | 14 px | 14 px | 400-500 / 1.5 | muted #6e655e | 4.5:1 |
-| Labels, eyebrows, timestamps, footnotes | 12-13 px, uppercase eyebrows tracked | 12-13 px | 500-600 / 1.4 | muted | 4.5:1 |
+| Message / body text | 16 px | 16 px (never below - avoids iOS zoom and matches Claude) | 400 / 1.6 | ink #222222 on white | 16:1 (AAA) |
+| Secondary text (sidebar rows, chat list, meta) | 14 px | 14 px | 400-500 / 1.5 | navy #002A54 | 8.5:1 |
+| Labels, eyebrows, timestamps, footnotes | 12-13 px, uppercase eyebrows tracked | 12-13 px | 500-600 / 1.4 | navy #002A54 | 8.5:1 |
 | Composer input | 16 px | 16 px | 400 / 1.5 | ink | 7:1 |
 | H1 / greeting (serif display) | 40-48 px | 30-34 px | 500 / 1.1 | ink | 7:1 |
 | H2 (serif display) | 28-32 px | 24-26 px | 500 / 1.15 | ink | 7:1 |
 | H3 / card titles (sans) | 18-20 px | 17-18 px | 600 / 1.3 | ink | 7:1 |
-| Numbers (stats, prices) | 24-32 px | 20-24 px, never wrap | 600, tabular-nums | ink or terracotta #9f4d32 | 4.5:1 |
-| Buttons | 14-15 px | 15 px | 600 / 1 | cream on terracotta / ink on cream | 4.5:1, hit area >= 44 px on phones |
+| Numbers (stats, prices) | 24-32 px | 20-24 px, never wrap | 600, tabular-nums | ink or brand blue #0073CF | 4.5:1 (#0073CF on white = 4.8:1) |
+| Buttons | 14-15 px | 15 px | 600 / 1 | white on brand blue (hover #005DAA) / ink on white | 4.5:1, hit area >= 44 px on phones |
 
 Rules
 - Two families only: the UI sans (Inter today) and the serif display - the same pairing Claude uses (sans UI, serif headline). No third family, no per-page font-size literals; every size is a token step (--fs-1 ... --fs-8).
-- The lighter accent (#d97757 and the Tailwind amber/orange family) is decoration only: never text under 24 px.
+- Brand blue #0073CF is the only accent and clears 4.5:1 on white (4.8:1), so it may carry text at any size. The Tailwind amber/orange/red/green families and the retired terracotta #9f4d32 / #d97757 are not decoration either - they are gone (G-PALETTE).
 - Line length 60-75 characters on desktop (max-w-prose on message bodies), full width on phones with 16 px side gutters.
 - Dark mode inherits the same ramp; only colours change (tokens), never sizes.
 - Harness gate G-TYPE: on every route, body/message text >= 16 px on phones and >= 15 px on desktop, secondary >= 14 px, nothing under 12 px; font-family set == {sans, serif, mono}; contrast per the table. A route with any literal font-size outside the token steps fails.
