@@ -13,6 +13,8 @@ import json
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -28,9 +30,24 @@ def fetch(table: str, query: dict[str, str]) -> list[dict]:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
     url = f"{SUPABASE_URL}/rest/v1/{table}?{urllib.parse.urlencode(query)}"
-    req = urllib.request.Request(url, headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"})
-    with urllib.request.urlopen(req, timeout=60) as response:
-        return json.loads(response.read().decode("utf-8"))
+    retryable = {500, 502, 503, 504, 520, 521, 522, 523, 524, 525}
+    last_error: Exception | None = None
+    for attempt, delay in enumerate((0, 5, 15, 45), start=1):
+        if delay:
+            time.sleep(delay)
+        req = urllib.request.Request(url, headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in retryable or attempt == 4:
+                raise
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last_error = exc
+            if attempt == 4:
+                raise
+    raise RuntimeError(f"Supabase coverage query failed after retries: {last_error}")
 
 
 def main() -> int:
