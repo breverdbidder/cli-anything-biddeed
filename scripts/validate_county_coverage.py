@@ -126,8 +126,10 @@ def main() -> int:
         "future_rows": total_rows,
         "future_rows_with_amount": amount_rows,
         "amount_completeness_pct": round(100.0 * amount_rows / total_rows, 2) if total_rows else 0.0,
-        "milestone_64_of_67": len(covered) >= 64,
-        "missing_counties": [item for item in coverage if item["future_rows"] == 0],
+        "future_rows_64_of_67": len(covered) >= 64,
+        "milestone_64_of_67": len(qualified) >= 64,
+        "missing_future_row_counties": [item for item in coverage if item["future_rows"] == 0],
+        "missing_counties": [item for item in coverage if not item["qualified"]],
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["registry_count"] == 67 else 2
