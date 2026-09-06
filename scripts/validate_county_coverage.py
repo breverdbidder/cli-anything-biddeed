@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import os
 import re
+from pathlib import Path
 import sys
 import time
 import urllib.error
@@ -66,6 +67,18 @@ def fetch(table: str, query: dict[str, str], *, page_size: int = 1000) -> list[d
 
 def main() -> int:
     today = dt.date.today().isoformat()
+    repo_root = Path(__file__).resolve().parents[1]
+    overrides_path = repo_root / "config" / "county_source_overrides.json"
+    assertions_path = repo_root / "config" / "county_authoritative_assertions.json"
+    overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.exists() else {}
+    assertions = json.loads(assertions_path.read_text(encoding="utf-8")) if assertions_path.exists() else {"assertions": []}
+    required_types: dict[str, set[str]] = {}
+    for slug, entry in overrides.get("counties", {}).items():
+        required_types[key(slug)] = {str(source.get("sale_type")) for source in entry.get("sources", []) if source.get("sale_type")}
+    zero_types: dict[str, set[str]] = {}
+    for assertion in assertions.get("assertions", []):
+        if assertion.get("assertion_type") == "authoritative_zero":
+            zero_types.setdefault(key(assertion.get("county_slug")), set()).add(str(assertion.get("sale_type")))
     registry = fetch("county_auction_config", {
         "select": "county_name,county_slug",
         "is_active": "eq.true",
@@ -85,8 +98,19 @@ def main() -> int:
     for county in registry:
         slug = str(county.get("county_slug") or "")
         bucket = by_county.get(key(slug), {"future_rows": 0, "amount_rows": 0})
-        coverage.append({"county": county.get("county_name"), "slug": slug, **bucket})
+        asserted_zero_types = sorted(zero_types.get(key(slug), set()))
+        required = required_types.get(key(slug), set())
+        has_authoritative_zero = bool(required) and required.issubset(set(asserted_zero_types))
+        coverage.append({
+            "county": county.get("county_name"),
+            "slug": slug,
+            **bucket,
+            "authoritative_zero_sale_types": asserted_zero_types,
+            "qualified": bucket["future_rows"] > 0 or has_authoritative_zero,
+            "qualification_reason": "future_rows" if bucket["future_rows"] > 0 else ("authoritative_zero_all_configured_sale_types" if has_authoritative_zero else "unresolved"),
+        })
     covered = [item for item in coverage if item["future_rows"] > 0]
+    qualified = [item for item in coverage if item["qualified"]]
     total_rows = sum(item["future_rows"] for item in coverage)
     amount_rows = sum(item["amount_rows"] for item in coverage)
     report = {
@@ -96,6 +120,9 @@ def main() -> int:
         "registry_count": len(coverage),
         "counties_with_future_rows": len(covered),
         "counties_without_future_rows": len(coverage) - len(covered),
+        "counties_qualified": len(qualified),
+        "counties_unqualified": len(coverage) - len(qualified),
+        "qualified_64_of_67": len(qualified) >= 64,
         "future_rows": total_rows,
         "future_rows_with_amount": amount_rows,
         "amount_completeness_pct": round(100.0 * amount_rows / total_rows, 2) if total_rows else 0.0,

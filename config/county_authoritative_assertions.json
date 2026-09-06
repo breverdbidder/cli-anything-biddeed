@@ -1,0 +1,21 @@
+{
+  "version": "2026-09-06",
+  "assertions": [
+    {
+      "county_slug": "liberty",
+      "sale_type": "foreclosure",
+      "assertion_type": "authoritative_zero",
+      "source_url": "https://libertyclerk.com/courts/foreclosure-sales/",
+      "observed_at": "2026-09-06",
+      "statement": "There are no foreclosure sales available at this time."
+    },
+    {
+      "county_slug": "liberty",
+      "sale_type": "tax_deed",
+      "assertion_type": "authoritative_zero",
+      "source_url": "https://libertyclerk.com/courts/tax-deeds/",
+      "observed_at": "2026-09-06",
+      "statement": "There are no properties on the list of tax deeds at this time."
+    }
+  ]
+}
