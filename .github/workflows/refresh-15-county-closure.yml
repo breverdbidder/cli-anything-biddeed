@@ -80,6 +80,7 @@ jobs:
 
       - name: Refresh direct calendar adapters with transient retry
         id: direct_refresh
+        continue-on-error: true
         shell: bash
         env:
           COUNTY: ${{ matrix.county }}
