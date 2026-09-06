@@ -49,8 +49,11 @@ async def run(base, routes, out, fail_on_red):
             for route in routes:
                 pg=await ctx.new_page(); status="ERR"; r={}; err=""
                 try:
-                    resp=await pg.goto(base+route, wait_until="networkidle", timeout=60000); status=resp.status
-                    await pg.wait_for_timeout(800); r=await pg.evaluate(JS_SWEEP)
+                    # Use DOM readiness, not networkidle: Next/Cloudflare streams and analytics can keep
+                    # networkidle from resolving and exhaust the 20-minute workflow timeout. Evidence remains
+                    # bounded per route while the sweep still captures rendered DOM, styles, and layout.
+                    resp=await pg.goto(base+route, wait_until="domcontentloaded", timeout=30000); status=resp.status
+                    await pg.wait_for_timeout(1000); r=await pg.evaluate(JS_SWEEP)
                 except Exception as e: err=str(e)[:80]
                 low=(r.get("text","") or "").lower()
                 offpal=[c for c in r.get("colors",{}) if c not in CANON]
