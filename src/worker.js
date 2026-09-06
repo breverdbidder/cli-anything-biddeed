@@ -2200,7 +2200,7 @@ body{background:var(--void);color:var(--text);font-family:'Inter',system-ui,sans
 .card{background:#ffffff;border:1px solid rgba(0,115,207,.3);border-radius:8px;padding:2.5rem;max-width:480px;width:100%}
 .badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}
 h1{font-size:1.5rem;color:#222222;margin-bottom:.5rem}
-p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6;font-size:.92rem}
+p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6;font-size:1rem}
 label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.4rem}
 select,input[type=email],input[type=tel]{width:100%;padding:12px 14px;border-radius:6px;border:1px solid var(--border);background:var(--void);color:var(--text);font-size:.95rem;margin-bottom:1rem;font-family:inherit}
 .consent{display:flex;align-items:flex-start;gap:.5rem;margin-bottom:.85rem;font-size:.82rem;color:var(--dim)}
@@ -2209,7 +2209,8 @@ select,input[type=email],input[type=tel]{width:100%;padding:12px 14px;border-rad
 .btn:hover{background:#005DAA}
 .err{color:#002A54;font-size:.85rem;margin-bottom:1rem;display:none}
 .upl{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--dim);line-height:1.6}
-.upl a{color:var(--orange)}
+.upl a{display:inline-flex;align-items:center;min-height:32px;color:var(--orange)}
+@media(max-width:600px){.upl a{min-height:44px}}
 </style></head><body>
 <div class="card">
   <div class="badge">FREE · NO CREDIT CARD</div>
@@ -5175,12 +5176,14 @@ p{margin-bottom:1.1rem;color:var(--text)}
 ul,ol{margin:0 0 1.1rem 1.5rem;color:var(--text)}
 li{margin-bottom:.4rem}
 .answer-links{display:flex;flex-direction:column;gap:.5rem;margin:2rem 0;padding:1.25rem;border:1px solid var(--border);border-radius:12px;background:var(--navy2)}
-.answer-links a{color:var(--orange);text-decoration:none;font-weight:600}
+.answer-links a{display:inline-flex;align-items:center;min-height:32px;color:var(--orange);text-decoration:none;font-weight:600}
 .answer-links a:hover{text-decoration:underline}
 .faq h3{color:#222222;font-size:1rem;margin:1.25rem 0 .4rem}
 .cta-box{background:var(--navy2);border:1px solid rgba(0,115,207,.3);border-radius:12px;padding:1.5rem;margin:2.5rem 0;text-align:center}
 .cta-box a{display:inline-block;background:linear-gradient(135deg,var(--orange),var(--orange2));color:#ffffff;padding:12px 28px;border-radius:10px;font-weight:700;text-decoration:none;margin-top:.75rem}
-.disclaimer{font-size:.8rem;color:var(--muted);border-top:1px solid var(--border);margin-top:2.5rem;padding-top:1.5rem}
+.sources a{display:inline-flex;align-items:center;min-height:32px;color:var(--orange)}
+.disclaimer{font-size:1rem;color:var(--muted);border-top:1px solid var(--border);margin-top:2.5rem;padding-top:1.5rem}
+@media(max-width:600px){.answer-links a,.sources a{min-height:44px}}
 </style>
 </head>
 <body>
@@ -6010,7 +6013,7 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
 .sub{color:var(--muted);font-size:1.05rem;margin-bottom:2rem;line-height:1.6}
 .card{background:var(--navy2);border:1px solid var(--border);border-radius:14px;padding:1.75rem;margin-bottom:1.25rem}
 .card h3{color:var(--text);font-size:1.05rem;margin-bottom:.5rem}
-.card p{color:var(--muted);font-size:.92rem;line-height:1.6}
+.card p{color:var(--muted);font-size:1rem;line-height:1.6}
 .notice{background:rgba(0,115,207,.06);border:1px solid rgba(0,115,207,.25);border-radius:12px;padding:1.25rem 1.5rem;margin:2rem 0;font-size:.85rem;color:var(--muted);line-height:1.6}
 .notice strong{color:var(--orange)}
 form{background:var(--navy2);border:1px solid rgba(0,115,207,.3);border-radius:14px;padding:1.75rem;margin-top:2rem}
@@ -6022,8 +6025,11 @@ form button:disabled{opacity:.6;cursor:default}
 .msg{margin-top:1rem;font-size:.85rem}
 .msg.ok{color:var(--green)}
 .msg.err{color:#002A54}
-footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
-footer a{color:var(--muted);text-decoration:none}
+.pioneer-fine a,.pioneer-resub{display:inline-flex;align-items:center;min-height:32px;color:#002A54}
+@media(max-width:600px){.pioneer-fine a,.pioneer-resub{min-height:44px}}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:1rem;color:var(--muted);margin-top:3rem}
+footer a{display:inline-flex;align-items:center;min-height:32px;color:var(--muted);text-decoration:none}
+@media(max-width:600px){footer a{min-height:44px}}
 </style>
 </head>
 <body>
@@ -6052,14 +6058,14 @@ footer a{color:var(--muted);text-decoration:none}
     <input type="email" id="p-email" name="email" placeholder="you@example.com" required>
     <button type="submit" id="p-btn">Pioneer Investor — $990/yr →</button>
     <div class="msg" id="p-msg"></div>
-    <p style="font-size:11px;color:#002A54;margin-top:10px;line-height:1.5">Annual subscription, billed once at $990. You'll be redirected to Stripe secure checkout. Cancel any time. Not legal or financial advice — see <a href="/disclaimer" style="color:#002A54">disclaimer</a>.</p>
+    <p class="pioneer-fine" style="font-size:16px;color:#002A54;margin-top:10px;line-height:1.5">Annual subscription, billed once at $990. You'll be redirected to Stripe secure checkout. Cancel any time. Not legal or financial advice — see <a href="/disclaimer">disclaimer</a>.</p>
     <div class="lead-box" id="p-referral-box" style="display:none;margin-top:1rem">
       <h3 style="font-size:.95rem">Your referral link</h3>
       <p style="font-size:.85rem">Share this — when someone subscribes through it and sticks around a full billing cycle, you both get a free month.</p>
       <input type="text" id="p-referral-link" readonly style="width:100%;background:#ffffff;border:1px solid #ffffff;border-radius:8px;padding:10px 12px;color:#222222;font-size:13px;margin-top:.5rem">
     </div>
   </form>
-  <div style="text-align:center;margin-top:1rem"><a href="/subscribe?tier=investor" style="font-size:13px;color:#002A54">Prefer monthly? $99/mo →</a></div>
+  <div style="text-align:center;margin-top:1rem"><a href="/subscribe?tier=investor" class="pioneer-resub" style="font-size:13px">Prefer monthly? $99/mo →</a></div>
 </div>
 <footer>
   <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></p>
@@ -6131,8 +6137,9 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
 .post-date{font-size:.75rem;color:var(--muted);margin-bottom:.4rem}
 .post-title{font-size:1.15rem;font-weight:700;color:var(--text);margin-bottom:.5rem}
 .post-desc{font-size:.9rem;color:var(--muted);line-height:1.5}
-footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
-footer a{color:var(--muted);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:1rem;color:var(--muted);margin-top:3rem}
+footer a{display:inline-flex;align-items:center;min-height:32px;color:var(--muted);text-decoration:none}
+@media(max-width:600px){footer a{min-height:44px}}
 /* WinnerDataAI child-brand light mode — default for Worker-owned public pages. */
 :root{--navy:#ffffff;--navy2:#ffffff;--orange:#0073CF;--orange2:#005DAA;--text:#222222;--muted:#002A54;--border:#CCCCCC}
 .logo,h1,.post-title{color:var(--text)}
@@ -6192,9 +6199,10 @@ h2{color:var(--orange);font-size:1.25rem;margin:2rem 0 .75rem}
 p{margin-bottom:1.1rem;color:var(--text)}
 ul,ol{margin:0 0 1.1rem 1.5rem;color:var(--text)}
 li{margin-bottom:.4rem}
-.disclaimer{font-size:.8rem;color:var(--muted);border-top:1px solid var(--border);margin-top:2.5rem;padding-top:1.5rem}
-footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
-footer a{color:var(--muted);text-decoration:none}
+.disclaimer{font-size:1rem;color:var(--muted);border-top:1px solid var(--border);margin-top:2.5rem;padding-top:1.5rem}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:1rem;color:var(--muted);margin-top:3rem}
+footer a{display:inline-flex;align-items:center;min-height:32px;color:var(--muted);text-decoration:none}
+@media(max-width:600px){footer a{min-height:44px}}
 .cta-box{background:var(--navy2);border:1px solid rgba(0,115,207,.3);border-radius:12px;padding:1.5rem;margin:2.5rem 0;text-align:center}
 .cta-box a{display:inline-block;background:linear-gradient(135deg,var(--orange),var(--orange2));color:#ffffff;padding:12px 28px;border-radius:10px;font-weight:700;text-decoration:none;margin-top:.75rem}
 .lead-box{background:var(--navy2);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin:2.5rem 0}
@@ -6295,15 +6303,16 @@ nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.95);backdrop-
 .wrap{max-width:1100px;margin:0 auto;padding:3rem 1.5rem}
 .ey{display:inline-flex;background:rgba(0,115,207,.08);border:1px solid rgba(0,115,207,.2);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:'JetBrains Mono',monospace;color:var(--green);letter-spacing:.06em;margin-bottom:1.25rem}
 h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.8rem,4vw,2.8rem);color:#222222;margin-bottom:.75rem}
-.sub{color:var(--muted);margin-bottom:2.5rem;font-size:.95rem}
+.sub{color:var(--muted);margin-bottom:2.5rem;font-size:1rem}
 .counties-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem}
 .county-link{display:block;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:.9rem 1rem;text-decoration:none;color:var(--muted);font-size:.88rem;font-weight:500;transition:all .15s;position:relative}
 .county-link:hover{background:var(--navy3);border-color:var(--orange);color:#222222}
 .county-link.gold{border-color:rgba(0,115,207,.3);color:var(--text)}
 .county-link.gold:hover{border-color:var(--orange)}
-.gs-tag{display:block;font-size:.65rem;color:var(--orange);font-family:'JetBrains Mono',monospace;margin-top:.2rem;letter-spacing:.05em}
-footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.75rem;color:var(--muted);margin-top:3rem}
-footer a{color:var(--muted);text-decoration:none}
+.gs-tag{display:block;font-size:.75rem;color:var(--orange);font-family:'JetBrains Mono',monospace;margin-top:.2rem;letter-spacing:.05em}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:1rem;color:var(--muted);margin-top:3rem}
+footer a{display:inline-flex;align-items:center;min-height:32px;color:var(--muted);text-decoration:none}
+@media(max-width:600px){footer a{min-height:44px}}
 /* WinnerDataAI child-brand light mode — default for Worker-owned county pages. */
 :root{--navy:#ffffff;--navy2:#ffffff;--navy3:#E8F4FC;--orange:#0073CF;--orange2:#005DAA;--text:#222222;--muted:#002A54;--border:#CCCCCC;--green:#0073CF}
 body{background:var(--navy);color:var(--text)}
@@ -6370,8 +6379,9 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .hdr-left{display:flex;align-items:center;gap:9px;text-decoration:none;min-width:0}
 .bd-logo{width:30px;height:30px;border-radius:7px;background:linear-gradient(135deg,var(--orange),var(--orange2));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;color:#ffffff;flex-shrink:0}
 .bd-brand h1{font-size:13px;font-weight:700;color:#222222;line-height:1.1;white-space:nowrap}
-.bd-brand p{font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.upgrade-btn{background:linear-gradient(135deg,var(--orange),var(--orange2));color:#ffffff;border:none;border-radius:7px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;flex-shrink:0}
+.bd-brand p{font-size:16px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upgrade-btn{display:inline-flex;align-items:center;min-height:32px;background:linear-gradient(135deg,var(--orange),var(--orange2));color:#ffffff;border:none;border-radius:7px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;flex-shrink:0}
+@media(max-width:600px){.upgrade-btn{min-height:44px}}
 
 /* COUNTY BAR */
 .county-bar{background:var(--navy2);border-bottom:1px solid var(--border);padding:8px 14px;display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;min-height:44px}
@@ -6450,8 +6460,9 @@ body{display:flex;flex-direction:column;background:var(--navy);color:var(--text)
 .snd{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--orange),var(--orange2));border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;-webkit-tap-highlight-color:transparent}
 .snd:disabled{opacity:.35;cursor:not-allowed}
 .snd svg{width:17px;height:17px;fill:var(--navy)}
-.disclaimer-bar{flex-shrink:0;text-align:center;font-size:9.5px;color:var(--muted);padding:3px 12px 8px;line-height:1.4}
-.disclaimer-bar a{color:var(--muted);text-decoration:underline}
+.disclaimer-bar{flex-shrink:0;text-align:center;font-size:12px;color:var(--muted);padding:3px 12px 8px;line-height:1.4}
+.disclaimer-bar a{display:inline-flex;align-items:center;min-height:32px;color:var(--muted);text-decoration:underline}
+@media(max-width:600px){.disclaimer-bar a{min-height:44px}}
 @media(max-width:380px){.quick-grid{grid-template-columns:1fr}.bd-brand p{display:none}.voice-dock{padding-left:9px;padding-right:9px}.voice-dock-copy{margin-bottom:6px}}
 
 /* VOICE WIDGET */
@@ -6537,7 +6548,8 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 
 /* Recent chats drawer (issue #19829 P1) */
 .chat-toolbar{display:flex;justify-content:flex-end;padding:8px 14px 0;flex-shrink:0}
-.chats-btn{background:var(--navy2);border:1px solid var(--border);border-radius:7px;color:var(--muted);font-size:11px;font-weight:600;padding:7px 11px;cursor:pointer;font-family:inherit;margin-right:6px;flex-shrink:0}
+.chats-btn{display:inline-flex;align-items:center;min-height:32px;background:var(--navy2);border:1px solid var(--border);border-radius:7px;color:var(--muted);font-size:11px;font-weight:600;padding:7px 11px;cursor:pointer;font-family:inherit;margin-right:6px;flex-shrink:0}
+@media(max-width:600px){.chats-btn{min-height:44px}}
 .chats-btn:hover{border-color:var(--orange);color:var(--text)}
 .chats-drawer{position:fixed;inset:0 auto 0 0;width:280px;max-width:82vw;background:var(--navy2);border-right:1px solid var(--border);z-index:2000;transform:translateX(-100%);transition:transform .18s ease;display:flex;flex-direction:column}
 @media (max-width:640px){.voice-dock{padding:8px 12px!important}.voice-dock-sub{display:none!important}.voice-btn{padding:10px 14px!important;font-size:15px!important;min-height:44px}.chat-composer,.composer,.composer-wrap{padding-bottom:calc(8px + env(safe-area-inset-bottom))!important}}.chats-drawer.open{transform:translateX(0)}
@@ -6545,8 +6557,9 @@ html[data-theme=light] .ec input,html[data-theme=light] .veg input{background:#f
 .chats-scrim.open{display:block}
 .chats-hdr{display:flex;align-items:center;gap:8px;padding:12px;border-bottom:1px solid var(--border)}
 .chats-hdr h3{font-size:12.5px;color:var(--text);flex:1}
-.chats-new{background:var(--orange);color:#ffffff;border:none;border-radius:7px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
-.chats-close{background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer}
+.chats-new{display:inline-flex;align-items:center;min-height:32px;background:var(--orange);color:#ffffff;border:none;border-radius:7px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+.chats-close{display:inline-flex;align-items:center;justify-content:center;min-height:32px;min-width:32px;background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer}
+@media(max-width:600px){.chats-new,.chats-close{min-height:44px}.chats-close{min-width:44px}}
 .chats-search{padding:8px 12px;border-bottom:1px solid var(--border)}
 .chats-search input{width:100%;background:var(--navy3);border:1px solid var(--border);border-radius:8px;padding:7px 9px;color:var(--text);font-size:12px;font-family:inherit;outline:none}
 .chats-list{flex:1;overflow-y:auto;padding:6px}
@@ -8025,7 +8038,7 @@ body{background:#ffffff;color:#222222;font-family:'Inter',system-ui,sans-serif;m
 .card{background:#ffffff;border:1px solid rgba(0,115,207,.3);border-radius:20px;padding:2.5rem;max-width:460px;width:100%}
 h1{font-size:1.4rem;color:#222222;margin-bottom:.4rem}
 .price{color:#0073CF;font-weight:700;font-size:1rem;margin-bottom:1rem}
-p.sub{color:#002A54;font-size:.9rem;margin-bottom:1.25rem;line-height:1.5}
+p.sub{color:#002A54;font-size:1rem;margin-bottom:1.25rem;line-height:1.5}
 label{display:block;font-size:.85rem;color:#222222;margin-bottom:.4rem}
 input[type=email]{width:100%;background:#ffffff;border:1px solid #ffffff;border-radius:8px;padding:12px 14px;color:#222222;font-size:15px;margin-bottom:1.25rem;outline:none}
 input[type=email]:focus{border-color:#0073CF}
@@ -8036,6 +8049,8 @@ input[type=email]:focus{border-color:#0073CF}
 button.cta{width:100%;background:linear-gradient(135deg,#0073CF,#0073CF);color:#ffffff;border:none;padding:14px;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer}
 button.cta:disabled{opacity:.6;cursor:default}
 .err{color:#002A54;font-size:.85rem;margin-top:.75rem;display:none}
+.resub-link{display:inline-flex;align-items:center;min-height:32px;color:#0073CF;font-weight:600}
+@media(max-width:600px){.resub-link{min-height:44px}}
 </style></head><body>
 <div class="card">
   <h1>BidDeed.AI TIER_LABEL_PLACEHOLDER</h1>
@@ -8051,7 +8066,7 @@ button.cta:disabled{opacity:.6;cursor:default}
     <button type="submit" class="cta" id="sub-btn">Continue to Checkout →</button>
     <div class="err" id="sub-err"></div>
   </form>
-  <div style="text-align:center;font-size:12px;color:#002A54;margin-top:14px">Not ready to pay? <a href="/free-report" style="color:#0073CF;font-weight:600">Try 67 counties free — no card required →</a></div>
+  <div style="text-align:center;font-size:12px;color:#002A54;margin-top:14px">Not ready to pay? <a href="/free-report" class="resub-link">Try 67 counties free — no card required →</a></div>
 </div>
 <script>
 try{if(window.posthog)posthog.capture('subscribe_page_viewed',{tier:'TIER_PLACEHOLDER'});}catch(e){}
@@ -8144,12 +8159,12 @@ ${POSTHOG_SCRIPT}
 :root{--navy:#ffffff;--orange:#0073CF;--orange2:#0073CF;--text:#222222;--muted:#002A54;--dim:#002A54;--border:#CCCCCC}
 body{background:var(--navy);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
 .card{background:#ffffff;border:1px solid rgba(0,115,207,.3);border-radius:20px;padding:2.5rem;max-width:520px;width:100%}
-.badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}.s5-overview{margin:1.25rem 0 1.5rem;padding:1.1rem 1.15rem;border:1px solid rgba(0,115,207,.28);border-radius:14px;background:rgba(232,244,252,.72)}.s5-overview h2{font-size:1.05rem;color:#222222;margin-bottom:.35rem}.s5-overview p{font-size:.8rem;line-height:1.45;color:#002A54;margin-bottom:.8rem}.s5-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem .75rem;list-style:none}.s5-grid li{display:flex;gap:.45rem;align-items:flex-start;font-size:.73rem;line-height:1.25;color:#222222}.s5-grid b{color:#005DAA;font-size:.68rem;min-width:1.35rem}.s5-overlays{margin-top:.75rem;padding-top:.65rem;border-top:1px solid rgba(0,115,207,.2);font-size:.72rem;color:#002A54}.s5-overlays strong{color:#005DAA}@media(max-width:560px){.s5-grid{grid-template-columns:1fr}.s5-overview{padding:.95rem}.s5-grid li{font-size:.76rem}}
+.badge{color:var(--orange);font-size:12px;font-weight:600;letter-spacing:.1em;margin-bottom:.75rem}.s5-overview{margin:1.25rem 0 1.5rem;padding:1.1rem 1.15rem;border:1px solid rgba(0,115,207,.28);border-radius:14px;background:rgba(232,244,252,.72)}.s5-overview h2{font-size:1.05rem;color:#222222;margin-bottom:.35rem}.s5-overview p{font-size:1rem;line-height:1.45;color:#002A54;margin-bottom:.8rem}.s5-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem .75rem;list-style:none}.s5-grid li{display:flex;gap:.45rem;align-items:flex-start;font-size:1rem;line-height:1.3;color:#222222}.s5-grid b{color:#005DAA;font-size:.75rem;min-width:1.35rem}.s5-overlays{margin-top:.75rem;padding-top:.65rem;border-top:1px solid rgba(0,115,207,.2);font-size:.9rem;color:#002A54}.s5-overlays strong{color:#005DAA}@media(max-width:560px){.s5-grid{grid-template-columns:1fr}.s5-overview{padding:.95rem}}
 .steps{display:flex;gap:.4rem;margin-bottom:1.25rem}
 .steps span{flex:1;height:3px;border-radius:2px;background:var(--border)}
 .steps span.done,.steps span.active{background:var(--orange)}
 h1{font-size:1.5rem;color:#222222;margin-bottom:.5rem}
-p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6;font-size:.92rem}
+p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6;font-size:1rem}
 label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.4rem}
 select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:#ffffff;color:var(--text);font-size:.95rem;margin-bottom:1rem;font-family:inherit}
 .consent{display:flex;align-items:flex-start;gap:.5rem;margin-bottom:1.25rem;font-size:.8rem;color:var(--dim)}
@@ -8160,7 +8175,8 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
 .back:hover{color:var(--orange)}
 .err{color:#002A54;font-size:.85rem;margin-top:.75rem;display:none}
 .upl{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--dim);line-height:1.6}
-.upl a{color:var(--orange)}
+.upl a{display:inline-flex;align-items:center;min-height:32px;color:var(--orange)}
+@media(max-width:600px){.upl a{min-height:44px}}
 .auctions{max-height:340px;overflow-y:auto;margin-bottom:1rem;display:flex;flex-direction:column;gap:.6rem}
 .auction-card{border:1px solid var(--border);border-radius:10px;padding:.85rem 1rem;cursor:pointer;transition:border-color .15s}
 .auction-card:hover{border-color:rgba(0,115,207,.5)}
@@ -8225,7 +8241,7 @@ html[data-theme=light] .upl a{color:#0073CF}
     <select id="county-select" style="display:none"></select>
     <button class="btn" id="county-continue" disabled style="display:none">Continue</button>
     <div class="err" id="county-err"></div>
-    <p id="county-note" style="display:none;font-size:12px;color:#002A54;margin-top:8px;">
+    <p id="county-note" style="display:none;font-size:1rem;color:#002A54;margin-top:8px;">
       ⭐ Gold Standard counties include full CMA, ZoneWise zoning, and ML prediction.
       All counties include SIGNAL$ Max Bid and opening bid analysis.
     </p>
@@ -8581,7 +8597,7 @@ html, body { background:var(--cream) !important; color:var(--ink) !important; }
 .glass, .glass-sold, .glass-diamond, .glass-triangle, .glass-canceled { background:var(--surface) !important; border-color:var(--warm-border) !important; backdrop-filter:none; color:var(--ink); }
 .status-LISTED, .status-SOLD, .status-CANCELED, .status-REDEEMED, .cert-gold, .cert-review { background:var(--soft-terracotta) !important; color:var(--ink) !important; border-color:var(--terracotta) !important; }
 .grade-A, .grade-B, .grade-C, .grade-D, .grade-E, .grade-X, .grade-Z { background:var(--soft-terracotta) !important; color:var(--ink) !important; }
-header { background:rgba(255,255,255,.96) !important; border-color:var(--warm-border) !important; }
+.county-toolbar { background:rgba(255,255,255,.96) !important; border-color:var(--warm-border) !important; }
 select, input { background:var(--surface) !important; color:var(--ink) !important; border-color:var(--warm-border) !important; }
 .skeleton { background:linear-gradient(90deg,#E8F4FC 0%,#ffffff 50%,#E8F4FC 100%); }
 #county-lead-bar { box-shadow:0 -8px 24px rgba(0,42,84,.08); }
@@ -8601,7 +8617,7 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
 <p style="font-size:15px"><a style="color:#005DAA" href="">Retry</a> &middot; <a style="color:#005DAA" href="/county/COUNTY_SLUG_PLACEHOLDER/lots">View the raw auction data</a> &middot; <a style="color:#005DAA" href="/counties">All 67 counties</a> &middot; <a style="color:#005DAA" href="/buy-report">Get a Shapira Bid Card</a></p>
 </div>
 
-<header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-amber-500/20" style="padding-top:var(--safe-top)">
+<div class="county-toolbar sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-amber-500/20" style="padding-top:var(--safe-top)">
   <div class="px-4 py-3 flex items-center justify-between gap-3">
     <div class="flex items-center gap-2 min-w-0">
       <div class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent">BidDeed.AI</div>
@@ -8614,7 +8630,7 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
   <h1 class="px-4 pb-2 text-[11px] font-normal text-slate-400">🏠 COUNTY_TITLE auctions · <b class="text-emerald-400" x-text="matchCountByStatus('LISTED')"></b> listed · <b class="text-blue-400" x-text="matchCountByStatus('SOLD')"></b> sold · <b class="text-slate-400" x-text="matchCountByStatus('CANCELED')"></b> canceled</h1>
   <div class="px-4 pb-2"><span class="cert-badge COUNTY_CERT_BADGE_CLASS">COUNTY_CERT_BADGE_TEXT</span></div>
 
-  <div class="px-3 pb-3 flex gap-2 overflow-x-auto scroll-h">
+  <div class="px-3 pb-3 flex gap-2 overflow-x-auto scroll-h" style="overflow-x:auto">
     <button @click="clearPersona()" class="chip px-3 rounded-full text-xs whitespace-nowrap shrink-0 border" :class="!activePersona ? 'bg-amber-500 text-slate-900 border-amber-500 font-bold' : 'bg-slate-800/60 border-slate-700 text-slate-300'">All <span x-text="deals.length"></span></button>
     <template x-for="p in builtInPersonas" :key="p.code">
       <button @click="selectPersona(p)" class="chip px-3 rounded-full text-xs whitespace-nowrap shrink-0 border"
@@ -8637,7 +8653,7 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
       <span class="text-slate-500 px-1">▾</span>
     </button>
   </div>
-</header>
+</div>
 
 <div x-show="hiddenStatusCount>0" class="px-4 py-2 bg-slate-900/80 border-b border-slate-700/40 flex items-center justify-between gap-2 text-[11px]">
   <span class="text-slate-400">
@@ -10199,14 +10215,16 @@ ${POSTHOG_SCRIPT}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
 h1{font-size:1.9rem;margin:.5rem 0 .25rem}h2{font-size:1.15rem;margin:2rem 0 .5rem;color:var(--text)}
 .upd{color:var(--muted);font-size:.85rem;margin-bottom:2rem}
-p,li{color:var(--muted);font-size:.95rem}li{margin-bottom:.4rem}
+p,li{color:var(--muted);font-size:1rem}li{margin-bottom:.4rem}
 .box{background:var(--navy2,#ffffff);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0}
 .box strong{color:var(--text)}
-.back{display:inline-block;margin-bottom:1.5rem;font-size:.9rem}
+.back{display:inline-flex;align-items:center;min-height:32px;margin-bottom:1.5rem;font-size:.9rem}
 nav.top{border-bottom:1px solid var(--border);padding:1rem 1.5rem}
-nav.top a{color:var(--text);font-weight:700}
+nav.top a{display:inline-flex;align-items:center;min-height:32px;color:var(--text);font-weight:700}
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.8rem;color:var(--muted)}
-footer a{color:var(--muted)}
+footer a{display:inline-flex;align-items:center;min-height:32px;padding:2px 0;color:var(--muted)}
+.wrap a{display:inline-flex;align-items:center;min-height:32px}
+@media(max-width:600px){.back,nav.top a,footer a,.wrap a{min-height:44px}}
 </style></head><body>
 <nav class="top"><a href="/">BidDeed.AI</a></nav>
 <div class="wrap"><a class="back" href="/">← Back to home</a><h1>Terms of Service</h1><div class="upd">Last updated July 28, 2026</div>
@@ -10237,14 +10255,16 @@ ${POSTHOG_SCRIPT}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
 h1{font-size:1.9rem;margin:.5rem 0 .25rem}h2{font-size:1.15rem;margin:2rem 0 .5rem;color:var(--text)}
 .upd{color:var(--muted);font-size:.85rem;margin-bottom:2rem}
-p,li{color:var(--muted);font-size:.95rem}li{margin-bottom:.4rem}
+p,li{color:var(--muted);font-size:1rem}li{margin-bottom:.4rem}
 .box{background:var(--navy2,#ffffff);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0}
 .box strong{color:var(--text)}
-.back{display:inline-block;margin-bottom:1.5rem;font-size:.9rem}
+.back{display:inline-flex;align-items:center;min-height:32px;margin-bottom:1.5rem;font-size:.9rem}
 nav.top{border-bottom:1px solid var(--border);padding:1rem 1.5rem}
-nav.top a{color:var(--text);font-weight:700}
+nav.top a{display:inline-flex;align-items:center;min-height:32px;color:var(--text);font-weight:700}
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.8rem;color:var(--muted)}
-footer a{color:var(--muted)}
+footer a{display:inline-flex;align-items:center;min-height:32px;padding:2px 0;color:var(--muted)}
+.wrap a{display:inline-flex;align-items:center;min-height:32px}
+@media(max-width:600px){.back,nav.top a,footer a,.wrap a{min-height:44px}}
 </style></head><body>
 <nav class="top"><a href="/">BidDeed.AI</a></nav>
 <div class="wrap"><a class="back" href="/">← Back to home</a><h1>Privacy Policy</h1><div class="upd">Last updated July 28, 2026</div>
@@ -10277,14 +10297,16 @@ ${POSTHOG_SCRIPT}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
 h1{font-size:1.9rem;margin:.5rem 0 .25rem}h2{font-size:1.15rem;margin:2rem 0 .5rem;color:var(--text)}
 .upd{color:var(--muted);font-size:.85rem;margin-bottom:2rem}
-p,li{color:var(--muted);font-size:.95rem}li{margin-bottom:.4rem}
+p,li{color:var(--muted);font-size:1rem}li{margin-bottom:.4rem}
 .box{background:var(--navy2,#ffffff);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0}
 .box strong{color:var(--text)}
-.back{display:inline-block;margin-bottom:1.5rem;font-size:.9rem}
+.back{display:inline-flex;align-items:center;min-height:32px;margin-bottom:1.5rem;font-size:.9rem}
 nav.top{border-bottom:1px solid var(--border);padding:1rem 1.5rem}
-nav.top a{color:var(--text);font-weight:700}
+nav.top a{display:inline-flex;align-items:center;min-height:32px;color:var(--text);font-weight:700}
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.8rem;color:var(--muted)}
-footer a{color:var(--muted)}
+footer a{display:inline-flex;align-items:center;min-height:32px;padding:2px 0;color:var(--muted)}
+.wrap a{display:inline-flex;align-items:center;min-height:32px}
+@media(max-width:600px){.back,nav.top a,footer a,.wrap a{min-height:44px}}
 </style></head><body>
 <nav class="top"><a href="/">BidDeed.AI</a></nav>
 <div class="wrap"><a class="back" href="/">← Back to home</a><h1>Disclaimer</h1><div class="upd">Last updated July 28, 2026</div>
@@ -10363,15 +10385,17 @@ ${POSTHOG_SCRIPT}
 a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
 h1{font-size:1.9rem;margin:.5rem 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .6rem;color:var(--text)}
 .upd{color:var(--muted);font-size:.85rem;margin-bottom:2rem}
-p,li{color:var(--muted);font-size:.95rem}li{margin-bottom:.45rem}
+p,li{color:var(--muted);font-size:1rem}li{margin-bottom:.45rem}
 ul{padding-left:1.3rem}
 .box{background:var(--navy2,#ffffff);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0}
 .box strong{color:var(--text)}
-.back{display:inline-block;margin-bottom:1.5rem;font-size:.9rem}
+.back{display:inline-flex;align-items:center;min-height:32px;margin-bottom:1.5rem;font-size:.9rem}
 nav.top{border-bottom:1px solid var(--border);padding:1rem 1.5rem}
-nav.top a{color:var(--text);font-weight:700}
+nav.top a{display:inline-flex;align-items:center;min-height:32px;color:var(--text);font-weight:700}
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.8rem;color:var(--muted)}
-footer a{color:var(--muted)}
+footer a{display:inline-flex;align-items:center;min-height:32px;padding:2px 0;color:var(--muted)}
+.wrap a{display:inline-flex;align-items:center;min-height:32px}
+@media(max-width:600px){.back,nav.top a,footer a,.wrap a{min-height:44px}}
 code{background:#ffffff;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 </style></head><body>
 <nav class="top"><a href="/">BidDeed.AI</a></nav>
