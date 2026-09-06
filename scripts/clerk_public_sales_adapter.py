@@ -224,6 +224,36 @@ def parse_explicit_prose_rows(url: str, html: str, county: str, sale_type: str, 
     return rows, evidence
 
 
+def parse_status_sale_rows(url: str, html: str, county: str, sale_type: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict]]:
+    """Parse explicit Clerk blocks labeled Status, Sale Date, Case Number.
+
+    Union County publishes future foreclosure records in this compact labeled
+    format. The parser requires a scheduled status, a parseable sale date, a
+    case number, and stays within the requested window.
+    """
+    text = clean(BeautifulSoup(html, "html.parser").get_text(" ", strip=True))
+    blocks = re.split(r"(?=Status\s+scheduled\b)", text, flags=re.I)
+    rows: list[dict] = []
+    evidence: list[dict] = []
+    for block in blocks:
+        if not re.match(r"Status\s+scheduled\b", block, flags=re.I):
+            continue
+        date_match = re.search(r"Sale\s+Date\s+([0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})", block, flags=re.I)
+        case_match = re.search(r"Case\s+Number\s+([A-Z0-9-]+)", block, flags=re.I)
+        if not date_match or not case_match:
+            continue
+        sale_date = parse_date(date_match.group(1))
+        if not sale_date or not (start <= sale_date <= end):
+            continue
+        identity = case_match.group(1).strip()
+        amount_match = re.search(r"Judgment\s+Amount\s+([$0-9,]+(?:\.\d{1,2})?)", block, flags=re.I)
+        amount = parse_money(amount_match.group(1) if amount_match else None)
+        aid = hashlib.sha256(f"{county}|{sale_type}|{identity}|{sale_date.isoformat()}".encode()).hexdigest()[:40]
+        rows.append({"aid": aid, "county_slug": county, "auction_type": sale_type, "case_number": identity, "judgment_amount": float(amount) if amount is not None else None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": date_match.group(1), "county_subdomain": "clerk-public-status", "case_clerk_url": url, "source_response_id": None, "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+        evidence.append({"url": url, "sale_type": sale_type, "identity": identity, "sale_date": sale_date.isoformat(), "amount_present": amount is not None, "format": "status-sale-block"})
+    return rows, evidence
+
+
 def upsert(rows: list[dict]) -> int:
     if not rows:
         return 0
@@ -280,10 +310,13 @@ def main() -> int:
     rows, evidence = parse_structured_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
     pdf_rows, pdf_evidence = parse_pdf_listing_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
     prose_rows, prose_evidence = parse_explicit_prose_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+    status_rows, status_evidence = parse_status_sale_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
     rows.extend(pdf_rows)
     rows.extend(prose_rows)
+    rows.extend(status_rows)
     evidence.extend(pdf_evidence)
     evidence.extend(prose_evidence)
+    evidence.extend(status_evidence)
     extra_links = list(dict.fromkeys(args.extra_url))
     for link in extra_links:
         try:
@@ -291,12 +324,15 @@ def main() -> int:
             nested_rows, nested_evidence = parse_structured_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
             nested_pdf_rows, nested_pdf_evidence = parse_pdf_listing_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
             nested_prose_rows, nested_prose_evidence = parse_explicit_prose_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
+            nested_status_rows, nested_status_evidence = parse_status_sale_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
             rows.extend(nested_rows)
             rows.extend(nested_pdf_rows)
             rows.extend(nested_prose_rows)
+            rows.extend(nested_status_rows)
             evidence.extend(nested_evidence)
             evidence.extend(nested_pdf_evidence)
             evidence.extend(nested_prose_evidence)
+            evidence.extend(nested_status_evidence)
         except Exception as exc:
             evidence.append({"url": link, "error": str(exc)})
     if args.crawl:
