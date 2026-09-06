@@ -181,15 +181,125 @@ def render_variant_bolt32(variant_id: str, mode: str = "final") -> dict:
         return result
 
 
+def promote_kokoro_final(variant_id: str) -> dict:
+    """GTM-6 (#20052), Ariel decision #1 (chat 2026-09-06): kokoro EN audio
+    is APPROVED as the launch-week voice -- no ElevenLabs spend. Promotes a
+    qa_pass=true kokoro EN draft (is_draft=true) to a launch final by
+    RE-USING the exact same kokoro audio already rendered at
+    variant_{key}_en_draft/voice_bolt32.mp3 (never re-synthesizes) and
+    re-assembling the video with is_draft=False, which strips the
+    "DRAFT AUDIO - NOT FOR UPLOAD" watermark (assemble_video_bolt32's own
+    is_draft branch) -- everything else (images, chip, QR plate, beat map,
+    overlays) is identical to render_variant_bolt32(mode='final'). Writes
+    to a path with no draft/final suffix (variant_{key}_en/reel_bolt32.mp4)
+    so the original draft file at .../variant_{key}_en_draft/ is untouched.
+
+    tts_model stays 'kokoro' -- assert_bolt32_tts_model() is deliberately
+    NOT called here (its final-branch hard-requires 'eleven_v3', a rule
+    that predates this decision); the matching DB CHECK constraint was
+    relaxed in migration 20260906h_kokoro_final_tts_model_20052.sql to
+    allow a final row to carry tts_model='kokoro'."""
+    variant, reel = fetch_variant_and_reel(variant_id)
+    result = {"variant_id": variant_id, "variant_key": variant["variant_key"], "status": None, "error": None}
+
+    if variant.get("status") == "approved":
+        result.update(status="blocked_approved_row", error="M8: refusing to touch an already-approved variant")
+        return result
+
+    # fetch_variant_and_reel()'s select list is shared with
+    # render_variant_bolt32() and doesn't carry qa_pass/tts_model/is_draft --
+    # fetched separately here rather than widening that shared select.
+    scope_rows = lib.run_sql(f"""
+        select qa_pass, tts_model, is_draft from winnerdata.reel_variants
+        where id = {lib.sql_str(variant_id)};
+    """)
+    scope = scope_rows[0] if scope_rows else {}
+
+    lang = variant.get("lang") or "en"
+    if lang != "en" or not scope.get("qa_pass") or (scope.get("tts_model") or "") != "kokoro" or not scope.get("is_draft"):
+        result.update(status="skipped_out_of_scope",
+                       error="GTM-6 scope is lang=en, qa_pass=true, tts_model=kokoro, is_draft=true only")
+        return result
+
+    beats = variant["script"].get("beats", [])
+    title_chosen = variant["title"]
+    setup_line = _nearest_beat_line(beats, 4.0)
+    payoff_line = _nearest_beat_line(beats, 24.0)
+    loop_line = _nearest_beat_line(beats, 29.5)
+
+    beat_map = lib.build_bolt32_beat_map(title_chosen, setup_line, payoff_line, loop_line)
+    condition = reel.get("condition_json") or {}
+
+    date_key = reel["auction_date"].isoformat() if hasattr(reel["auction_date"], "isoformat") else reel["auction_date"]
+    case_key = up.quote(reel["case_number"].replace(" ", "_").replace("/", "-"), safe="")
+    draft_prefix = f"{date_key}/{case_key}/variant_{variant['variant_key']}_{lang}_draft"
+    final_prefix = f"{date_key}/{case_key}/variant_{variant['variant_key']}_{lang}"
+    draft_audio_url = f"{lib.SUPABASE_URL}/storage/v1/object/public/{lib.STORAGE_BUCKET}/{draft_prefix}/voice_bolt32.mp3"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        wide_path = os.path.join(tmp, "aerial_wide.png")
+        tight_path = os.path.join(tmp, "aerial_tight.png")
+        street_path = os.path.join(tmp, "street.jpg")
+        lib.fetch_url_to_file(reel["aerial_wide_url"], wide_path)
+        lib.fetch_url_to_file(reel["aerial_tight_url"], tight_path)
+        lib.fetch_url_to_file(reel["street_url"], street_path)
+
+        audio_path = os.path.join(tmp, "voice_bolt32.mp3")
+        lib.fetch_url_to_file(draft_audio_url, audio_path)
+
+        qr_path = os.path.join(tmp, "qr.png")
+        lib.generate_qr_png(variant["short_url"], qr_path)
+        chip_path = os.path.join(tmp, "chip.png")
+        lib.build_cta_chip_png(variant["short_url"].replace("https://", "").replace("http://", ""),
+                                "See this deal ->", chip_path)
+        qrplate_path = os.path.join(tmp, "qrplate.png")
+        lib.build_qr_plate_png(variant["short_url"], "Scan for the deal", qrplate_path)
+
+        overlays = {
+            "county": lib.county_display(reel["county"]).replace(" County", ""),
+            "sale_type_label": (reel.get("sale_type") or "").replace("_", " ").upper(),
+            "condition_tier": condition.get("general_condition_tier"),
+            "payoff_text": payoff_line,
+            "loop_line_text": loop_line,
+        }
+        images = {"aerial_wide": wide_path, "aerial_tight": tight_path, "street": street_path}
+        video_path = os.path.join(tmp, "reel_bolt32.mp4")
+        duration_sec = lib.assemble_video_bolt32(images, audio_path, overlays, chip_path, qrplate_path,
+                                                   video_path, title_chosen, is_draft=False)
+
+        lib.assert_bolt32_duration(duration_sec)
+
+        video_url = lib.storage_upload(video_path, f"{final_prefix}/reel_bolt32.mp4", "video/mp4")
+
+        lib.run_sql(f"""
+            update winnerdata.reel_variants
+            set video_url = {lib.sql_str(video_url)},
+                is_draft = false,
+                render_mode = 'final',
+                pending_final_voice = false,
+                updated_at = now()
+            where id = {lib.sql_str(variant_id)};
+        """)
+
+        result.update(status="promoted", duration_sec=round(duration_sec, 3),
+                       video_url=video_url, draft_audio_url=draft_audio_url,
+                       tts_model="kokoro", is_draft=False, lang=lang)
+        return result
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("render")
     r.add_argument("--variant-id", required=True)
     r.add_argument("--mode", choices=["draft", "final"], default="final")
+    p = sub.add_parser("promote-kokoro-final")
+    p.add_argument("--variant-id", required=True)
     args = ap.parse_args()
     if args.cmd == "render":
         print(json.dumps(render_variant_bolt32(args.variant_id, mode=args.mode), indent=2, default=str))
+    elif args.cmd == "promote-kokoro-final":
+        print(json.dumps(promote_kokoro_final(args.variant_id), indent=2, default=str))
 
 
 if __name__ == "__main__":

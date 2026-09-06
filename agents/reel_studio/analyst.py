@@ -62,12 +62,15 @@ def mint_variant_short_link(reel: dict, variant_key: str) -> tuple[str, str, str
     # issue #19796 (P0): without this row, /r/{code} and /reels/{code} both
     # 404 -- resolve_reel_link()/get_reel_by_code() join on
     # winnerdata.reel_links.code, and nothing else ever wrote one for a
-    # variant-minted code. Target is the clickable player page for this
-    # exact code (get_reel_by_code() resolves the variant's own video from
-    # there), not the /deal/... page directly.
+    # variant-minted code. GTM-6 (#20052): target defaults to the parent
+    # reel's own deal page (landing_url) when known -- resolve_reel_link()
+    # falls back to the /reels/{code} interstitial itself once the reel's
+    # page_http_status isn't verified 200, so this row's target only needs
+    # to be the *best known* destination, not re-verify liveness here.
+    target_url = reel.get("landing_url") or f"{LANDING_BASE}/reels/{code}"
     lib.run_sql(f"""
         insert into winnerdata.reel_links (code, reel_id, target, utm_content)
-        values ({lib.sql_str(code)}, {lib.sql_str(reel['id'])}, {lib.sql_str(f'{LANDING_BASE}/reels/{code}')}, {lib.sql_str(variant_key)})
+        values ({lib.sql_str(code)}, {lib.sql_str(reel['id'])}, {lib.sql_str(target_url)}, {lib.sql_str(variant_key)})
         on conflict (code) do nothing;
     """)
 
