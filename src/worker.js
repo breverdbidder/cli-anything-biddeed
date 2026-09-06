@@ -2360,7 +2360,13 @@ function withSecurityHeaders(response, path) {
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', isChatFrame ? 'SAMEORIGIN' : 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  headers.set('Permissions-Policy', 'geolocation=(), camera=(), microphone=(self)');
+  // #20060: camera=() denied the feature outright (even same-origin), which
+  // sits on every page carrying the ElevenLabs voice entry point (the /chat
+  // widget, and the homepage that iframes it). The widget only requests
+  // audio today, but the blanket deny is the kind of thing that silently
+  // breaks the next voice feature that requests video -- scoped to self,
+  // matching microphone, costs nothing and removes that trap.
+  headers.set('Permissions-Policy', 'geolocation=(), camera=(self), microphone=(self)');
   if (!headers.has('Content-Security-Policy')) headers.set('Content-Security-Policy', isChatFrame ? SECURITY_CSP_CHAT : SECURITY_CSP);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
@@ -3148,6 +3154,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/privacy')                  return new Response(injectChatwootWidget(withPublicShell(PRIVACY_HTML, path), env),    { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/section18-teaser')           return new Response(withPublicShell(SECTION18_TEASER_HTML, path), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/disclaimer')                return new Response(injectChatwootWidget(withPublicShell(DISCLAIMER_HTML, path), env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/support' || path === '/contact') return new Response(injectChatwootWidget(withPublicShell(SUPPORT_HTML, path), env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/security')                  return new Response(injectChatwootWidget(withPublicShell(SECURITY_HTML, path), env),   { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
       if (path === '/data-retention')            return new Response(injectChatwootWidget(withPublicShell(DATA_RETENTION_HTML, path), env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=3600' } });
 
@@ -3588,7 +3595,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // crawlers have an explicit path to this content.
       if (path === '/sitemap.xml') {
         const base = 'https://biddeed.ai';
-        const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/blog', '/pioneers', '/terms', '/privacy', '/disclaimer', '/security'];
+        const staticUrls = ['/', '/counties', '/buy-report', '/chat', '/subscribe', '/blog', '/pioneers', '/terms', '/privacy', '/disclaimer', '/security', '/support'];
         const countySlugs = Object.keys(COUNTY_DISPLAY).sort();
         const blogSlugs = BLOG_POSTS.map(p => p.slug);
         // SPR-02 (issue #19830): published-only, via public.list_published_content_slugs()
@@ -10292,6 +10299,49 @@ footer a{color:var(--muted)}
         <h2>Informational purpose only</h2><p>All content, data, analytics, county intelligence, auction calendars, and the SIGNAL$ Max Bid Formula are provided for general informational purposes. Property values, opening bids, judgment amounts, liens, and outcomes are sourced from public records and third parties and are provided "as is" without warranty of accuracy, completeness, or fitness for a particular purpose.</p>
         <h2>No guarantee of results</h2><p>Past results (including any example outcomes shown on this site) do not guarantee future performance. A "max bid" figure is an estimate, not a recommendation to bid, and not a prediction of sale price or profit.</p>
         <h2>Independent verification required</h2><p>You are solely responsible for verifying all information with the county clerk, property appraiser, and a licensed attorney before participating in any auction.</p></div>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+</body></html>`;
+
+// #20060/#20072: middleware.ts on biddeed-web already lists /support(.*) and
+// /contact(.*) as public routes, but no page ever backed either side -- both
+// 404'd. No committed support-ticket form exists yet in this Worker or in
+// biddeed-web (checked both repos for #20072), so this ships the same static
+// page pattern as /security and /disclaimer: a real, working page today,
+// upgradeable to a ticket form once that frontend lands.
+const SUPPORT_HTML = `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Support — BidDeed.AI</title>
+<meta name="description" content="Get help with BidDeed.AI — auction data questions, billing, and account support.">
+${POSTHOG_SCRIPT}
+<style>
+:root{--navy:#ffffff;--orange:#0073CF;--text:#222222;--muted:#002A54;--dim:#002A54;--border:#CCCCCC}
+*{box-sizing:border-box}body{margin:0;background:var(--navy);color:var(--text);font-family:'Inter',system-ui,sans-serif;line-height:1.7}
+.wrap{max-width:820px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
+a{color:var(--orange);text-decoration:none}a:hover{text-decoration:underline}
+h1{font-size:1.9rem;margin:.5rem 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .6rem;color:var(--text)}
+.upd{color:var(--muted);font-size:.85rem;margin-bottom:2rem}
+p,li{color:var(--muted);font-size:.95rem}li{margin-bottom:.45rem}
+.box{background:#ffffff;color:var(--text);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:8px;padding:1rem 1.25rem;margin:1.5rem 0}
+.box strong{color:var(--text)}
+.cta{display:inline-flex;align-items:center;min-height:44px;padding:0 1.1rem;border-radius:8px;background:var(--orange);color:#ffffff!important;font-weight:600;margin-top:.25rem}
+.cta:hover{background:var(--dim);text-decoration:none}
+.back{display:inline-block;margin-bottom:1.5rem;font-size:.9rem}
+nav.top{border-bottom:1px solid var(--border);padding:1rem 1.5rem}
+nav.top a{color:var(--text);font-weight:700}
+footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:.8rem;color:var(--muted)}
+footer a{color:var(--muted)}
+</style></head><body>
+<nav class="top"><a href="/">BidDeed.AI</a></nav>
+<div class="wrap"><a class="back" href="/">← Back to home</a><h1>Support</h1>
+<div class="box"><strong>Fastest answer: ask Deed.</strong> Deed (our AI assistant) can answer most questions about a specific county, auction, or SIGNAL$ Property Report directly — including citing the record behind a figure. <a href="/chat">Open Deed →</a></div>
+<h2>Billing and account</h2>
+<p>For subscription, payment, or account questions, email <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a> and include the email address on your account. We reply within one business day.</p>
+<h2>Report a problem</h2>
+<p>Found a data error, a broken page, or something that looks wrong? Email <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a> with the page URL and what you expected to see.</p>
+<p style="margin-top:1.5rem"><a class="cta" href="mailto:hello@biddeed.ai">Email support</a></p>
+<h2>Other resources</h2>
+<p><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/security">Security</a> · <a href="/disclaimer">Disclaimer</a></p>
+</div>
 <footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 
