@@ -17,6 +17,7 @@ import os
 import re
 import sys
 import subprocess
+import urllib.error
 import urllib.parse
 import urllib.request
 from decimal import Decimal, InvalidOperation
@@ -365,9 +366,14 @@ def upsert(rows: list[dict]) -> int:
         data=json.dumps(rows).encode(), method="POST",
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        if response.status not in (200, 201, 204):
-            raise RuntimeError(f"upsert failed with HTTP {response.status}")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            if response.status not in (200, 201, 204):
+                body = response.read().decode("utf-8", errors="replace")[:800]
+                raise RuntimeError(f"upsert failed with HTTP {response.status}: {body}")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:800]
+        raise RuntimeError(f"upsert failed with HTTP {exc.code}: {body}") from exc
     return len(rows)
 
 
