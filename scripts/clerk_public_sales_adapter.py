@@ -228,6 +228,33 @@ def parse_explicit_prose_rows(url: str, html: str, county: str, sale_type: str, 
     return rows, evidence
 
 
+def parse_sarasota_calendar_rows(url: str, html: str, county: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict]]:
+    """Parse Sarasota's public RealTaxDeed calendar event blocks.
+
+    The official calendar exposes a sale date, sale type, scheduled-count text,
+    and time but no case/parcel identity. Each event is therefore represented
+    by a deterministic source-event identity derived only from the official
+    calendar date and sale type; amounts remain null and provenance retains the
+    calendar URL. This avoids inventing case numbers or judgment amounts.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    rows: list[dict] = []
+    evidence: list[dict] = []
+    for event in soup.select("div.CALBOX[dayid]"):
+        dayid = clean(event.get("dayid"))
+        sale_date = parse_date(dayid)
+        text = clean(event.get_text(" ", strip=True))
+        if not sale_date or not (start <= sale_date <= end) or "tax deed" not in text.lower():
+            continue
+        count_match = re.search(r"(\\d+)\\s*/\\s*(\\d+)\\s*TD", text, flags=re.I)
+        scheduled_count = int(count_match.group(2)) if count_match else 1
+        identity = f"CALENDAR-TD-{sale_date.isoformat()}"
+        aid = hashlib.sha256(f"{county}|tax_deed|{identity}".encode()).hexdigest()[:40]
+        rows.append({"aid": aid, "county_slug": county, "auction_type": "tax_deed", "case_number": identity, "judgment_amount": None, "auction_starts_at": f"{sale_date.isoformat()}T09:00:00+00:00", "auction_starts_raw": text, "county_subdomain": "sarasota-realtaxdeed-calendar", "case_clerk_url": url, "source_response_id": None, "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+        evidence.append({"url": url, "sale_type": "tax_deed", "identity": identity, "sale_date": sale_date.isoformat(), "scheduled_count": scheduled_count, "amount_present": False, "format": "sarasota-realtaxdeed-calendar"})
+    return rows, evidence
+
+
 def parse_status_sale_rows(url: str, html: str, county: str, sale_type: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict]]:
     """Parse explicit Clerk blocks labeled Status, Sale Date, Case Number.
 
@@ -416,6 +443,9 @@ def main() -> int:
     if args.county.lower() == "lafayette" and args.sale_type == "tax_deed":
         status, html = fetch(args.url)
         rows, evidence = parse_lafayette_taxdeed_cards(args.url, html, args.county.lower(), start, end)
+    elif args.county.lower() == "sarasota" and args.sale_type == "tax_deed":
+        status, html = fetch(args.url)
+        rows, evidence = parse_sarasota_calendar_rows(args.url, html, args.county.lower(), start, end)
     elif args.county.lower() == "charlotte" and args.sale_type == "tax_deed":
         try:
             rows, evidence, status = parse_charlotte_taxdeed_rows(args.county.lower(), start, end)
@@ -425,7 +455,7 @@ def main() -> int:
     else:
         status, html = fetch(args.url)
         rows, evidence = parse_structured_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
-    if args.county.lower() == "lafayette" and args.sale_type == "tax_deed":
+    if args.county.lower() in {"lafayette", "sarasota"} and args.sale_type == "tax_deed":
         pdf_rows, pdf_evidence = [], []
         prose_rows, prose_evidence = [], []
         status_rows, status_evidence = [], []
