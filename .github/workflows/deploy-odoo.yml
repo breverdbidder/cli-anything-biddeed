@@ -1,0 +1,180 @@
+name: Deploy Odoo — Deed Projects (C10, issue #20008)
+on:
+  workflow_dispatch:
+    inputs:
+      run_db_init:
+        description: 'Run infra/odoo/init_db.sh (first deploy only — creates the DB; re-running on an existing DB is a no-op module update, not destructive)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  HETZNER_IP: 87.99.129.125
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: "Phase 0 — inventory the box, do not disturb existing services"
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H "$HETZNER_IP" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@"$HETZNER_IP" '
+            echo "=== docker ps ==="; docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}" || true
+            echo "=== disk ==="; df -h / || true
+            echo "=== mem ==="; free -h || true
+            echo "=== existing infra/odoo? ==="; ls -la /opt/odoo 2>/dev/null || echo "(none yet — first deploy)"
+          '
+
+      - name: "Phase 1 — rsync infra/odoo to the box"
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H "$HETZNER_IP" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@"$HETZNER_IP" 'mkdir -p /opt/odoo'
+          rsync -az -e "ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no" \
+            infra/odoo/ root@"$HETZNER_IP":/opt/odoo/
+
+      - name: "Phase 2 — write runtime secrets + start the stack"
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          ODOO_DB_USER: odoo
+          ODOO_DB_PASSWORD: ${{ secrets.ODOO_DB_PASSWORD }}
+          ODOO_DB_NAME: ${{ secrets.ODOO_DB_NAME }}
+          ODOO_PUBLIC_HOST: books.biddeed.ai
+          ODOO_MASTER_PASSWORD: ${{ secrets.ODOO_MASTER_PASSWORD }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          if [ -z "$ODOO_DB_PASSWORD" ] || [ -z "$ODOO_MASTER_PASSWORD" ] || [ -z "$ODOO_DB_NAME" ]; then
+            echo "::error::ODOO_DB_PASSWORD / ODOO_MASTER_PASSWORD / ODOO_DB_NAME secrets are not set — see docs/infra/ODOO.md 'Secrets required' before dispatching this workflow."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H "$HETZNER_IP" >> ~/.ssh/known_hosts 2>/dev/null
+          SSH="ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@$HETZNER_IP"
+
+          # .env for docker-compose — never echoed, only written server-side via stdin.
+          $SSH 'cat > /opt/odoo/.env' <<EOF
+          ODOO_DB_USER=$ODOO_DB_USER
+          ODOO_DB_PASSWORD=$ODOO_DB_PASSWORD
+          ODOO_DB_NAME=$ODOO_DB_NAME
+          ODOO_PUBLIC_HOST=$ODOO_PUBLIC_HOST
+          R2_ACCOUNT_ID=$R2_ACCOUNT_ID
+          R2_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID
+          R2_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY
+          EOF
+
+          # odoo.local.conf = the committed non-secret odoo.conf + a generated admin_passwd
+          # line. Never committed, never printed — see infra/odoo/odoo.conf's header comment.
+          $SSH "cat /opt/odoo/odoo.conf > /opt/odoo/odoo.local.conf && echo 'admin_passwd = $ODOO_MASTER_PASSWORD' >> /opt/odoo/odoo.local.conf && chmod 600 /opt/odoo/odoo.local.conf"
+
+          echo "=== docker compose up -d ==="
+          $SSH 'cd /opt/odoo && docker compose up -d'
+
+      - name: "Phase 3 — first-run DB init (opt-in via run_db_init input)"
+        if: inputs.run_db_init == 'true'
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H "$HETZNER_IP" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@"$HETZNER_IP" \
+            'cd /opt/odoo && set -a && . ./.env && set +a && ./init_db.sh && docker compose restart odoo'
+
+      - name: "Phase 4 — healthcheck (internal, on the box)"
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$HETZNER_SSH_KEY" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          ssh-keyscan -H "$HETZNER_IP" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/hetzner -o StrictHostKeyChecking=no root@"$HETZNER_IP" '
+            MAX=12; I=0
+            while [ $I -lt $MAX ]; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8069/web/login || echo "000")
+              [ "$STATUS" = "200" ] && echo "✅ Odoo responding: HTTP $STATUS" && exit 0
+              I=$((I+1)); sleep 5
+            done
+            echo "::error::Odoo did not respond with HTTP 200 within 60s"; docker compose -f /opt/odoo/docker-compose.yml logs --tail 80 odoo; exit 1
+          '
+
+      - name: "Phase 5 — Cloudflare DNS for books.biddeed.ai (graceful skip on token limits)"
+        continue-on-error: true
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          ZONE_ID=$(curl -s "https://api.cloudflare.com/client/v4/zones?name=biddeed.ai" \
+            -H "Authorization: Bearer $CF_API_TOKEN" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else 'NOT_FOUND')")
+          if [ "$ZONE_ID" = "NOT_FOUND" ] || [ -z "$ZONE_ID" ]; then
+            echo "⚠️  biddeed.ai zone not reachable with this CF_API_TOKEN — set manually: books.biddeed.ai A $HETZNER_IP (proxied). Known issue, see docs/infra/ODOO.md."
+            exit 0
+          fi
+          EXISTING_ID=$(curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=books.biddeed.ai" \
+            -H "Authorization: Bearer $CF_API_TOKEN" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('result',[]); print(r[0]['id'] if r else 'NONE')")
+          if [ "$EXISTING_ID" != "NONE" ]; then
+            RESULT=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$EXISTING_ID" \
+              -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+              -d "{\"type\":\"A\",\"name\":\"books\",\"content\":\"$HETZNER_IP\",\"proxied\":true,\"ttl\":1}")
+          else
+            RESULT=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+              -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+              -d "{\"type\":\"A\",\"name\":\"books\",\"content\":\"$HETZNER_IP\",\"proxied\":true,\"ttl\":1}")
+          fi
+          echo "$RESULT" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          print('✅ DNS A record set' if d.get('success') else f'⚠️  DNS error (token may lack Zone.DNS:Edit — set manually): {d.get(\"errors\")}')"
+
+      - name: "Phase 6 — Cloudflare Access on books.biddeed.ai (graceful skip)"
+        continue-on-error: true
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          EXISTING_APP=$(curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps?domain=books.biddeed.ai" \
+            -H "Authorization: Bearer $CF_API_TOKEN" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('result',[]); print(r[0]['id'] if r else 'NONE')" 2>/dev/null || echo "NONE")
+          PAYLOAD='{"name":"Deed Projects (Odoo)","domain":"books.biddeed.ai","type":"self_hosted","session_duration":"24h","auto_redirect_to_identity":false}'
+          if [ "$EXISTING_APP" != "NONE" ]; then
+            APP_RESULT=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps/$EXISTING_APP" \
+              -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" -d "$PAYLOAD")
+          else
+            APP_RESULT=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps" \
+              -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" -d "$PAYLOAD")
+          fi
+          APP_ID=$(echo "$APP_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['id'] if d.get('success') else 'NONE')")
+          if [ "$APP_ID" = "NONE" ]; then
+            echo "⚠️  Access app not created (token may lack Access:Edit — configure manually in the Zero Trust dashboard). See docs/infra/ODOO.md."
+            exit 0
+          fi
+          curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps/$APP_ID/policies" \
+            -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" \
+            -d '{"name":"Ariel","decision":"allow","include":[{"email":{"email":"ariel@everestcapitalusa.com"}}],"precedence":1}' > /dev/null
+          echo "✅ Access app + Ariel policy set on books.biddeed.ai. Add the Worker's service token as a second policy manually (Zero Trust → Access → Service Auth) — the service token secret is only ever shown once and must not be minted from an unattended workflow."
+
+      - name: "Print admin URL (never the master password)"
+        run: |
+          echo "Odoo (internal name: Projects) is up."
+          echo "Admin URL: https://books.biddeed.ai/odoo (once DNS + Access are confirmed) or http://$HETZNER_IP:80/ pre-DNS."
+          echo "Master password: NOT printed. Stored only as the ODOO_MASTER_PASSWORD GitHub secret."
+          echo "Next: run infra/odoo/bootstrap.py (needs ODOO_URL/ODOO_DB_NAME/ODOO_ADMIN_PASSWORD/ODOO_WORKER_BOOTSTRAP_PASSWORD env) to rotate the admin password and mint the Worker's scoped ODOO_API_KEY — see docs/infra/ODOO.md."
