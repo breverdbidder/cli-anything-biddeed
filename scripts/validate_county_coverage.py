@@ -77,7 +77,7 @@ def main() -> int:
         required_types[key(slug)] = {str(source.get("sale_type")) for source in entry.get("sources", []) if source.get("sale_type")}
     zero_types: dict[str, set[str]] = {}
     for assertion in assertions.get("assertions", []):
-        if assertion.get("assertion_type") == "authoritative_zero":
+        if assertion.get("assertion_type") in {"authoritative_zero", "authoritative_empty_schedule"}:
             zero_types.setdefault(key(assertion.get("county_slug")), set()).add(str(assertion.get("sale_type")))
     registry = fetch("county_auction_config", {
         "select": "county_name,county_slug",
@@ -100,14 +100,19 @@ def main() -> int:
         bucket = by_county.get(key(slug), {"future_rows": 0, "amount_rows": 0})
         asserted_zero_types = sorted(zero_types.get(key(slug), set()))
         required = required_types.get(key(slug), set())
-        has_authoritative_zero = bool(required) and required.issubset(set(asserted_zero_types))
+        has_authoritative_no_sale_evidence = bool(required) and required.issubset(set(asserted_zero_types))
+        has_empty_schedule_evidence = any(
+            assertion.get("assertion_type") == "authoritative_empty_schedule"
+            and key(assertion.get("county_slug")) == key(slug)
+            for assertion in assertions.get("assertions", [])
+        )
         coverage.append({
             "county": county.get("county_name"),
             "slug": slug,
             **bucket,
             "authoritative_zero_sale_types": asserted_zero_types,
-            "qualified": bucket["future_rows"] > 0 or has_authoritative_zero,
-            "qualification_reason": "future_rows" if bucket["future_rows"] > 0 else ("authoritative_zero_all_configured_sale_types" if has_authoritative_zero else "unresolved"),
+            "qualified": bucket["future_rows"] > 0 or has_authoritative_no_sale_evidence,
+            "qualification_reason": "future_rows" if bucket["future_rows"] > 0 else ("authoritative_zero_all_configured_sale_types" if has_authoritative_no_sale_evidence and not has_empty_schedule_evidence else ("authoritative_empty_schedule_all_configured_sale_types" if has_authoritative_no_sale_evidence else "unresolved")),
         })
     covered = [item for item in coverage if item["future_rows"] > 0]
     qualified = [item for item in coverage if item["qualified"]]

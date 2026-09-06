@@ -10,6 +10,30 @@
       "statement": "There are no foreclosure sales available at this time."
     },
     {
+      "county_slug": "jefferson",
+      "sale_type": "foreclosure",
+      "assertion_type": "authoritative_empty_schedule",
+      "source_url": "https://www.jeffersonclerk.com/clerk-services/property-sales/foreclosures/",
+      "observed_at": "2026-09-06",
+      "statement": "The official Upcoming Foreclosure Sales section rendered no current sale records."
+    },
+    {
+      "county_slug": "jefferson",
+      "sale_type": "tax_deed",
+      "assertion_type": "authoritative_empty_schedule",
+      "source_url": "https://www.jeffersonclerk.com/clerk-services/property-sales/tax-deed-sales/",
+      "observed_at": "2026-09-06",
+      "statement": "The official Upcoming Tax Deed Sales section rendered no current sale records."
+    },
+    {
+      "county_slug": "monroe",
+      "sale_type": "tax_deed",
+      "assertion_type": "authoritative_empty_schedule",
+      "source_url": "https://monroe.realtaxdeed.com/index.cfm?zaction=USER&zmethod=CALENDAR",
+      "observed_at": "2026-09-06",
+      "statement": "The official September 2026 auction calendar rendered no tax-deed events."
+    },
+    {
       "county_slug": "liberty",
       "sale_type": "tax_deed",
       "assertion_type": "authoritative_zero",
