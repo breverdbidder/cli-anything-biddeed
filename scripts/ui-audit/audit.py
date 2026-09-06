@@ -5,10 +5,16 @@ Requires: pip install playwright && playwright install --with-deps chromium
 """
 import asyncio, json, re, sys, os, argparse
 from playwright.async_api import async_playwright
-# Canon = biddeed-web app/globals.css :root (HSL) and its hex renderings. Two hex sets exist today because the Worker hand-converted the HSL (#f5f0e8 vs #f4efe6); #19845 collapses them to one generated file.
-CANON = {"#fdf8f5","#fdf9f6","#f7f3ef","#f6f2ee","#f2ede9","#1c1b19","#1b1a18","#55433d","#56443e","#e6e2de","#e6e2df",  # Claude reading palette (PARITY_PRD s8) and its HSL renderings
-         "#fbfaf7","#fcfbf7","#f5f0e8","#f4efe6","#ede3d7","#ede5d9","#1f1b16","#1e1a15","#6e655e","#746b61","#ddd5c9","#b5a9a0",  # Worker interim palette until the token PR lands
-         "#9f4d32","#823f29","#1f7a3f","#14532d","#b42318","#ffffff","#000000"}
+# Canon = the seven colours Ariel set on 2026-09-04 (evening) and biddeed-web app/globals.css :root renders exactly
+# (PR #44 tokens, PR #45 zero-literal sweep; JS mirror lib/design-tokens.ts). Light mode only - the audit never sets
+# data-theme. Nothing else is allowed: no cream/terracotta (retired 2026-09-04), no Tailwind red/amber/gray/slate.
+CANON = {"#ffffff",  # page + card
+         "#e8f4fc",  # tint (secondary / muted surfaces)
+         "#222222",  # ink
+         "#002a54",  # navy: headings + secondary text (8.5:1 on white)
+         "#cccccc",  # border
+         "#0073cf",  # brand blue (4.8:1 on white)
+         "#005daa"}  # brand hover
 RETIRED = ["before the gavel","know your number"]
 BUZZ = ["comprehensive solution","comprehensive intelligence","next-gen","cutting-edge","streamlined","seamless","revolutionary","industry-leading","best-in-class","leverage","synergy","robust platform"]
 CONTEMPT = ["you're doing it wrong","still using spreadsheets","if you're still","amateur","rookie mistake","too lazy","too dumb"]
@@ -20,7 +26,7 @@ JS_SWEEP = r"""() => {
   function bg(el){let e=el;while(e){const cs=getComputedStyle(e);if((cs.backgroundImage||'').includes('gradient')){const m=cs.backgroundImage.match(/rgba?\([^)]+\)/g);if(m){let best=null,bl=2;for(const c of m){const p=parse(c);if(!p||p.a<0.5)continue;const l=lum(p.rgb);if(l<bl){bl=l;best=p.rgb}}if(best)return best}}const c=parse(cs.backgroundColor);if(c&&c.a>0.5)return c.rgb;e=e.parentElement}const b=parse(getComputedStyle(document.body).backgroundColor);return (b&&b.a>0.5)?b.rgb:[255,255,255]}
   function hex(rgb){return '#'+rgb.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')}
   const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let bad=[],total=0,colors={};
-  const sym=/^[\p{Extended_Pictographic}\p{S}\s\u200d\ufe0f]+$/u;
+  const sym=new RegExp('^[\\p{Extended_Pictographic}\\p{S}\\s'+String.fromCharCode(8205,65039)+']+$','u');  // ZWJ + VS16 by code point: no backslash-u escapes in this source
   while(walker.nextNode()){const n=walker.currentNode;if(!n.textContent.trim()||sym.test(n.textContent.trim()))continue;const el=n.parentElement;const st=getComputedStyle(el);if(st.display==='none'||st.visibility==='hidden'||parseFloat(st.opacity)===0)continue;const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;total++;const fg=parse(st.color);if(!fg)continue;const b=bg(el);colors[hex(fg.rgb)]=(colors[hex(fg.rgb)]||0)+1;colors[hex(b)]=(colors[hex(b)]||0)+1;const l1=lum(fg.rgb),l2=lum(b);const ratio=(Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);if(ratio<4.5)bad.push({t:n.textContent.trim().slice(0,30),ratio:+ratio.toFixed(2),fg:hex(fg.rgb),bg:hex(b)})}
   const h1=[...document.querySelectorAll('h1')].map(h=>h.innerText.trim());
   const vw=window.innerWidth; const docOverflow=document.documentElement.scrollWidth>vw+1; let textOverflow=0, offscreen=0, smallTap=0, tiny=0;
