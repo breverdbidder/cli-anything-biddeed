@@ -11,6 +11,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -105,11 +106,36 @@ def build_evidence(rows: list[dict], run_id: str) -> list[dict]:
 def upsert(evidence: list[dict]) -> int:
     if not evidence:
         return 0
-    request = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/auction_amount_fallbacks?on_conflict=source_record_key,amount_type,source_authority", data=json.dumps(evidence).encode(), method="POST", headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal"})
-    with urllib.request.urlopen(request, timeout=45) as response:
-        if response.status not in (200, 201, 204):
-            raise RuntimeError(f"fallback upsert failed HTTP {response.status}")
-    return len(evidence)
+    # Prevent PostgreSQL's ON CONFLICT statement from affecting the same target
+    # row twice when duplicate source records occur in one harvested window.
+    deduped: dict[tuple[str, str, str], dict] = {}
+    for row in evidence:
+        conflict_key = (
+            str(row.get("source_record_key") or ""),
+            str(row.get("amount_type") or ""),
+            str(row.get("source_authority") or ""),
+        )
+        deduped[conflict_key] = row
+    payload = list(deduped.values())
+    request = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/auction_amount_fallbacks?on_conflict=source_record_key,amount_type,source_authority",
+        data=json.dumps(payload).encode(),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            if response.status not in (200, 201, 204):
+                raise RuntimeError(f"fallback upsert failed HTTP {response.status}")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:4000]
+        raise RuntimeError(f"fallback upsert failed HTTP {exc.code}: {body}") from exc
+    return len(payload)
 
 
 def main() -> int:
