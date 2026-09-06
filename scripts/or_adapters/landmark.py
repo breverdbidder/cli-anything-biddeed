@@ -85,8 +85,44 @@ COUNTY_LANDMARK = {
     "citrus":     {"base": "https://search.citrusclerk.org",   "virtual_dir": "LandmarkWeb", "has_case_number_search": True},
     "flagler":    {"base": "https://records.flaglerclerk.gov", "virtual_dir": "",            "has_case_number_search": True},
     "okeechobee": {"base": "https://pioneer.okeechobeelandmark.com", "virtual_dir": "LandmarkWebLive", "has_case_number_search": False},
-    "st_johns":   {"base": "https://apps.stjohnsclerk.com",     "virtual_dir": "Landmark",    "has_case_number_search": None},  # unverified this session
-    "lee":        {"base": "https://or.leeclerk.org",           "virtual_dir": "LandMarkWeb", "has_case_number_search": None},  # unverified this session -- DB flagged is_active=False, needs live re-check
+    # Landmark rollout, issue #20054 lane C, live-verified 2026-09-06 via a
+    # real Playwright session against each Home/Index nav (see
+    # docs/spec/20054.md for the full probe evidence) -- each entry below was
+    # loaded and its nav checked for the LaunchDisclaimer('searchCriteriaCaseNumber')
+    # onclick handler, same signature case_lookup() itself keys off.
+    "st_johns":     {"base": "https://apps.stjohnsclerk.com",   "virtual_dir": "Landmark",    "has_case_number_search": True},
+    "clay":         {"base": "https://landmark.clayclerk.com",  "virtual_dir": "landmarkweb", "has_case_number_search": True},
+    # escambia's IIS virtual dir is a versioned path (not the generic
+    # "LandmarkWeb" convention every other county here uses) -- confirmed via
+    # the state's own myfloridacounty.com statewide OR directory, live-tested.
+    "escambia":     {"base": "https://dory.escambiaclerk.com",  "virtual_dir": "LandmarkWeb1.4.6.134", "has_case_number_search": True},
+    "wakulla":      {"base": "http://www.wakullaclerk.com",     "virtual_dir": "landmarkweb", "has_case_number_search": True},
+    # indian_river was mislabeled "county_custom" in lane B's platform map --
+    # the state directory's own link (ori.indian-river.org) resolves to a
+    # root-mounted Landmark Web Home/Index, same shape as flagler/palm_beach.
+    "indian_river": {"base": "https://ori.indian-river.org",    "virtual_dir": "",            "has_case_number_search": True},
+    # levy/monroe/walton: reachable, live-verified Landmark Web, but this
+    # clerk does NOT enable the Case Number Search nav tab (name/document/
+    # book-page/instrument-number/legal only) -- same structural gap as
+    # martin/okeechobee, no owner-name source wired. has_case_number_search
+    # is a real False, not an unverified None.
+    "levy":         {"base": "https://online.levyclerk.com",    "virtual_dir": "landmarkweb", "has_case_number_search": False},
+    "monroe":       {"base": "https://or.monroe-clerk.com",     "virtual_dir": "LandmarkWeb", "has_case_number_search": False},
+    "walton":       {"base": "https://orsearch.clerkofcourts.co.walton.fl.us", "virtual_dir": "", "has_case_number_search": False},
+    # charlotte: both known candidate URLs (recording.charlotteclerk.com,
+    # or.charlotteclerk.com/recording) either 403'd (Cloudflare) or timed out
+    # under a real Chromium session this session -- unlike bay/citrus/flagler,
+    # this deployment's challenge did not clear. Left has_case_number_search
+    # unverified (None) rather than guessed.
+    "charlotte":    {"base": "https://or.charlotteclerk.com",   "virtual_dir": "recording",   "has_case_number_search": None},
+    # lee: NOT a protocol issue (issue #20054's premise) -- live-verified this
+    # session that both HTTP/2 (Playwright default) and HTTP/1.1-forced curl
+    # connections complete the TLS handshake against Akamai's edge (23.48.x.x)
+    # and then stall/drop with no HTTP response at all, from this runner's IP.
+    # Same class of block as martin's Akamai 403 (see module docstring), not
+    # a fixable client-side setting. Needs the Apify residential-proxy path,
+    # which is credential-blocked this session (see docs/spec/20054.md).
+    "lee":        {"base": "https://or.leeclerk.org",           "virtual_dir": "LandMarkWeb", "has_case_number_search": None},
 }
 
 _NOBREAK = re.compile(r"^nobreak_")
