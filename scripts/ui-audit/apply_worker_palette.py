@@ -46,6 +46,8 @@ rep("box-shadow:0 8px 32px rgba(251,146,60,.4)", "box-shadow:0 8px 32px rgba(0,1
 # brand blue on the tint is 4.31:1 (fails G-CONTRAST); text on tint uses the hover blue (5.97:1)
 rep(".sc-title{font-weight:700;font-size:16px;color:#0073CF}", ".sc-title{font-weight:700;font-size:16px;color:#005DAA}")
 rep(".price-cta.ghost:hover{border-color:var(--orange);color:#fff}", ".price-cta.ghost:hover{border-color:var(--orange);color:var(--orange)}")
+# /buy-report section numbers: brand on the .s5-overview tint measured 4.18:1 live (2026-09-06 18:40 UTC)
+rep(".s5-grid b{color:#0073CF;", ".s5-grid b{color:#005DAA;")
 
 rep("html[data-theme=light] .disclaimer{color:#8f8479}", "html[data-theme=light] .disclaimer{color:#002A54}")
 rep(".bbl.user{background:#1e3a5f;color:var(--text);border:1px solid #2d5a8e}", ".bbl.user{background:#E8F4FC;color:var(--text);border:1px solid #CCCCCC}")
