@@ -82,7 +82,9 @@ RETIRED_LINES = ["Know your number before the gavel."]
 # names must never appear publicly -- the public name is always
 # "SIGNAL$ Property Report".
 RETIRED_PRODUCT_NAME_RE = re.compile(r"\bS5\b")
-RETIRED_PRODUCT_NAME_PHRASES = ["Shapira Analysis", "Shapira Formula"]
+# "Shapira Max Bid" retired 2026-09-06 (issue #20058) -- public name is
+# always "SIGNAL$ Max Bid".
+RETIRED_PRODUCT_NAME_PHRASES = ["Shapira Analysis", "Shapira Formula", "Shapira Max Bid"]
 
 # CONTENT_SOP P6: default is no patent mention at all. If unavoidable, exactly
 # one of these two phrases -- anything else containing "patent" fails,

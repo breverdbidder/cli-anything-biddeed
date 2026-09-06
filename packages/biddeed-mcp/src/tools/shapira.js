@@ -14,7 +14,7 @@ import { checkSellability } from '../report/sellability.js';
 export const schemas = [
   {
     name: 'predict_auction_outcome',
-    description: 'Get the full BidDeed property intelligence report for a foreclosure/tax-deed auction — the "should I bid on this?" / "what\'s the outlook for this property?" call. Returns a 17-section report (BID/REVIEW/SKIP verdict, Shapira Max Bid, county clearance priors, ZoneWise land & zoning pairing, comparable sales, red flags, full provenance) as both structured JSON and a branded PDF. $25/call. CERT REQUIRED: the county must currently pass BidDeed Gold Standard certification — call search_auctions ($0.05/call) first to discover cases and confirm certification for your county.',
+    description: 'Get the full BidDeed property intelligence report for a foreclosure/tax-deed auction — the "should I bid on this?" / "what\'s the outlook for this property?" call. Returns a 17-section report (BID/REVIEW/SKIP verdict, SIGNAL$ Max Bid, county clearance priors, ZoneWise land & zoning pairing, comparable sales, red flags, full provenance) as both structured JSON and a branded PDF. $25/call. CERT REQUIRED: the county must currently pass BidDeed Gold Standard certification — call search_auctions ($0.05/call) first to discover cases and confirm certification for your county.',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',

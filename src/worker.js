@@ -1045,7 +1045,7 @@ async function fetchS5ReportAccess(apiKey, mcaId) {
 // above — this call only re-validates that the key itself is live.
 // Static verified report for the Marion proof-of-concept property.
 // This is the known-correct pre-sale card from Jul 20 2026 — ceiling held,
-// $73,501 actual sale, $8,499 under Shapira Max Bid, SpaceCoast18 third party.
+// $73,501 actual sale, $8,499 under SIGNAL$ Max Bid, SpaceCoast18 third party.
 // We never re-compute this from the live formula — the DB state for this
 // property has stale/null fields that produce garbage formula outputs.
 // Source of truth: Marion courthouse + RealForeclose.com Jul 24 capture.
@@ -1098,7 +1098,7 @@ const SAMPLE_STATIC_REPORT = {
     sale_price: { value: 50000, display: '$50,000' },
     buyer_type: 'THIRD PARTY',
     scorecard: {
-      ceiling_call: { text: '✓ CEILING HELD — Sold at $50,000 vs Shapira Max Bid $' + Math.round(457184 * 0.72).toLocaleString() + '. Well under ceiling.' },
+      ceiling_call: { text: '✓ CEILING HELD — Sold at $50,000 vs SIGNAL$ Max Bid $' + Math.round(457184 * 0.72).toLocaleString() + '. Well under ceiling.' },
       clearing_multiple: { text: '2.87× opening bid ($17,404)' },
       value_band_call: { text: '✓ IN RANGE — Sale $50K within distressed clearing band $41K–$53K' },
     },
@@ -1404,7 +1404,7 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
         <div class="verdict ${verdictCls}">${escHtml(verdict)}</div>
         <div class="grade">Investment Grade ${escHtml(cover.investment_grade || '—')}</div>
         <div class="maxbid-block">
-          <div class="maxbid-label">SHAPIRA MAX BID</div>
+          <div class="maxbid-label">SIGNAL$ MAX BID</div>
           <div class="maxbid">${dispVal(s5Money(maxBidVal), 'Hidden')}</div>
           <div class="maxbid-sub">Walk away above this number. No exceptions.</div>
         </div>
@@ -1575,7 +1575,7 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
       <div class="sg-verdict ${verdictCls}">${escHtml(verdict)}</div>
     </div>
     <div>
-      <div class="sg-label">Shapira Max Bid</div>
+      <div class="sg-label">SIGNAL$ Max Bid</div>
       <div class="sg-val orange">${maxBidFinite != null ? `$${Math.round(maxBidFinite).toLocaleString()}` : '—'}</div>
     </div>
     <div>
@@ -2016,7 +2016,7 @@ async function fetchCountyLots(county) {
 // Option A (approved by Ariel Aug 1 2026): Gold Standard is a data-quality
 // SIGNAL only, never a customer access gate. Every county with an upcoming
 // auction is purchasable for $25 — Gold Standard counties get the full
-// 18-section report (CMA, ZoneWise, Shapira Max Bid); non-certified counties
+// 18-section report (CMA, ZoneWise, SIGNAL$ Max Bid); non-certified counties
 // get the sections their data supports, clearly labeled. get_all_counties_
 // with_status() is the single source of truth for that full list so the
 // worker doesn't hand-roll it per endpoint.
@@ -3046,7 +3046,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         <div>
           <div class="sc-label">Ceiling Call</div>
           <div class="sc-value">✓ CEILING HELD</div>
-          <div class="sc-note">BidDeed published Shapira Max Bid <strong>$329,000</strong> before auction. Actual sale: <strong>$50,000</strong> — well under ceiling. A buyer disciplined to the ceiling wins this lot by $279K.</div>
+          <div class="sc-note">BidDeed published SIGNAL$ Max Bid <strong>$329,000</strong> before auction. Actual sale: <strong>$50,000</strong> — well under ceiling. A buyer disciplined to the ceiling wins this lot by $279K.</div>
         </div>
       </div>
 
@@ -3109,7 +3109,7 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
 
 <div class="cta-section">
   <h2>See the Full Report That Called This Deal</h2>
-  <p>The sample report shows all 18 sections — value bands, ML probability, Shapira Max Bid, red flags, and the complete §18 scorecard. No account needed.</p>
+  <p>The sample report shows all 18 sections — value bands, ML probability, SIGNAL$ Max Bid, red flags, and the complete §18 scorecard. No account needed.</p>
   <a class="cta-btn" href="https://biddeed.ai/report/cad5d07a-b9c7-433d-b365-3165637b7cbe?key=bd_live_S9KLXyeH9fV1epdliLz731n1">
     Open the Full Sample Report →
   </a>
@@ -4758,21 +4758,21 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           : '';
 
         const countyCtx = (county ? `The user is asking about ${toDisplay(county)} County, Florida.` : 'The user may ask about any Florida county.') + liveDataCtx + propertyPanelCtx + langInstruction + attachmentCtx;
-        const systemPrompt = `You are BidDeed.AI, the expert AI assistant for Florida foreclosure and tax deed auction intelligence. Built on 20 years of experience from Ariel Shapira, creator of the Shapira Max Bid Formula.
+        const systemPrompt = `You are BidDeed.AI, the expert AI assistant for Florida foreclosure and tax deed auction intelligence. Built on 20 years of experience from Ariel Shapira, creator of the SIGNAL$ Max Bid Formula.
 
 ${countyCtx}
 
 Your capabilities:
 - Analyze foreclosure and tax deed auctions across all 67 Florida counties
-- Explain and apply the Shapira Max Bid Formula (exact ceiling before bidding)
+- Explain and apply the SIGNAL$ Max Bid Formula (exact ceiling before bidding)
 - Cover all 67 Florida counties, and identify which ones are Gold Standard certified (verified data quality)
 - Explain lien priority, HOA foreclosure risks, and surplus funds
 - Answer questions about ZoneWise zoning intelligence
 - Respond in the same language the user writes in (English, Hebrew, Spanish, Portuguese, Arabic, Russian, Chinese, French, Italian, German, Japanese, Korean, etc.)
 
 Key facts:
-- All 67 FL counties are available. Gold Standard counties (verified data quality — currently: ${goldListForPrompt}) have full SIGNAL$ Property Report capability including CMA and ZoneWise. All other counties have Shapira Max Bid and opening bid analysis.
-- Marion County proof: Case 422021CA000414CAAXXX — Shapira Max Bid $82,000, actual sale $73,501. Ceiling held by $8,499.
+- All 67 FL counties are available. Gold Standard counties (verified data quality — currently: ${goldListForPrompt}) have full SIGNAL$ Property Report capability including CMA and ZoneWise. All other counties have SIGNAL$ Max Bid and opening bid analysis.
+- Marion County proof: Case 422021CA000414CAAXXX — SIGNAL$ Max Bid $82,000, actual sale $73,501. Ceiling held by $8,499.
 - SIGNAL$ Property Reports: $25 each — full AI-powered max-bid analysis for one specific property. We deliver the SIGNAL$. First.
 - Investor tier: $99/month — unlimited property cards, 10 SIGNAL$ Property Reports/mo, daily digest all 67 counties
 - When a user asks for a specific property analysis, mention they can get a full SIGNAL$ Property Report for $25
@@ -5318,12 +5318,12 @@ const BLOG_POSTS = [
   {
     slug: 'marion-county-foreclosure-auctions-guide',
     title: 'Marion County Foreclosure & Tax Deed Auctions: The County Behind Our Proof Case',
-    description: 'Marion County — where the Shapira Max Bid formula held to the dollar on a real sale. 99 upcoming auctions, and what the median numbers actually look like.',
+    description: 'Marion County — where the SIGNAL$ Max Bid formula held to the dollar on a real sale. 99 upcoming auctions, and what the median numbers actually look like.',
     date: '2026-08-10',
     leadCounty: 'marion',
     leadCountyLabel: 'Marion County',
     bodyHtml: `
-<p>Marion County is where we've published our clearest real-world proof case: a property at 14470 SE 91st Ter, Summerfield, sold for $73,501 against a pre-published $82,000 Shapira Max Bid ceiling — a formula that held to within $8,499 of the actual sale price. See the <a href="/proof/marion-summerfield">shareable result card</a>, or read the full breakdown in our <a href="/blog/florida-foreclosure-max-bid-guide">max bid formula guide</a>.</p>
+<p>Marion County is where we've published our clearest real-world proof case: a property at 14470 SE 91st Ter, Summerfield, sold for $73,501 against a pre-published $82,000 SIGNAL$ Max Bid ceiling — a formula that held to within $8,499 of the actual sale price. See the <a href="/proof/marion-summerfield">shareable result card</a>, or read the full breakdown in our <a href="/blog/florida-foreclosure-max-bid-guide">max bid formula guide</a>.</p>
 <h2>What the current pipeline looks like</h2>
 <p>Marion currently has 99 upcoming auctions — 95 tax deed, 4 mortgage foreclosure. The average opening bid is around <strong>$11,376</strong> against an average assessed value of roughly <strong>$14,897</strong>. But the average is skewed by a handful of higher-value lots — the <em>median</em> opening bid is closer to <strong>$4,006</strong>, against a median assessed value around <strong>$6,149</strong>. For a county with this much volume, the median is the more honest picture of what a typical lot actually looks like: modest opening bids, modest assessed values, and a real but not dramatic spread.</p>
 <h2>Why we use Marion as the proof case</h2>
@@ -5419,7 +5419,7 @@ html[data-theme=light] .disclaimer{color:#8f8479}
   <h1>${card.address}</h1>
   <div class="location">${card.county} County, FL &middot; Case ${card.caseNumber}</div>
   <div class="row"><span class="row-label">Entry bid</span><span class="row-value">${fmt(card.entryBid)}</span></div>
-  <div class="row"><span class="row-label">Shapira Max Bid (published pre-sale)</span><span class="row-value ceiling">${fmt(card.predictedCeiling)}</span></div>
+  <div class="row"><span class="row-label">SIGNAL$ Max Bid (published pre-sale)</span><span class="row-value ceiling">${fmt(card.predictedCeiling)}</span></div>
   <div class="row"><span class="row-label">Actual sale price</span><span class="row-value actual">${fmt(card.actualSale)}</span></div>
   <div class="margin">Sold <strong>${fmt(card.margin)}</strong> under the published ceiling.</div>
   <a href="/buy-report" class="cta">Get your own max bid number &rarr;</a>
@@ -5485,7 +5485,7 @@ ${reel.street_url ? `<img class="deal-img" src="${escHtml(reel.street_url)}" alt
   const lockedSection = `<div class="deal-locked">
 <h2>5 more sections on this property</h2>
 <div class="deal-locked-row"><span class="label">Value Band</span><span class="value blur">$•••,••• – $•••,•••</span></div>
-<div class="deal-locked-row"><span class="label">Shapira Max Bid</span><span class="value blur">$•••,•••</span></div>
+<div class="deal-locked-row"><span class="label">SIGNAL$ Max Bid</span><span class="value blur">$•••,•••</span></div>
 <div class="deal-locked-row"><span class="label">Red Flags</span><span class="value blur">•• found</span></div>
 <div class="deal-locked-row"><span class="label">Lien Hierarchy</span><span class="value blur">•• liens</span></div>
 <div class="deal-locked-row"><span class="label">Comps</span><span class="value blur">•• nearby</span></div>
@@ -5990,7 +5990,7 @@ function buildPioneersPage() {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Pioneer Program — BidDeed.AI — $990/yr</title>
-<meta name="description" content="Join BidDeed.AI as a founding Pioneer for $990/yr. Full Investor tier access to all 67 FL counties, Shapira Max Bid formula, and ZoneWise zoning.">
+<meta name="description" content="Join BidDeed.AI as a founding Pioneer for $990/yr. Full Investor tier access to all 67 FL counties, SIGNAL$ Max Bid formula, and ZoneWise zoning.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -6034,7 +6034,7 @@ footer a{color:var(--muted);text-decoration:none}
 
   <div class="card" style="border-color:rgba(0,115,207,.3)">
     <h3>What you get</h3>
-    <p>Full Investor tier access — live auction data for all 67 FL counties, Shapira Max Bid formula, ZoneWise zoning, lien trap alerts. Priority support. Direct input into the roadmap as a founding customer.</p>
+    <p>Full Investor tier access — live auction data for all 67 FL counties, SIGNAL$ Max Bid formula, ZoneWise zoning, lien trap alerts. Priority support. Direct input into the roadmap as a founding customer.</p>
   </div>
 
   <div class="card">
@@ -6275,7 +6275,7 @@ function buildCountiesIndex(rtConfig) {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>All 67 Florida Counties — BidDeed.AI Foreclosure &amp; Tax Deed Intelligence</title>
-<meta name="description" content="Foreclosure and tax deed auction intelligence for every Florida county — upcoming auction counts, Gold Standard verified counties, and Shapira Max Bid reports starting at $25.">
+<meta name="description" content="Foreclosure and tax deed auction intelligence for every Florida county — upcoming auction counts, Gold Standard verified counties, and SIGNAL$ Max Bid reports starting at $25.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -6649,7 +6649,7 @@ ${countyBar}
     <div class="quick-grid">
       <button class="qbtn prime" data-msg="Show me the Marion County proof — Shapira Formula ceiling held to the cent.">📊 See proof it works</button>
       <button class="qbtn" data-msg="What foreclosure and tax deed auctions are coming up across Florida this week?">📅 What's coming to auction?</button>
-      <button class="qbtn" data-msg="How does the Shapira Max Bid formula work? Walk me through it.">🧮 Shapira Max Bid formula</button>
+      <button class="qbtn" data-msg="How does the SIGNAL$ Max Bid formula work? Walk me through it.">🧮 SIGNAL$ Max Bid formula</button>
       <button class="qbtn" data-msg="I have a specific property I want analyzed. How do I get a SIGNAL$ Property Report?">💼 Get a $25 SIGNAL$ Property Report</button>
     </div>
     <div class="lang-row">
@@ -8134,7 +8134,7 @@ poll();
 const BUY_REPORT_HTML = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Buy One SIGNAL$ Property Report — $25 | BidDeed.AI</title>
-<meta name="description" content="Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction. One-time $25, no subscription. We deliver the SIGNAL$. First.">
+<meta name="description" content="Exact SIGNAL$ Max Bid + ZoneWise zoning + ML prediction for one auction. One-time $25, no subscription. We deliver the SIGNAL$. First.">
 ${POSTHOG_SCRIPT}
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -8217,14 +8217,14 @@ html[data-theme=light] .upl a{color:#0073CF}
 
   <div id="step-county">
     <h1>Pick your county</h1>
-    <p>Exact Shapira Max Bid + ZoneWise zoning + ML prediction for one auction — $25, no subscription.</p>
+    <p>Exact SIGNAL$ Max Bid + ZoneWise zoning + ML prediction for one auction — $25, no subscription.</p>
     <div id="county-loading" class="spin">Loading counties…</div>
     <select id="county-select" style="display:none"></select>
     <button class="btn" id="county-continue" disabled style="display:none">Continue</button>
     <div class="err" id="county-err"></div>
     <p id="county-note" style="display:none;font-size:12px;color:#002A54;margin-top:8px;">
       ⭐ Gold Standard counties include full CMA, ZoneWise zoning, and ML prediction.
-      All counties include Shapira Max Bid and opening bid analysis.
+      All counties include SIGNAL$ Max Bid and opening bid analysis.
     </p>
   </div>
 
@@ -8441,7 +8441,7 @@ p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
 <div class="card">
   <div class="icon">✅</div>
   <h1>Payment received — your SIGNAL$ Property Report credit is ready</h1>
-  <p>Your Shapira Max Bid report is being activated. Your key will appear below momentarily.</p>
+  <p>Your SIGNAL$ Max Bid report is being activated. Your key will appear below momentarily.</p>
   <div class="property-info" id="property-info"></div>
   <div class="key-box" id="key-box">Activating...</div>
   <div class="status" id="status">Checking activation status...</div>
@@ -8969,7 +8969,7 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
             <a href="/subscribe?tier=investor" class="mt-3 inline-flex w-full items-center justify-center rounded-lg py-3 px-4 font-bold text-white" style="background:var(--terracotta)">Join Investor — $99/mo</a>
           </div>
         </template>
-        <p class="text-[10px] text-slate-500 text-center mt-2 leading-snug">18-section AI analysis · Shapira Max Bid ceiling · CMA comps · zoning · outcome prediction · branded PDF</p>
+        <p class="text-[10px] text-slate-500 text-center mt-2 leading-snug">18-section AI analysis · SIGNAL$ Max Bid ceiling · CMA comps · zoning · outcome prediction · branded PDF</p>
       </div>
 
       <div class="grid grid-cols-3 gap-2">
@@ -9768,7 +9768,7 @@ nav{background:rgba(230,240,250,.94);border-bottom-color:var(--orange)}
   <h1>For Florida Tax-Deed &amp; Foreclosure Investors —<br>See What Competitors Miss.</h1>
   <p class="hero-sub">Backed by 20 years of Florida auction data and 67-county parcel coverage. Start your first Gold Standard county report free.</p>
   <div class="hero-cred">67 FL counties tracked · <b>⭐ GOLD_COUNT_PLACEHOLDER Gold Standard certified</b></div>
-  <div class="hero-artifact">Real case · Marion County: Shapira Max Bid <b>$82,000</b> <span class="res">→ sale closed $73,501 · ceiling held ✓</span></div>
+  <div class="hero-artifact">Real case · Marion County: SIGNAL$ Max Bid <b>$82,000</b> <span class="res">→ sale closed $73,501 · ceiling held ✓</span></div>
   <div class="hero-ctas">
     <a class="btn-solid" href="#lead">Check Your County Free →</a>
     <a class="btn-outline" href="#report">See a live sample report →</a>
@@ -9798,7 +9798,7 @@ nav{background:rgba(230,240,250,.94);border-bottom-color:var(--orange)}
             <div class="tile-val">$72,100</div>
           </div>
           <div class="tile">
-            <div class="tile-label">Shapira Max Bid</div>
+            <div class="tile-label">SIGNAL$ Max Bid</div>
             <div class="tile-val orange">$82,000</div>
           </div>
           <div class="tile">
@@ -10208,12 +10208,12 @@ footer a{color:var(--muted)}
 <nav class="top"><a href="/">BidDeed.AI</a></nav>
 <div class="wrap"><a class="back" href="/">← Back to home</a><h1>Terms of Service</h1><div class="upd">Last updated July 28, 2026</div>
         <p>These Terms of Service ("Terms") govern your access to and use of BidDeed.AI, operated by Everest Capital USA ("BidDeed.AI", "we", "us"). By accessing the site or using our services you agree to these Terms.</p>
-        <div class="box"><strong>Not legal advice.</strong> BidDeed.AI is an information and analytics platform, not a law firm, title company, real-estate brokerage, or financial advisor. Nothing on this site or from our chatbot, reports, or the Shapira Max Bid analysis constitutes legal, financial, investment, tax, or title advice, and no attorney-client, fiduciary, or brokerage relationship is created. Foreclosure and tax-deed investing carries substantial risk of loss, including total loss of your bid. Auction data, valuations, and bid estimates are informational, may be incomplete or inaccurate, and must be independently verified. Always consult a licensed Florida attorney and conduct your own due diligence before bidding.</div>
+        <div class="box"><strong>Not legal advice.</strong> BidDeed.AI is an information and analytics platform, not a law firm, title company, real-estate brokerage, or financial advisor. Nothing on this site or from our chatbot, reports, or the SIGNAL$ Max Bid analysis constitutes legal, financial, investment, tax, or title advice, and no attorney-client, fiduciary, or brokerage relationship is created. Foreclosure and tax-deed investing carries substantial risk of loss, including total loss of your bid. Auction data, valuations, and bid estimates are informational, may be incomplete or inaccurate, and must be independently verified. Always consult a licensed Florida attorney and conduct your own due diligence before bidding.</div>
         <h2>1. Service</h2><p>BidDeed.AI provides Florida foreclosure and tax-deed auction data, analytics, and related informational tools on a subscription and metered basis. Features, pricing, and availability may change at any time.</p>
         <h2>2. No professional relationship</h2><p>Use of the service does not create an attorney-client, fiduciary, brokerage, or advisory relationship. See our <a href="/disclaimer">Disclaimer</a>.</p>
         <h2>3. Accounts &amp; payment</h2><p>Paid tiers are billed through our payment processor (Stripe). Metered usage is billed per the pricing shown at purchase. You are responsible for charges incurred under your account. Except where required by law, fees are non-refundable.</p>
         <h2>4. Acceptable use</h2><p>You agree not to scrape, resell, redistribute, or reverse-engineer the service or its data; not to overload or attack the service; and not to use it for any unlawful purpose. We may suspend or terminate access for violations.</p>
-        <h2>5. Intellectual property</h2><p>The Shapira Max Bid Formula, analytics, compilations, software, and site content are our proprietary property. Public-record data underlying our analysis remains public; our compilation and analysis do not.</p>
+        <h2>5. Intellectual property</h2><p>The SIGNAL$ Max Bid Formula, analytics, compilations, software, and site content are our proprietary property. Public-record data underlying our analysis remains public; our compilation and analysis do not.</p>
         <h2>6. Disclaimers &amp; limitation of liability</h2><p>THE SERVICE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND. TO THE MAXIMUM EXTENT PERMITTED BY LAW, EVEREST CAPITAL USA AND ITS AFFILIATES WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR FOR ANY LOSS ARISING FROM YOUR USE OF, OR RELIANCE ON, THE SERVICE OR ITS DATA — INCLUDING ANY BIDDING DECISION OR AUCTION OUTCOME. OUR TOTAL LIABILITY WILL NOT EXCEED THE AMOUNTS YOU PAID US IN THE 3 MONTHS PRECEDING THE CLAIM.</p>
         <h2>7. Indemnification</h2><p>You agree to indemnify and hold harmless Everest Capital USA from claims arising out of your use of the service or your auction activity.</p>
         <h2>8. Governing law</h2><p>These Terms are governed by the laws of the State of Florida. Venue for any dispute lies in the state or federal courts located in Brevard County, Florida.</p>
@@ -10285,8 +10285,8 @@ footer a{color:var(--muted)}
 </style></head><body>
 <nav class="top"><a href="/">BidDeed.AI</a></nav>
 <div class="wrap"><a class="back" href="/">← Back to home</a><h1>Disclaimer</h1><div class="upd">Last updated July 28, 2026</div>
-        <div class="box"><strong>Not legal advice.</strong> BidDeed.AI is an information and analytics platform, not a law firm, title company, real-estate brokerage, or financial advisor. Nothing on this site or from our chatbot, reports, or the Shapira Max Bid analysis constitutes legal, financial, investment, tax, or title advice, and no attorney-client, fiduciary, or brokerage relationship is created. Foreclosure and tax-deed investing carries substantial risk of loss, including total loss of your bid. Auction data, valuations, and bid estimates are informational, may be incomplete or inaccurate, and must be independently verified. Always consult a licensed Florida attorney and conduct your own due diligence before bidding.</div>
-        <h2>Informational purpose only</h2><p>All content, data, analytics, county intelligence, auction calendars, and the Shapira Max Bid Formula are provided for general informational purposes. Property values, opening bids, judgment amounts, liens, and outcomes are sourced from public records and third parties and are provided "as is" without warranty of accuracy, completeness, or fitness for a particular purpose.</p>
+        <div class="box"><strong>Not legal advice.</strong> BidDeed.AI is an information and analytics platform, not a law firm, title company, real-estate brokerage, or financial advisor. Nothing on this site or from our chatbot, reports, or the SIGNAL$ Max Bid analysis constitutes legal, financial, investment, tax, or title advice, and no attorney-client, fiduciary, or brokerage relationship is created. Foreclosure and tax-deed investing carries substantial risk of loss, including total loss of your bid. Auction data, valuations, and bid estimates are informational, may be incomplete or inaccurate, and must be independently verified. Always consult a licensed Florida attorney and conduct your own due diligence before bidding.</div>
+        <h2>Informational purpose only</h2><p>All content, data, analytics, county intelligence, auction calendars, and the SIGNAL$ Max Bid Formula are provided for general informational purposes. Property values, opening bids, judgment amounts, liens, and outcomes are sourced from public records and third parties and are provided "as is" without warranty of accuracy, completeness, or fitness for a particular purpose.</p>
         <h2>No guarantee of results</h2><p>Past results (including any example outcomes shown on this site) do not guarantee future performance. A "max bid" figure is an estimate, not a recommendation to bid, and not a prediction of sale price or profit.</p>
         <h2>Independent verification required</h2><p>You are solely responsible for verifying all information with the county clerk, property appraiser, and a licensed attorney before participating in any auction.</p></div>
 <footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>

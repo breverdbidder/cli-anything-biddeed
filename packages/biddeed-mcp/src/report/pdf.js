@@ -213,7 +213,7 @@ const SECTION_RENDERERS = {
         .text(mb?.low != null ? `${money(mb.low)} – ${money(mb.high)}` : 'Pending', 44, y2 + 14);
       doc.fillColor(MUTED).fontSize(8).font('Helvetica')
         .text(mb?.midpoint != null
-          ? `Midpoint ${money(mb.midpoint)}  ·  Investment Grade ${cover.investment_grade || '—'}  ·  Shapira Max Bid ${money(cover.shapira_max_bid)}`
+          ? `Midpoint ${money(mb.midpoint)}  ·  Investment Grade ${cover.investment_grade || '—'}  ·  SIGNAL$ Max Bid ${money(cover.shapira_max_bid)}`
           : '', 44, y2 + 32);
       doc.y = y2 + 48;
       // ── Equity strip ─────────────────────────────────────────────────────
@@ -438,7 +438,7 @@ const SECTION_RENDERERS = {
     doc.y = y + 58;
     twoCol(doc, [
       ['Entry Bid',          money(opp.entry_bid || cover.entry_bid)],
-      ['Shapira Max Bid',    money(smbVal)],
+      ['SIGNAL$ Max Bid',    money(smbVal)],
       ['Walk Away Above',    money(smbVal)],
       ['Value Midpoint',     money(opp.value_midpoint)],
     ]);
@@ -576,7 +576,7 @@ export async function renderReportPdf(report, { get = defaultGet } = {}) {
     doc.fillColor(WHITE).fontSize(18).font('Helvetica-Bold')
       .text(cover.verdict || 'PENDING', 50, doc.y - 44);
     doc.fontSize(11).font('Helvetica')
-      .text(`INVESTMENT GRADE ${cover.investment_grade || '—'}  ·  SHAPIRA MAX BID ${money(cover.shapira_max_bid)}`, 50, doc.y - 20);
+      .text(`INVESTMENT GRADE ${cover.investment_grade || '—'}  ·  SIGNAL$ MAX BID ${money(cover.shapira_max_bid)}`, 50, doc.y - 20);
     const aj = report.auction_listing || {};
     // Tax deed sales (FL FS Ch. 197) have no final judgment or plaintiff —
     // those are foreclosure (Ch. 45) concepts. Same rule as the §1 band

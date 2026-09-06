@@ -190,7 +190,7 @@ function buildStagingShell() {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,interactive-widget=resizes-content">
 <title>BidDeed.AI — Staging</title>
 <meta name="robots" content="noindex,nofollow">
-<meta name="description" content="BidDeed.AI foreclosure and tax deed auction intelligence for all 67 Florida counties — Shapira Max Bid formula, live county feed, $25 SIGNAL$ Property Reports, $99/mo Investor tier. Staging environment — demo mode, no real charges.">
+<meta name="description" content="BidDeed.AI foreclosure and tax deed auction intelligence for all 67 Florida counties — SIGNAL$ Max Bid formula, live county feed, $25 SIGNAL$ Property Reports, $99/mo Investor tier. Staging environment — demo mode, no real charges.">
 <meta name="theme-color" content="#020617">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f59e0b'/%3E%3Ctext x='16' y='22' font-family='Inter,sans-serif' font-size='13' font-weight='900' text-anchor='middle' fill='%23020617'%3EBD%3C/text%3E%3C/svg%3E">
 <style>
@@ -389,7 +389,7 @@ var rightPanelState = 'COUNTY_FEED'; // COUNTY_FEED | PROPERTY_LIST
 var MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 var MARION_HTML = '<div class="marion-proof"><div class="marion-title">CEILING HELD</div><div class="marion-detail">$73,501 sold · $82,000 max bid · 14470 SE 91ST TER · Jul 20 2026</div></div>';
-var UPGRADE_HTML = '<div class="upgrade-banner"><div class="upgrade-text">Unlock the Shapira Max Bid on every property</div><div class="upgrade-actions"><a href="https://biddeed.ai/subscribe?tier=investor" class="btn-investor">Investor $99/mo →</a><span class="or">or</span><a href="/staging/buy-report" class="btn-report">One Report $25 →</a></div></div>';
+var UPGRADE_HTML = '<div class="upgrade-banner"><div class="upgrade-text">Unlock the SIGNAL$ Max Bid on every property</div><div class="upgrade-actions"><a href="https://biddeed.ai/subscribe?tier=investor" class="btn-investor">Investor $99/mo →</a><span class="or">or</span><a href="/staging/buy-report" class="btn-report">One Report $25 →</a></div></div>';
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function toDisplayClient(slug){return String(slug||'').split('_').map(function(w){return w.charAt(0).toUpperCase()+w.slice(1);}).join(' ');}
@@ -950,7 +950,7 @@ export default {
 
 Your knowledge of BidDeed data is current and real-time — you are NOT a general AI with a knowledge cutoff. You have live auction schedules, opening bids, and property data.
 
-The Marion proof: 14470 SE 91ST TER, Summerfield FL sold $73,501 on Jul 20 2026. Our Shapira Max Bid ceiling was $82,000. CEILING HELD — the property sold BELOW our max bid, confirming our model.
+The Marion proof: 14470 SE 91ST TER, Summerfield FL sold $73,501 on Jul 20 2026. Our SIGNAL$ Max Bid ceiling was $82,000. CEILING HELD — the property sold BELOW our max bid, confirming our model.
 
 Gold Standard counties (full SIGNAL$ Property Report capability): Brevard, Putnam, Hillsborough, Palm Beach, Duval, Indian River, St Johns, Nassau, Charlotte, Hernando, Pasco, Monroe, Volusia, Leon, Orange.
 

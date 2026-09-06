@@ -102,7 +102,7 @@ vendors).
 | hook | 0.0-2.0s | Title line spoken verbatim; on-screen text = title minus emoji; opening frame = aerial with parcel outline (reused at 31.0s) |
 | setup | 2.0-8.0s | County/city, beds/sqft, opening/judgment number; Street View mandatory |
 | tension | 8.0-20.0s | Judgment-vs-value spread, condition/red flags, comps; 2-4 visual cuts (bounded by however many real stills exist for the row — never fabricate a comp-card) |
-| payoff | 20.0-28.0s | The number: sold price/value-band delta (postsale) or Shapira Max Bid vs opening bid (presale). Largest caption of the reel |
+| payoff | 20.0-28.0s | The number: sold price/value-band delta (postsale) or SIGNAL$ Max Bid vs opening bid (presale). Largest caption of the reel |
 | loop_line | 28.0-31.0s | One sentence restating the hook as a question/callback |
 | end | 31.0-32.0s | Return to the 0.0s frame; small biddeed.ai wordmark + QR bottom-right |
 

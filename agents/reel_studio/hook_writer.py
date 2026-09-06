@@ -117,6 +117,7 @@ BANNED_PERSON_NAMES = ["Mariam", "Adina", "Colleen", "Ariel Shapira", "Ariel"]
 BANNED_TOOL_TERMS = gate.VENDOR_NAMES + [
     "issue #", "GitHub", "SUMMIT", "summitleads", "S5", "biddeed_reels",
     "Supabase", "OpenRouter", "DeepSeek", "Gemini", "claude-router",
+    "Shapira Max Bid",
 ]
 
 

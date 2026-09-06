@@ -88,7 +88,7 @@ export const schemas = [
   },
   {
     name: 'get_bid_package',
-    description: 'Complete bid package: RealForeclose/RealAuction deep link + deposit calc + Shapira max bid + lien stack + zoning verdict. Everything needed to bid confidently. BidDeed exclusive.',
+    description: 'Complete bid package: RealForeclose/RealAuction deep link + deposit calc + SIGNAL$ max bid + lien stack + zoning verdict. Everything needed to bid confidently. BidDeed exclusive.',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
@@ -459,7 +459,7 @@ export async function get_bid_package({ case_number, county, arv, repairs, strat
       realforeclose: `https://www.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=PREVIEW&AUCTIONDATE=${saleDate}&county=${countySlug}`,
       realauction: 'https://www.realauction.com/',
     },
-    underwriting: underwriting || { note: 'Pass arv + repairs to get Shapira max bid' },
+    underwriting: underwriting || { note: 'Pass arv + repairs to get SIGNAL$ max bid' },
     lien_stack_summary: {
       sale_type: a.sale_type || 'foreclosure',
       key_risk: 'Federal liens + HOA super-lien (12 months) survive foreclosure sale',

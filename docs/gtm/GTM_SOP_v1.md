@@ -128,7 +128,7 @@ Forever human-click: producer sends (Winner Data), anything with a legal/financi
 
 Deal page (`/deal/{county}/{case}`): hero = Street View + aerial with parcel outline; the number that hooked the reel repeated in words; sale result or opening bid + assessed; **one ask**: "Get the SIGNAL$ Property Report for this property" → email or Deed chat; QR/short-link parity with the reel end card. Gated tiles (blurred Max Bid range, plaintiff intel, zoning) show what paying unlocks — never invent a number to fill a blurred tile.
 
-Home (`/`): Deed composer answers the reel's question in one turn ("what did 14470 SE 91st Ter sell for?"), surfaces the county's next auction, and offers the free account. First gated action (exact Shapira Max Bid, plaintiff max bid, lien stack, zoning) opens the upgrade sheet — Claude.ai upgrade pattern, tier pills, no vendor names.
+Home (`/`): Deed composer answers the reel's question in one turn ("what did 14470 SE 91st Ter sell for?"), surfaces the county's next auction, and offers the free account. First gated action (exact SIGNAL$ Max Bid, plaintiff max bid, lien stack, zoning) opens the upgrade sheet — Claude.ai upgrade pattern, tier pills, no vendor names.
 
 Sticky layers S1–S5 (docs/gtm/CTA_AND_STICKY_SPEC.md) applied to Projects: every visitor sees Projects in both sidebars; a basic project works from Investor; win-to-exit tabs are Pro Plus.
 

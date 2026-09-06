@@ -49,3 +49,34 @@ jobs:
             exit 1
           fi
           echo "GTM-7 smoke test passed — 100% 302 across all codes"
+
+      # Brand rename (#20058): "Shapira Max Bid" -> "SIGNAL$ Max Bid" everywhere
+      # a human can read it. Home + the 3 deal pages named in #20053's own
+      # canonical smoke test must show the new term and must never regress
+      # back to the retired one.
+      - name: Smoke test — SIGNAL$ Max Bid brand check (#20058)
+        run: |
+          set -euo pipefail
+          pages=(
+            "https://biddeed.ai/"
+            "https://biddeed.ai/deal/polk/2024ca000341000000"
+            "https://biddeed.ai/deal/lee/2026000141"
+            "https://biddeed.ai/deal/broward/cace-24-008115"
+          )
+          fail=0
+          for url in "${pages[@]}"; do
+            body=$(curl -s --max-time 15 "$url" || true)
+            if echo "$body" | grep -qi "Shapira Max Bid"; then
+              echo "FAIL: ${url} still contains the retired term 'Shapira Max Bid'"
+              fail=1
+            fi
+            if ! echo "$body" | grep -q 'SIGNAL\$ Max Bid'; then
+              echo "FAIL: ${url} does not contain 'SIGNAL\$ Max Bid'"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "#20058 brand smoke test FAILED"
+            exit 1
+          fi
+          echo "#20058 brand smoke test passed — SIGNAL\$ Max Bid present, Shapira Max Bid absent on all 4 pages"

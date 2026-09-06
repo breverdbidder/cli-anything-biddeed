@@ -206,7 +206,7 @@ async function sendReportEmail(email, { caseNumber, county, address, auctionDate
   if (!resendKey || !fromAddr) return { ok: false, error: 'resend_api_key/resend_from_address not configured in vault' };
   const countyLabel = county ? county.charAt(0).toUpperCase() + county.slice(1) : '';
   const addressLabel = address || `Case ${caseNumber}`;
-  const verdictLine = verdict ? `Verdict: ${verdict}${maxBidDisplay ? ` · Shapira Max Bid: ${maxBidDisplay}` : ''}` : null;
+  const verdictLine = verdict ? `Verdict: ${verdict}${maxBidDisplay ? ` · SIGNAL$ Max Bid: ${maxBidDisplay}` : ''}` : null;
   const body = [
     `Your BidDeed.AI Shapira Report — Case ${caseNumber} (${countyLabel} County, FL)`,
     '',

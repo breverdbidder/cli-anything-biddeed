@@ -110,8 +110,8 @@ function scorePrediction({ sale, ceiling, valueLow, valueHigh, valueMidpoint, en
       headroom: held ? ceiling - sale : null,
       overshoot: held ? null : sale - ceiling,
       text: held
-        ? `Sale cleared at $${sale.toLocaleString()}, $${(ceiling - sale).toLocaleString()} under the $${ceiling.toLocaleString()} Shapira Max Bid — a bidder holding to the ceiling wins this lot.`
-        : `Sale cleared at $${sale.toLocaleString()}, $${(sale - ceiling).toLocaleString()} above the $${ceiling.toLocaleString()} Shapira Max Bid — the report's walk-away instruction prevented an overpay of that amount.`,
+        ? `Sale cleared at $${sale.toLocaleString()}, $${(ceiling - sale).toLocaleString()} under the $${ceiling.toLocaleString()} SIGNAL$ Max Bid — a bidder holding to the ceiling wins this lot.`
+        : `Sale cleared at $${sale.toLocaleString()}, $${(sale - ceiling).toLocaleString()} above the $${ceiling.toLocaleString()} SIGNAL$ Max Bid — the report's walk-away instruction prevented an overpay of that amount.`,
     };
   }
 
