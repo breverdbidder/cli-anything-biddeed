@@ -5,13 +5,16 @@ Requires: pip install playwright && playwright install --with-deps chromium
 """
 import asyncio, json, re, sys, os, argparse
 from playwright.async_api import async_playwright
-# Canon = the WinnerDataAI house-brand palette rendered by biddeed-web in default light mode.
-# The audit samples computed browser colors, so the set includes exact token values
-# plus deterministic Chromium anti-aliased/composited samples. No legacy blue/gold
-# colors are allowed.
-CANON = {"#f5f0e8", "#fbfaf7", "#f8d4c5", "#1f1b16", "#766f67",
-         "#ddd5c9", "#c15f3c", "#a94d30", "#ede3d7",
-         "#fcfaf8", "#f5f1eb", "#1e1a15", "#5a5249", "#8f4028", "#ded6ca", "#c05939"}
+# Canon = the seven colours Ariel set on 2026-09-04 (evening) and biddeed-web app/globals.css :root renders exactly
+# (PR #44 tokens, PR #45 zero-literal sweep; JS mirror lib/design-tokens.ts). Light mode only - the audit never sets
+# data-theme. Nothing else is allowed: no cream/terracotta (retired 2026-09-04), no Tailwind red/amber/gray/slate.
+CANON = {"#ffffff",  # page + card
+         "#e8f4fc",  # tint (secondary / muted surfaces)
+         "#222222",  # ink
+         "#002a54",  # navy: headings + secondary text (8.5:1 on white)
+         "#cccccc",  # border
+         "#0073cf",  # brand blue (4.8:1 on white)
+         "#005daa"}  # brand hover
 RETIRED = ["before the gavel","know your number"]
 BUZZ = ["comprehensive solution","comprehensive intelligence","next-gen","cutting-edge","streamlined","seamless","revolutionary","industry-leading","best-in-class","leverage","synergy","robust platform"]
 CONTEMPT = ["you're doing it wrong","still using spreadsheets","if you're still","amateur","rookie mistake","too lazy","too dumb"]
