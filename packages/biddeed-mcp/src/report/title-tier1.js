@@ -16,11 +16,28 @@
 // availability, not a county switch statement).
 import { get as defaultGet } from '../supabase.js';
 
+// Issue #20049 (statewide OR-platform discovery, lane A): the "not yet live"
+// gate text must name the Official Records platform for the county, not
+// just say "not yet live" -- so an uncovered county's Pending reads as
+// "waiting on the LandmarkWeb adapter" rather than an unexplained gap. Reads
+// title_tier_coverage (written by scripts/clerk_ssot/or_platform_map.json's
+// harvest into that table), never scripts/clerk_ssot/or_platform_map.json
+// itself -- same "report reads a cached table, never re-derives from a
+// static file" pattern as title_tier1_results itself.
+async function platformSuffix(county, get) {
+  if (!county) return '';
+  const rows = await get(
+    `title_tier_coverage?county=eq.${encodeURIComponent(county)}&select=or_platform&limit=1`
+  ).catch(() => null);
+  const platform = rows?.[0]?.or_platform;
+  return platform ? ` (${platform})` : '';
+}
+
 export async function buildLienSearch({ mca_id, county } = {}, { get = defaultGet } = {}) {
   if (!mca_id) {
     return {
       available: false, county_supported: false,
-      reason: `Title Tier 1 not yet live for ${county || 'this county'}`,
+      reason: `Title Tier 1 not yet live for ${county || 'this county'}${await platformSuffix(county, get)}`,
       items: [], n_items: 0, as_of_date: null,
     };
   }
@@ -32,7 +49,7 @@ export async function buildLienSearch({ mca_id, county } = {}, { get = defaultGe
   if (!rows || rows.length === 0) {
     return {
       available: false, county_supported: false,
-      reason: `Title Tier 1 not yet live for ${county || 'this county'}`,
+      reason: `Title Tier 1 not yet live for ${county || 'this county'}${await platformSuffix(county, get)}`,
       items: [], n_items: 0, as_of_date: null,
     };
   }
