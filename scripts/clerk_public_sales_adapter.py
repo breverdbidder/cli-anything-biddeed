@@ -40,6 +40,8 @@ def key(value: str) -> str:
 
 def parse_date(value: str) -> dt.date | None:
     value = clean(value)
+    if "T" in value:
+        value = value.split("T", 1)[0]
     for fmt in DATE_PATTERNS:
         try:
             return dt.datetime.strptime(value, fmt).date()
@@ -254,6 +256,55 @@ def parse_status_sale_rows(url: str, html: str, county: str, sale_type: str, sta
     return rows, evidence
 
 
+def parse_charlotte_taxdeed_rows(county: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict], str]:
+    """Fetch Charlotte's official public tax-deed search JSON contract.
+
+    The portal requires a same-origin antiforgery token and accepts a bounded
+    sale-date query. BaseBid is retained only as source evidence; it is not
+    promoted to judgment_amount because it is a tax-deed bid field.
+    """
+    page_url = "https://taxdeeds.charlotteclerk.com/TaxDeed/Search"
+    endpoint = "https://taxdeeds.charlotteclerk.com/TaxDeed/GetTaxDeedView"
+    jar = urllib.request.HTTPCookieProcessor()
+    opener = urllib.request.build_opener(jar)
+    headers = {"User-Agent": UA, "Accept": "text/html,application/xhtml+xml,application/json"}
+    page_request = urllib.request.Request(page_url, headers=headers)
+    with opener.open(page_request, timeout=35) as response:
+        page_html = response.read().decode("utf-8", errors="replace")
+    token_match = re.search(r'name=["\\\']__RequestVerificationToken["\\\'][^>]*value=["\\\']([^"\\\']+)', page_html, flags=re.I)
+    if not token_match:
+        token_match = re.search(r'value=["\\\']([^"\\\']+)["\\\'][^>]*name=["\\\']__RequestVerificationToken["\\\']', page_html, flags=re.I)
+    if not token_match:
+        raise RuntimeError("Charlotte TaxDeed Search antiforgery token not found")
+    today = dt.date.today().isoformat()
+    form = {
+        "__RequestVerificationToken": token_match.group(1),
+        "inSearchBy": "BySaleDate",
+        "inFromSaleDate": start.strftime("%m/%d/%Y"),
+        "inToSaleDate": end.strftime("%m/%d/%Y"),
+        "inCertificate": "", "inCaseNumber": "", "inParcelId": "", "inApplicant": "",
+        "inFromSaleDateApplicant": "01/01/1977", "inToSaleDateApplicant": today,
+        "inOwner": "", "inFromSaleDateOwner": "01/01/1977", "inToSaleDateOwner": today,
+        "inStatus": "", "inFromSaleDateStatus": "01/01/1977", "inToSaleDateStatus": today,
+    }
+    request = urllib.request.Request(endpoint, data=urllib.parse.urlencode(form).encode(), method="POST", headers={**headers, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "X-Requested-With": "XMLHttpRequest"})
+    with opener.open(request, timeout=35) as response:
+        status = str(response.status)
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    source_rows = payload.get("Data", payload if isinstance(payload, list) else [])
+    rows: list[dict] = []
+    evidence: list[dict] = []
+    for item in source_rows:
+        sale_date = parse_date(str(item.get("SaleDate") or ""))
+        identity = clean(str(item.get("CaseNumber") or item.get("ParcelId") or ""))
+        if not sale_date or not identity or not (start <= sale_date <= end):
+            continue
+        aid = hashlib.sha256(f"{county}|tax_deed|{identity}|{sale_date.isoformat()}".encode()).hexdigest()[:40]
+        rows.append({"aid": aid, "county_slug": county, "auction_type": "tax_deed", "case_number": identity, "judgment_amount": None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": str(item.get("SaleDate")), "county_subdomain": "charlotte-taxdeed-search", "case_clerk_url": page_url, "source_response_id": str(item.get("CaseId") or ""), "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+        evidence.append({"url": page_url, "sale_type": "tax_deed", "identity": identity, "sale_date": sale_date.isoformat(), "amount_present": False, "base_bid": item.get("BaseBid"), "status": item.get("Status"), "format": "charlotte-taxdeed-json"})
+    return rows, evidence, status
+
+
 def upsert(rows: list[dict]) -> int:
     if not rows:
         return 0
@@ -306,8 +357,15 @@ def main() -> int:
     args = parser.parse_args()
     start = dt.date.fromisoformat(args.start_date)
     end = start + dt.timedelta(days=args.days_ahead)
-    status, html = fetch(args.url)
-    rows, evidence = parse_structured_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+    if args.county.lower() == "charlotte" and args.sale_type == "tax_deed":
+        try:
+            rows, evidence, status = parse_charlotte_taxdeed_rows(args.county.lower(), start, end)
+            html = ""
+        except Exception as exc:
+            rows, evidence, status, html = [], [{"url": "https://taxdeeds.charlotteclerk.com/TaxDeed/Search", "error": str(exc), "format": "charlotte-taxdeed-json"}], "error", ""
+    else:
+        status, html = fetch(args.url)
+        rows, evidence = parse_structured_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
     pdf_rows, pdf_evidence = parse_pdf_listing_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
     prose_rows, prose_evidence = parse_explicit_prose_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
     status_rows, status_evidence = parse_status_sale_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
