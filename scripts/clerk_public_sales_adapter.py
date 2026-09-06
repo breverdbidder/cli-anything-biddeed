@@ -283,7 +283,7 @@ def parse_lafayette_taxdeed_cards(url: str, html: str, county: str, start: dt.da
             if not sale_date or not identity or not (start <= sale_date <= end):
                 continue
             aid = hashlib.sha256(f"{county}|tax_deed|{identity}|{sale_date.isoformat()}".encode()).hexdigest()[:40]
-            rows.append({"aid": aid, "county_slug": county, "auction_type": "tax_deed", "case_number": identity, "judgment_amount": None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": str(item.get("sale_date")), "county_subdomain": "lafayette-clerk-vue", "case_clerk_url": str(item.get("link") or url), "source_response_id": str(item.get("parcel") or identity), "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+            rows.append({"aid": aid, "county_slug": county, "auction_type": "tax_deed", "case_number": identity, "judgment_amount": None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": str(item.get("sale_date")), "county_subdomain": "lafayette-clerk-vue", "case_clerk_url": str(item.get("link") or url), "source_response_id": str(item.get("ID")) if str(item.get("ID", "")).isdigit() else None, "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
             evidence.append({"url": url, "sale_type": "tax_deed", "identity": identity, "sale_date": sale_date.isoformat(), "parcel_id": item.get("parcel"), "certificate": item.get("cert"), "amount_present": False, "format": "lafayette-vue-taxdeeds"})
         if rows:
             return rows, evidence
