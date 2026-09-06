@@ -355,11 +355,19 @@ const SECTION_RENDERERS = {
 
   context_layers(doc, report, section) {
     const ctx = report.context_layers || {};
-    row(doc, 'Market Grade',    ctx.market_grade || 'Pending',      true);
-    row(doc, 'Neighborhood',    ctx.neighborhood || 'Pending — layer not yet wired for this county');
-    row(doc, 'Schools',         ctx.schools      || 'Pending — GreatSchools layer not yet wired', true);
-    row(doc, 'Flood Zone',      ctx.flood_zone   || 'Pending — FEMA layer not yet wired; verify Zone X vs AE');
-    row(doc, 'Median Income',   ctx.median_income ? `$${Number(ctx.median_income).toLocaleString()}` : 'Pending', true);
+    const nbhd = ctx.neighborhood || {};
+    const fema = ctx.fema || {};
+    const schools = ctx.schools || {};
+
+    row(doc, 'Market Grade',  ctx.market_grade || 'Pending', true);
+    row(doc, 'Flood Zone',    fema.available
+      ? `${fema.zone || 'Unmapped'}${fema.sfha != null ? ` (${fema.sfha ? 'SFHA' : 'not SFHA'})` : ''}${fema.bfe != null ? `, BFE ${fema.bfe}ft` : ''} — ${fema.source}`
+      : (fema.reason || 'Pending — FEMA layer not yet wired'));
+    row(doc, 'Neighborhood',  nbhd.available
+      ? `Median income $${nbhd.median_income?.toLocaleString() ?? '—'}, ownership ${nbhd.ownership_rate != null ? Math.round(nbhd.ownership_rate * 100) + '%' : '—'}, poverty rate ${nbhd.poverty_rate != null ? Math.round(nbhd.poverty_rate * 100) + '%' : '—'} — ${nbhd.source}`
+      : (nbhd.reason || 'Pending — layer not yet wired for this county'), true);
+    row(doc, 'Schools',       schools.available ? schools.display : (schools.reason || 'Pending — school layer not wired; source TBD'));
+    row(doc, 'Median Income', nbhd.available && nbhd.median_income != null ? `$${Number(nbhd.median_income).toLocaleString()}` : 'Pending', true);
     liabilityNote(doc, section.liability_note);
   },
 

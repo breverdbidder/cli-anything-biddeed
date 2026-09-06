@@ -20,6 +20,8 @@ import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vecto
 import { predictEnsemble } from './ensemble-model.js';
 import { deriveRedFlags, hasJuniorLienRisk, hasTaxDeedLienRisk, JUNIOR_JUDGMENT_TO_ASSESSED } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
+import { fetchFemaFloodZone, fetchNeighborhoodAcs } from './context-layers.js';
+import { buildPlaintiffDiscountBand } from './plaintiff-discount.js';
 import { classify as classifyLienSurvival } from './lien-survival.js';
 import { DISCLAIMER_FULL } from '../disclaimer.js';
 
@@ -336,11 +338,14 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     matchStateParcel(county, auction.property_address, { get }),
   ]);
   const parcel = match.matched ? match.parcel : null;
-  const [zoning, cma, distressedCma, model] = await Promise.all([
+  const [zoning, cma, distressedCma, model, femaLayer, neighborhoodLayer, plaintiffDiscount] = await Promise.all([
     buildZwSection(auction, match, { get }),
     buildCma(parcel, { get }),
     buildDistressedCma(parcel, auction, { get }),
     scoreModel(auction, county, { get }),
+    fetchFemaFloodZone(auction.latitude, auction.longitude, auction.zip, { get }),
+    fetchNeighborhoodAcs(auction.zip, { get }),
+    buildPlaintiffDiscountBand(auction, { get }),
   ]);
   const value = computeValueEstimate(auction, priors, cma, distressedCma);
   const sellProb = typeof model.probability_third_party_purchase === 'number' ? model.probability_third_party_purchase : 0.5;
@@ -483,6 +488,10 @@ export async function buildReport(auction, { get = defaultGet } = {}) {
     },
     context_layers: {
       ml_model: model,
+      neighborhood: neighborhoodLayer,
+      fema: femaLayer,
+      schools: { available: false, reason: 'Pending — school layer not wired; source TBD' },
+      plaintiff_discount_index: plaintiffDiscount,
     },
     zoning,
     cma,

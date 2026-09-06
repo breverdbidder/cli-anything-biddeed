@@ -108,7 +108,7 @@ export async function buildDistressedCma(subjectParcel, auction, {
       `&tier1_sold_amount=gt.${MIN_SALE_PRICE}` +
       (sqft > 0 ? `&living_area_sqft=gte.${sqftMin}&living_area_sqft=lte.${sqftMax}` : '') +
       (zip ? `&property_zip=eq.${encodeURIComponent(zip)}` : '') +
-      `&select=case_number,property_address,property_zip,living_area_sqft,assessed_value,judgment_amount,tier1_sold_amount,tier1_buyer_type,auction_date,dor_uc` +
+      `&select=case_number,parcel_id,property_address,property_zip,living_area_sqft,assessed_value,judgment_amount,tier1_sold_amount,tier1_buyer_type,auction_date,sale_date,dor_uc` +
       `&order=auction_date.desc&limit=50`
     ).catch(() => []);
   }
@@ -121,17 +121,24 @@ export async function buildDistressedCma(subjectParcel, auction, {
       `&auction_date=gte.${sinceYear}-01-01` +
       `&tier1_sold_amount=gt.${MIN_SALE_PRICE}` +
       (sqft > 0 ? `&living_area_sqft=gte.${sqftMin}&living_area_sqft=lte.${sqftMax}` : '') +
-      `&select=case_number,property_address,property_zip,living_area_sqft,assessed_value,judgment_amount,tier1_sold_amount,tier1_buyer_type,auction_date,dor_uc` +
+      `&select=case_number,parcel_id,property_address,property_zip,living_area_sqft,assessed_value,judgment_amount,tier1_sold_amount,tier1_buyer_type,auction_date,sale_date,dor_uc` +
       `&order=auction_date.desc&limit=100`
     ).catch(() => []);
   }
 
-  // Sort by sqft proximity
+  // Sort by sqft proximity, with a deterministic tiebreak (issue #20043 item 8):
+  // ties on sqft proximity used to fall back to whatever order PostgREST
+  // returned them in (unstable across requests) — break ties by sale_date
+  // (falling back to auction_date) desc, then parcel_id asc so the same
+  // comp set renders in the same order every time.
   if (sqft > 0) {
-    rows.sort((a, b) =>
-      Math.abs((a.living_area_sqft || 0) - sqft) -
-      Math.abs((b.living_area_sqft || 0) - sqft)
-    );
+    rows.sort((a, b) => {
+      const sqftDelta = Math.abs((a.living_area_sqft || 0) - sqft) - Math.abs((b.living_area_sqft || 0) - sqft);
+      if (sqftDelta !== 0) return sqftDelta;
+      const dateDelta = (b.sale_date || b.auction_date || '').localeCompare(a.sale_date || a.auction_date || '');
+      if (dateDelta !== 0) return dateDelta;
+      return String(a.parcel_id || '').localeCompare(String(b.parcel_id || ''));
+    });
   }
   const top = rows.slice(0, MAX_DISTRESSED_COMPS);
 
@@ -268,7 +275,7 @@ export async function buildCma(subjectParcel, {
     (jvMin != null ? `&jv=gte.${jvMin}&jv=lte.${jvMax}` : '') +
     (lotMin != null ? `&lnd_sqfoot=gte.${lotMin}&lnd_sqfoot=lte.${lotMax}` : '') +
     `&parcel_id=neq.${encodeURIComponent(subjectParcel.parcel_id)}` +
-    `&select=parcel_id,phy_addr1,tot_lvg_ar,act_yr_blt,sale_prc1,sale_yr1,jv,lnd_sqfoot` +
+    `&select=parcel_id,phy_addr1,tot_lvg_ar,act_yr_blt,sale_prc1,sale_yr1,sale_mo1,jv,lnd_sqfoot` +
     `&limit=100`
   ).catch(() => []);
 
@@ -288,16 +295,26 @@ export async function buildCma(subjectParcel, {
       `&sale_prc1=gte.${MIN_SALE_PRICE}` +
       `&tot_lvg_ar=gte.${sqftMin}&tot_lvg_ar=lte.${sqftMax}` +
       `&parcel_id=neq.${encodeURIComponent(subjectParcel.parcel_id)}` +
-      `&select=parcel_id,phy_addr1,tot_lvg_ar,act_yr_blt,sale_prc1,sale_yr1,jv,lnd_sqfoot` +
+      `&select=parcel_id,phy_addr1,tot_lvg_ar,act_yr_blt,sale_prc1,sale_yr1,sale_mo1,jv,lnd_sqfoot` +
       `&limit=100`
     ).catch(() => []);
   }
 
+  // Sort by sqft proximity, with a deterministic tiebreak (issue #20043 item
+  // 8): ties used to fall back to unstable PostgREST row order. Break ties
+  // by sale date (sale_yr1, sale_mo1) desc, then parcel_id asc.
   const withDelta = finalRows.map(r => ({
     ...r,
     sqft_delta: Math.abs((r.tot_lvg_ar || 0) - sqft),
   }));
-  withDelta.sort((a, b) => a.sqft_delta - b.sqft_delta);
+  withDelta.sort((a, b) => {
+    if (a.sqft_delta !== b.sqft_delta) return a.sqft_delta - b.sqft_delta;
+    const yrDelta = (b.sale_yr1 || 0) - (a.sale_yr1 || 0);
+    if (yrDelta !== 0) return yrDelta;
+    const moDelta = (b.sale_mo1 || 0) - (a.sale_mo1 || 0);
+    if (moDelta !== 0) return moDelta;
+    return String(a.parcel_id || '').localeCompare(String(b.parcel_id || ''));
+  });
   const top = withDelta.slice(0, MAX_COMPS);
 
   const prices      = top.map(r => r.sale_prc1);

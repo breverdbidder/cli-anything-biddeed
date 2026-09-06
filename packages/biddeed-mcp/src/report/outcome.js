@@ -19,6 +19,23 @@
 const PENDING_REASON =
   'outcome not captured — the post-sale result loop has not written sold_amount/winning_bidder for this auction';
 
+// Terminal statuses where no sale occurred by design (the auction was
+// resolved without a bid, not merely "not yet captured"). Rendering these as
+// "Pending — outcome not captured" implies the post-sale loop simply hasn't
+// run yet, which is false and misleading — the outcome IS known, it's just
+// not a sale. Vocabulary sourced from tier1_sale_status values already
+// written by the harvest pipeline (see scripts/shard9_run651_b_outcomes.py,
+// scripts/gold_standard_miami_dade_20260902_c_null_parity_triage.py).
+const TERMINAL_NO_SALE_STATUSES = new Set([
+  'CANCELED', 'CANCELLED', 'CANCELED_PER_ORDER', 'CANCELED_PER_BANKRUPTCY',
+  'DISMISSED', 'JUDGMENT_VACATED', 'REDEEMED', 'WITHDRAWN',
+]);
+
+function resolveTerminalNoSale(auction) {
+  const status = (auction.tier1_sale_status || '').toUpperCase();
+  return TERMINAL_NO_SALE_STATUSES.has(status) ? status : null;
+}
+
 function money(value, source) {
   if (value == null) return { value: null, display: 'Pending — not captured', source };
   return { value, display: `$${Number(value).toLocaleString()}`, source };
@@ -72,9 +89,14 @@ function resolveBuyerType(auction) {
  *                       so the report's instruction to walk away prevented an
  *                       overpay. Not a miss.
  */
-function scorePrediction({ sale, ceiling, valueLow, valueHigh, valueMidpoint, entryBid }) {
+function scorePrediction({ sale, ceiling, valueLow, valueHigh, valueMidpoint, entryBid, terminalNoSale }) {
   if (sale == null) {
-    return { available: false, note: `Scorecard withheld — ${PENDING_REASON}.` };
+    return {
+      available: false,
+      note: terminalNoSale
+        ? `Scorecard withheld — no sale occurred (tier1_sale_status=${terminalNoSale}); nothing to grade the pre-sale call against.`
+        : `Scorecard withheld — ${PENDING_REASON}.`,
+    };
   }
 
   const card = { available: true };
@@ -117,12 +139,14 @@ export function buildOutcomeSection(auction, { ceiling = null, value = null, ent
 
   const sale = resolveSale(auction);
   const buyer = resolveBuyerType(auction);
+  const terminalNoSale = resolveTerminalNoSale(auction);
 
   const captured = sale.amount != null;
   let status;
   if (!auctionDate) status = 'Pending — no auction date on file';
   else if (!isPast) status = `Scheduled — sale has not yet occurred (${auctionDate})`;
   else if (captured) status = 'Captured';
+  else if (terminalNoSale) status = `Canceled — no sale occurred (tier1_sale_status=${terminalNoSale})`;
   else status = `Pending — ${PENDING_REASON}`;
 
   // A past-dated auction still flagged 'upcoming' is a pipeline defect, not a
@@ -150,6 +174,7 @@ export function buildOutcomeSection(auction, { ceiling = null, value = null, ent
     winning_bidder: auction.winning_bidder ?? null,
     buyer_type: buyer,
     tier1_sale_status: auction.tier1_sale_status ?? null,
+    terminal_no_sale: terminalNoSale,
     scorecard: scorePrediction({
       sale: sale.amount,
       ceiling,
@@ -157,6 +182,7 @@ export function buildOutcomeSection(auction, { ceiling = null, value = null, ent
       valueHigh: value?.high ?? null,
       valueMidpoint: value?.midpoint ?? null,
       entryBid,
+      terminalNoSale,
     }),
     model_target_note:
       buyer.value == null
