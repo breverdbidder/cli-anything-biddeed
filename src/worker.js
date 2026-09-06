@@ -3016,11 +3016,22 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       // the pageview before handing off to Stripe.
       if (path === '/subscribe') {
         const tier = url.searchParams.get('tier') || 'investor';
-        const safeTier = tier.replace(/[^a-z0-9_-]/gi, '');
+        // issue #20046: the live Projects-panel upgrade CTAs (r2e block)
+        // link with the underscored alias `pro_plus`, which didn't match
+        // this route's `proplus` (matches TIER_RANK / stripe_products.tier_id)
+        // -- those clicks rendered as "Investor" here and then 400'd at
+        // /subscribe/checkout ('valid tier required'). Normalize the alias.
+        const rawSafeTier = tier.replace(/[^a-z0-9_-]/gi, '');
+        const safeTier = rawSafeTier === 'pro_plus' ? 'proplus' : rawSafeTier;
         const intervalParam = url.searchParams.get('interval') || 'monthly';
         const safeInterval = intervalParam === 'annual' ? 'annual' : 'monthly';
         const isPro = safeTier === 'pro' || safeTier === 'proplus';
-        const tierLabel = isPro ? 'Pro' : 'Investor';
+        // Pro Plus has its own Stripe product/price IDs (stripe_products.tier_id
+        // ='proplus') but no numeric price is available to this worker (no
+        // pricing-token source wired yet) -- labeled distinctly, priced on the
+        // same Pro bucket below pending that wiring (residual gap, not a new
+        // invented figure; see docs/spec/20046.md).
+        const tierLabel = safeTier === 'proplus' ? 'Pro Plus' : (isPro ? 'Pro' : 'Investor');
         const monthlyNum = isPro ? 199 : 99;
         const annualNum = isPro ? 1990 : 990;
         const tierPrice = '$' + monthlyNum;
