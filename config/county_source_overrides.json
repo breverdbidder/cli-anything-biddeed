@@ -44,7 +44,7 @@
     },
     "lafayette": {
       "authority": "Clerk of Courts",
-      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://www.lafayetteclerk.com/departments-services/clerk-services/tax-deeds/"}]
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://www.lafayetteclerk.com/departments-services/court-services/foreclosure-sales/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://www.lafayetteclerk.com/departments-services/clerk-services/tax-deeds/"}]
     },
     "levy": {
       "authority": "Clerk of Courts",
@@ -52,7 +52,7 @@
     },
     "liberty": {
       "authority": "Clerk of Courts",
-      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://libertyclerk.com/courts/tax-deeds/"}]
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://libertyclerk.com/courts/foreclosure-sales/"}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://libertyclerk.com/courts/tax-deeds/"}]
     },
     "miami_dade": {
       "authority": "Clerk of Courts / RealForeclose / RealTDM",
@@ -92,6 +92,6 @@
     },
     "union": {
       "authority": "Clerk of Courts",
-      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://unionclerk.com/courts/foreclosure-sales/", "extra_urls": ["https://unionclerk.com/departments-services/court-services/foreclosure-sales/"]}]}
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://unionclerk.com/courts/foreclosure-sales/", "extra_urls": ["https://unionclerk.com/departments-services/court-services/foreclosure-sales/", "https://unionclerk.com/wp-json/wp/v2/pages/976"]}]}
   }
 }
