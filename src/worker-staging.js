@@ -848,8 +848,11 @@ export default {
         return new Response(JSON.stringify(cards), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public,max-age=60', ...corsHeaders(origin) } });
       }
 
-      // ── GET /staging/buy-report — demo checkout page ─────────────────
-      if (path === '/staging/buy-report' && method === 'GET') {
+      // ── GET /staging/buy-report and root /buy-report — demo checkout page ──
+      // The staging hostname is already an isolated Worker, so both the legacy
+      // prefixed path and the canonical route are safe aliases. This prevents
+      // the staging 404 observed when the app links to /buy-report directly.
+      if ((path === '/staging/buy-report' || path === '/buy-report') && method === 'GET') {
         const prefill = {
           mcaId: url.searchParams.get('mca_id') || '',
           address: url.searchParams.get('address') || '',
@@ -859,21 +862,21 @@ export default {
         return new Response(buildBuyReportHtml(prefill), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'no-store' } });
       }
 
-      // ── POST /staging/buy-report/checkout — DEMO MODE, no real Stripe ──
-      if (path === '/staging/buy-report/checkout' && method === 'POST') {
+      // ── POST /staging/buy-report/checkout and /buy-report/checkout ────────
+      if ((path === '/staging/buy-report/checkout' || path === '/buy-report/checkout') && method === 'POST') {
         let body = {};
         try { body = await request.json(); } catch(_) {
           return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         }
         if (!body.email) return new Response(JSON.stringify({ error: 'email required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
         if (DEMO_MODE) {
-          return Response.redirect(`${url.origin}/staging/demo-success`, 302);
+          return Response.redirect(`${url.origin}${path.startsWith('/staging/') ? '/staging/demo-success' : '/demo-success'}`, 302);
         }
         return new Response(JSON.stringify({ error: 'Live checkout not available in staging' }), { status: 501, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
       }
 
-      // ── GET /staging/demo-success ────────────────────────────────────
-      if (path === '/staging/demo-success' && method === 'GET') {
+      // ── GET /staging/demo-success and root /demo-success ─────────────
+      if ((path === '/staging/demo-success' || path === '/demo-success') && method === 'GET') {
         return new Response(buildDemoSuccessHtml(), {
           headers: { 'Content-Type': 'text/html;charset=UTF-8', ...corsHeaders(origin) },
         });
