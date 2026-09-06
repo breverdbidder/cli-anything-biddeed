@@ -27,7 +27,7 @@ JS_SWEEP = r"""() => {
   function hex(rgb){return '#'+rgb.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')}
   const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let bad=[],total=0,colors={};
   const sym=new RegExp('^[\\p{Extended_Pictographic}\\p{S}\\s'+String.fromCharCode(8205,65039)+']+$','u');  // ZWJ + VS16 by code point: no backslash-u escapes in this source
-  while(walker.nextNode()){const n=walker.currentNode;if(!n.textContent.trim()||sym.test(n.textContent.trim()))continue;const el=n.parentElement;const st=getComputedStyle(el);if(st.display==='none'||st.visibility==='hidden'||parseFloat(st.opacity)===0)continue;const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;total++;const fg=parse(st.color);if(!fg)continue;const b=bg(el);colors[hex(fg.rgb)]=(colors[hex(fg.rgb)]||0)+1;colors[hex(b)]=(colors[hex(b)]||0)+1;const l1=lum(fg.rgb),l2=lum(b);const ratio=(Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);if(ratio<4.5)bad.push({t:n.textContent.trim().slice(0,30),ratio:+ratio.toFixed(2),fg:hex(fg.rgb),bg:hex(b)})}
+  while(walker.nextNode()){const n=walker.currentNode;if(!n.textContent.trim()||sym.test(n.textContent.trim()))continue;const el=n.parentElement;const st=getComputedStyle(el);if(st.display==='none'||st.visibility==='hidden'||parseFloat(st.opacity)===0)continue;const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;total++;const fg=parse(st.color);if(!fg||fg.a===0)continue;const b=bg(el);colors[hex(fg.rgb)]=(colors[hex(fg.rgb)]||0)+1;colors[hex(b)]=(colors[hex(b)]||0)+1;const l1=lum(fg.rgb),l2=lum(b);const ratio=(Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);if(ratio<4.5)bad.push({t:n.textContent.trim().slice(0,30),ratio:+ratio.toFixed(2),fg:hex(fg.rgb),bg:hex(b)})}
   const h1=[...document.querySelectorAll('h1')].map(h=>h.innerText.trim());
   const vw=window.innerWidth; const docOverflow=document.documentElement.scrollWidth>vw+1; let textOverflow=0, offscreen=0, smallTap=0, tiny=0;
   for(const el of document.querySelectorAll('body *')){const cs=getComputedStyle(el); if(cs.display==='none'||cs.visibility==='hidden')continue; const r=el.getBoundingClientRect(); if(!r.width||!r.height)continue; const scrollable=/(auto|scroll)/.test(cs.overflowX+cs.overflow); const hidden=/hidden/.test(cs.overflowX+cs.overflow); const t=(el.innerText||'').trim();
@@ -35,9 +35,10 @@ JS_SWEEP = r"""() => {
     if(r.right>vw+2&&r.width>40&&!scrollable&&!el.closest('[style*="overflow"]'))offscreen++;
     if((el.tagName==='A'||el.tagName==='BUTTON')&&t&&(r.width<32||r.height<32))smallTap++;
     if(/^(P|LI|DD)$/.test(el.tagName)&&t.length>20&&parseFloat(cs.fontSize)<(vw<600?16:15))tiny++;}
+  let misaligned=0, misalignedWhere=[]; for(const dl of document.querySelectorAll('dl')){const rows={}; for(const dd of dl.querySelectorAll('dd')){const r=dd.getBoundingClientRect(); if(!r.width||!r.height)continue; const tile=dd.parentElement===dl?dd:dd.parentElement; const key=Math.round(tile.getBoundingClientRect().top/12); (rows[key]=rows[key]||[]).push({top:Math.round(r.top),t:(dd.innerText||'').trim().slice(0,14)});} for(const k in rows){const g=rows[k]; if(g.length<2)continue; const tops=g.map(x=>x.top); if(Math.max(...tops)-Math.min(...tops)>4){misaligned++; misalignedWhere.push(g.map(x=>x.t+'@'+x.top).join('/'));}}}
   const fams=new Set([...document.querySelectorAll('h1,h2,h3,p,a,button,span,li,dd')].map(e=>getComputedStyle(e).fontFamily.split(',')[0].replace(/"/g,'').trim()));
   const ld=[...document.querySelectorAll('script[type="application/ld+json"]')].map(s=>{try{const d=JSON.parse(s.textContent);return (Array.isArray(d)?d:[d]).map(x=>x['@type'])}catch(e){return ['UNPARSABLE']}}).flat();
-  return {total,bad,colors,h1,ld,meta:(document.querySelector('meta[name=description]')||{}).content||'',canonical:(document.querySelector('link[rel=canonical]')||{}).href||'',text:document.body.innerText,layout:{docOverflow,textOverflow,offscreen,smallTap,tiny},fams:[...fams]}}"""
+  return {total,bad,colors,h1,ld,meta:(document.querySelector('meta[name=description]')||{}).content||'',canonical:(document.querySelector('link[rel=canonical]')||{}).href||'',text:document.body.innerText,layout:{docOverflow,textOverflow,offscreen,smallTap,tiny,misaligned,misalignedWhere:misalignedWhere.slice(0,3)},fams:[...fams]}}"""
 DISPLAY={}
 async def run(base, routes, out, fail_on_red):
     rows=[]; red=0
@@ -59,7 +60,7 @@ async def run(base, routes, out, fail_on_red):
                  "CONTRAST": len(r.get("bad",[]))==0,
                  "COPY": not any(x in low for x in RETIRED+BUZZ+CONTEMPT+COMPET) and low.count("!")<=1 and not re.search(r"\bS5\b", r.get("text","")),
                  "SEO": len(r.get("h1",[]))==1 and 0<len(r.get("meta",""))<=155 and bool(r.get("canonical")),
-                 "LAYOUT": (lambda L: bool(L) and not L["docOverflow"] and L["textOverflow"]==0 and L["offscreen"]==0 and L["smallTap"]==0)(r.get("layout")),
+                 "LAYOUT": (lambda L: bool(L) and not L["docOverflow"] and L["textOverflow"]==0 and L["offscreen"]==0 and L["smallTap"]==0 and L.get("misaligned",0)==0)(r.get("layout")),
                  "TYPE": (lambda L,F: bool(L) and L["tiny"]==0 and set(F) <= {"Inter","Inter Fallback","Source Serif 4","Source Serif 4 Fallback","JetBrains Mono","system-ui","serif","sans-serif","monospace","Iowan Old Style","ui-monospace","Segoe UI Emoji"})(r.get("layout"), r.get("fams",[])),
                 }
                 red+=sum(1 for v in gates.values() if not v)
