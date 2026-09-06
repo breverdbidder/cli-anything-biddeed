@@ -48,7 +48,12 @@
       "honesty_marker": "INFERRED",
       "notes": "Cloudflare WAF 403 on direct fetch; product name inferred from external search result title only, not from a direct fetch. 8 genuinely-future upcoming auctions.",
       "source": "lane_b",
-      "lane_a_platform": "other:DuProcess"
+      "lane_a_platform": "other:DuProcess",
+      "fingerprint_via": "apify_browser",
+      "apify_outcome": "loaded",
+      "apify_run_id": "4P3WKlYMMIfUtKqLM",
+      "apify_cost_usd": 5e-05,
+      "apify_evidence": "httpStatus=None title=None finalUrl=None html_len=0"
     },
     {
       "county": "bay",
@@ -71,7 +76,12 @@
       "honesty_marker": "UNKNOWN",
       "notes": "Cloudflare JS-challenge interstitial (HTTP 403) on every attempt. 1 genuinely-future upcoming auction.",
       "source": "lane_b",
-      "lane_a_platform": "unknown"
+      "lane_a_platform": "unknown",
+      "fingerprint_via": "apify_browser",
+      "apify_outcome": "run_error",
+      "apify_run_id": "XpQfmXrQnO1zYW6Ux",
+      "apify_cost_usd": 0.007765916662345329,
+      "apify_evidence": "TypeError: context.response.status is not a function "
     },
     {
       "county": "brevard",
@@ -93,7 +103,12 @@
       "http_status": 403,
       "fingerprint_evidence": "URL path explicitly contains /AcclaimWeb (per official clerk listing title 'Official Records Search - Broward County, Florida').",
       "notes": "Live body fetch blocked by Cloudflare (cf-bm challenge); platform ID rests on explicit URL-path signature, not body content \u2014 treat as HIGH CONFIDENCE, not code-verified.",
-      "source": "lane_a"
+      "source": "lane_a",
+      "fingerprint_via": "apify_browser",
+      "apify_outcome": "loaded",
+      "apify_run_id": "MDCxhWjvfOdRGcfY8",
+      "apify_cost_usd": 9.651671507623462e-05,
+      "apify_evidence": "httpStatus=None title=None finalUrl=None html_len=0"
     },
     {
       "county": "calhoun",
@@ -104,7 +119,12 @@
       "honesty_marker": "VERIFIED",
       "notes": "Pre-existing clerk_official_records_subdomains row. 1 genuinely-future upcoming auction.",
       "source": "lane_b",
-      "lane_a_platform": "other:CivitekOCRS"
+      "lane_a_platform": "other:CivitekOCRS",
+      "fingerprint_via": "apify_browser",
+      "apify_outcome": "run_error",
+      "apify_run_id": "EEp50qdvk2BtXSbda",
+      "apify_cost_usd": 8.985004840956796e-05,
+      "apify_evidence": "TypeError: context.response.status is not a function "
     },
     {
       "county": "charlotte",
@@ -115,7 +135,12 @@
       "http_status": null,
       "fingerprint_evidence": "Search-result title literally 'Landmark Web Official Records Search'.",
       "notes": "INFERRED from search-engine cache \u2014 two live curl attempts timed out (connection timeout, not 403/login), not directly confirmed.",
-      "source": "lane_a"
+      "source": "lane_a",
+      "fingerprint_via": "apify_browser",
+      "apify_outcome": "loaded",
+      "apify_run_id": "Ke3a3psjGXLsBQ3cY",
+      "apify_cost_usd": 0.012354899464052585,
+      "apify_evidence": "httpStatus=None title=None finalUrl=None html_len=0"
     },
     {
       "county": "citrus",
@@ -139,7 +164,12 @@
       "honesty_marker": "VERIFIED",
       "notes": "Corrects an earlier mislabel of 'ClerkECertify' (that's Clay's separate certified-copy ORDERING vendor, not the search platform). Clay's own site links directly to landmark.clayclerk.com/landmarkweb. Endpoint itself returned Cloudflare 403 to a direct fetch \u2014 needs a Playwright-capable check (40 genuinely-future upcoming auctions).",
       "source": "lane_b",
-      "lane_a_platform": "other:ClerkECertify"
+      "lane_a_platform": "other:ClerkECertify",
+      "fingerprint_via": "apify_browser",
+      "apify_outcome": "run_error",
+      "apify_run_id": "Ftn1L0Z4QtmNyBwug",
+      "apify_cost_usd": 0.002190009776966439,
+      "apify_evidence": "TypeError: context.response.status is not a function "
     },
     {
       "county": "collier",
@@ -163,7 +193,12 @@
       "honesty_marker": "UNKNOWN",
       "notes": "Cloudflare JS-challenge interstitial (HTTP 403) on every attempt. 6 genuinely-future upcoming auctions.",
       "source": "lane_b",
-      "lane_a_platform": "unknown"
+      "lane_a_platform": "unknown",
+      "fingerprint_via": "apify_browser",
+      "apify_outcome": "loaded",
+      "apify_run_id": "w5Z8PV3S7SHDfeROQ",
+      "apify_cost_usd": 0.01751606240404646,
+      "apify_evidence": "httpStatus=None title=None finalUrl=None html_len=0"
     },
     {
       "county": "desoto",
@@ -174,7 +209,12 @@
       "http_status": 200,
       "fingerprint_evidence": "Title 'Official Records'; JSP/2.3 backend; JSESSIONID path=/orisearch; linked from desotoclerk.com/online-services/search-records/.",
       "notes": "Confirmed live.",
-      "source": "lane_a"
+      "source": "lane_a",
+      "fingerprint_via": "apify_browser",
+      "apify_outcome": "run_error",
+      "apify_run_id": "1R7humNFQdbTzv77S",
+      "apify_cost_usd": 0.002193867301924361,
+      "apify_evidence": "TypeError: context.response.status is not a function "
     },
     {
       "county": "dixie",
