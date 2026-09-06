@@ -11,3 +11,10 @@ pypdf>=4.0.0
 # actually runs, live-reproduced running scripts/biddeed_reels_pipeline_presale.py.
 qrcode>=7.4.2
 Pillow>=10.0.0
+
+# Landmark Web OR adapter (issue #20050) -- also used by the pre-existing
+# scripts/highlands_owner_name_lien_harvest.py, undeclared until this session.
+# Landmark Web/AcclaimWeb deployments run Cloudflare/Akamai bot-management
+# that 403s plain HTTP clients on the disclaimer/search POST; a real
+# Chromium session passes cleanly (see scripts/or_adapters/landmark.py).
+playwright>=1.40.0
