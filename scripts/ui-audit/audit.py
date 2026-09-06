@@ -11,7 +11,7 @@ from playwright.async_api import async_playwright
 # colors are allowed.
 CANON = {"#f5f0e8", "#fbfaf7", "#f8d4c5", "#1f1b16", "#766f67",
          "#ddd5c9", "#c15f3c", "#a94d30", "#ede3d7",
-         "#fcfaf8", "#f5f1eb", "#1e1a15", "#7e756d", "#ded6ca", "#c05939"}
+         "#fcfaf8", "#f5f1eb", "#1e1a15", "#5a5249", "#8f4028", "#ded6ca", "#c05939"}
 RETIRED = ["before the gavel","know your number"]
 BUZZ = ["comprehensive solution","comprehensive intelligence","next-gen","cutting-edge","streamlined","seamless","revolutionary","industry-leading","best-in-class","leverage","synergy","robust platform"]
 CONTEMPT = ["you're doing it wrong","still using spreadsheets","if you're still","amateur","rookie mistake","too lazy","too dumb"]
