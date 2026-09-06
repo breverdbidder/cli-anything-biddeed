@@ -89,6 +89,10 @@
     "taylor": {
       "authority": "Clerk of Courts",
       "sources": [{"sale_type": "both", "adapter": "clerk_html_discovery", "url": "https://taylorclerk.com/departments/property-sales/"}]
+    },
+    "union": {
+      "authority": "Clerk of Courts",
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://unionclerk.com/courts/foreclosure-sales/"}]
     }
   }
 }

@@ -55,6 +55,7 @@ jobs:
           - sarasota
           - st_johns
           - st_lucie
+          - union
     concurrency:
       group: refresh-county-${{ matrix.county }}
       cancel-in-progress: false
