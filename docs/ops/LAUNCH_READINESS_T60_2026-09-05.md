@@ -187,6 +187,9 @@ Not recommended: the XL upgrade you already declined — not until the memory gr
 ### 7.4 Optional cleanups you asked about ("clean up something else in Supabase")
 `fl_parcels_stage` = 15 GB staging table (vs 11 GB production `fl_parcels`). If it is a finished staging artifact, dropping it takes the DB 64 → 49 GB and shortens crash recovery. Needs your yes — it is production data by definition until you say otherwise.
 
+### 7.6 Odoo C10 — merged as files, not deployed (#20046, 2026-09-06)
+Odoo C10: merged as files; going live requires a host (Docker) — not present in the launch stack; owner decision pending.
+
 ---
 
 ## 8. Tuesday 00:01 ET — operational DoD scorecard
