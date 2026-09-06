@@ -16,8 +16,12 @@ def main() -> int:
     parser.add_argument("--start-date", required=True)
     parser.add_argument("--days-ahead", type=int, default=14)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--county", action="append", default=[], help="limit to one or more county slugs")
     args = parser.parse_args()
     registry = json.loads(OVERRIDES.read_text()).get("counties", {})
+    wanted = {str(county).lower() for county in args.county}
+    if wanted:
+        registry = {county: config for county, config in registry.items() if county.lower() in wanted}
     report = {"start_date": args.start_date, "days_ahead": args.days_ahead, "apply": args.apply, "results": [], "errors": []}
     for county, config in sorted(registry.items()):
         for source in config.get("sources", []):

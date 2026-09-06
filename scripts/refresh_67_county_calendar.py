@@ -15,6 +15,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -27,23 +29,41 @@ OVERRIDES_PATH = ROOT / "config" / "county_source_overrides.json"
 ALLOWED_HOST_SUFFIXES = ("realforeclose.com", "realtaxdeed.com")
 
 
-def get_counties() -> list[dict]:
+def get_counties(wanted: set[str] | None = None) -> list[dict]:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
-    params = urllib.parse.urlencode(
-        {
-            "select": "county_slug,county_name,fc_url,td_url",
-            "order": "county_slug.asc",
-        }
-    )
-    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/county_auction_config?{params}")
-    req.add_header("apikey", SUPABASE_KEY)
-    req.add_header("Authorization", f"Bearer {SUPABASE_KEY}")
-    with urllib.request.urlopen(req, timeout=60) as response:
-        rows = json.loads(response.read().decode("utf-8"))
-    if len(rows) != 67:
-        raise RuntimeError(f"county registry returned {len(rows)} rows; expected 67")
-    return rows
+    query = {
+        "select": "county_slug,county_name,fc_url,td_url",
+        "order": "county_slug.asc",
+    }
+    if wanted:
+        if len(wanted) != 1:
+            raise RuntimeError("single-county registry lookup expects exactly one county")
+        query["county_slug"] = f"eq.{next(iter(wanted))}"
+    params = urllib.parse.urlencode(query)
+    last_error: Exception | None = None
+    for attempt, delay in enumerate((0, 5, 15, 45), start=1):
+        if delay:
+            time.sleep(delay)
+        req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/county_auction_config?{params}")
+        req.add_header("apikey", SUPABASE_KEY)
+        req.add_header("Authorization", f"Bearer {SUPABASE_KEY}")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                rows = json.loads(response.read().decode("utf-8"))
+            expected = 1 if wanted else 67
+            if len(rows) != expected:
+                raise RuntimeError(f"county registry returned {len(rows)} rows; expected {expected}")
+            return rows
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in {500, 502, 503, 504, 521, 522, 523, 524} or attempt == 4:
+                raise
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last_error = exc
+            if attempt == 4:
+                raise
+    raise RuntimeError(f"county registry lookup failed after retries: {last_error}")
 
 
 def load_overrides() -> dict:
@@ -76,7 +96,7 @@ def main() -> int:
     start = dt.date.fromisoformat(args.start_date)
     dates = [(start + dt.timedelta(days=i)).strftime("%m/%d/%Y") for i in range(args.days_ahead + 1)]
     wanted = {c.lower() for c in args.county} if args.county else None
-    counties = get_counties()
+    counties = get_counties(wanted)
     overrides = load_overrides().get("counties", {})
     report = {"started_at": dt.datetime.now(dt.timezone.utc).isoformat(), "days_ahead": args.days_ahead, "workers": args.workers, "processed": [], "gaps": [], "errors": []}
     tasks: list[tuple[str, str, str, str]] = []

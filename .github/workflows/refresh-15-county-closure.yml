@@ -1,0 +1,171 @@
+name: Refresh uncovered Florida counties (bounded)
+
+on:
+  workflow_dispatch:
+    inputs:
+      days_ahead:
+        description: "Future auction window to refresh"
+        required: false
+        default: "60"
+      apply:
+        description: "Apply parsed rows and fallback evidence"
+        required: false
+        type: boolean
+        default: true
+  schedule:
+    - cron: "47 7 * * *"
+
+permissions:
+  contents: read
+
+# Prevent a second run for the same county from racing an active run, while
+# allowing different counties to proceed through the matrix in bounded parallelism.
+concurrency:
+  group: refresh-15-county-closure-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  DAYS_AHEAD: ${{ inputs.days_ahead || '60' }}
+  APPLY: ${{ inputs.apply == false && '' || '--apply' }}
+
+jobs:
+  refresh:
+    name: Refresh ${{ matrix.county }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        county:
+          - charlotte
+          - glades
+          - hamilton
+          - indian_river
+          - jefferson
+          - lafayette
+          - liberty
+          - miami_dade
+          - monroe
+          - osceola
+          - palm_beach
+          - santa_rosa
+          - sarasota
+          - st_johns
+          - st_lucie
+    concurrency:
+      group: refresh-county-${{ matrix.county }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install extraction dependencies
+        run: python -m pip install --disable-pip-version-check --no-input beautifulsoup4
+
+      - name: Validate required secrets without printing values
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL is missing" >&2; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY is missing" >&2; exit 1; }
+
+      - name: Refresh direct calendar adapters with transient retry
+        id: direct_refresh
+        shell: bash
+        env:
+          COUNTY: ${{ matrix.county }}
+        run: |
+          set -uo pipefail
+          mkdir -p evidence
+          rc=1
+          # Retry transient origin/Supabase failures, including HTTP 521/522/523/524.
+          # Stop immediately on non-transient 400/401/403/404 responses.
+          for attempt in 1 2 3; do
+            echo "direct_refresh county=$COUNTY attempt=$attempt"
+            python scripts/refresh_67_county_calendar.py \
+              --county "$COUNTY" \
+              --days-ahead "$DAYS_AHEAD" \
+              --workers 1 \
+              --continue-on-error \
+              > "evidence/${COUNTY}.direct.attempt-${attempt}.json" 2> "evidence/${COUNTY}.direct.attempt-${attempt}.stderr" && rc=0 || rc=$?
+            if [ "$rc" -eq 0 ]; then break; fi
+            if grep -Eq "HTTP Error (400|401|403|404)" "evidence/${COUNTY}.direct.attempt-${attempt}.stderr"; then
+              echo "Non-transient HTTP failure; stopping retries for $COUNTY" >&2
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep $((5 * 3 ** (attempt - 1))); fi
+          done
+          exit "$rc"
+
+      - name: Run bounded Clerk extraction contract
+        id: clerk_contract
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          COUNTY: ${{ matrix.county }}
+        run: |
+          set -o pipefail
+          mkdir -p evidence
+          python scripts/run_clerk_contracts.py \
+            --county "$COUNTY" \
+            --start-date "$(date -u +%F)" \
+            --days-ahead "$DAYS_AHEAD" \
+            $APPLY \
+            | tee "evidence/${COUNTY}.clerk.json"
+
+      - name: Record certified amount fallback evidence with bounded retry
+        id: amount_fallback
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p evidence
+          rc=1
+          # Retry transient transport/origin failures; stop on HTTP 400/401/403/404.
+          for attempt in 1 2 3; do
+            echo "amount_fallback county=${{ matrix.county }} attempt=$attempt"
+            python scripts/backfill_amount_fallbacks.py \
+              --start-date "$(date -u +%F)" \
+              --days-ahead "$DAYS_AHEAD" \
+              $APPLY \
+              > "evidence/${{ matrix.county }}.fallback.attempt-${attempt}.json" \
+              2> "evidence/${{ matrix.county }}.fallback.attempt-${attempt}.stderr" && rc=0 || rc=$?
+            if [ "$rc" -eq 0 ]; then break; fi
+            if grep -Eq "HTTP Error 400|HTTP Error 401|HTTP Error 403|HTTP Error 404" "evidence/${{ matrix.county }}.fallback.attempt-${attempt}.stderr"; then
+              echo "Non-transient fallback HTTP failure; stopping retries" >&2
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep $((5 * 3 ** (attempt - 1))); fi
+          done
+          exit "$rc"
+
+      - name: Upload county evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: county-refresh-${{ matrix.county }}-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  validate:
+    name: Validate county coverage after matrix
+    needs: refresh
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report matrix result
+        run: |
+          echo "matrix_result=${{ needs.refresh.result }}"
+          echo "Coverage must be rechecked against Supabase after the matrix completes."
+          echo "Do not declare 64/67 or 67/67 from workflow status alone."
