@@ -155,6 +155,26 @@ COUNTY_ACCLAIM = {
     # renamed the results-grid endpoint from GridResults to GetSearchResults.
     "highlands": {"base": "https://acclaim.highlandsclerkfl.gov", "prefix": "/AcclaimWeb",
                   "results_endpoint": "GetSearchResults"},
+    # broward + st_lucie added (issue #20049, statewide OR-platform-discovery
+    # lane A): both identified this session by scripts/clerk_ssot/
+    # or_platform_map.json's live fingerprinting as AcclaimWeb-family, but
+    # NEITHER has a live-confirmed working case_lookup() yet -- disclosed,
+    # not assumed:
+    #   broward: officialrecords.broward.org/AcclaimWeb -- URL path is an
+    #     explicit, unambiguous /AcclaimWeb match, but the live body fetch
+    #     was blocked by a Cloudflare bot-challenge (403) during
+    #     fingerprinting; this session's own harvest attempt is the first
+    #     real test of whether case_lookup()'s disclaimer/session flow gets
+    #     past that challenge.
+    #   st_lucie: acclaimweb.stlucieclerk.gov -- root domain 301-redirects to
+    #     /AcclaimWeb/Home/Index confirming the path/product, but the
+    #     endpoint itself returned Akamai 503 three times during
+    #     fingerprinting (transient, not 404/DNS). Same host also serves an
+    #     UNRELATED /TributeWeb/ tax-deed-only product -- prefix must stay
+    #     "/AcclaimWeb" exactly, do not let a future edit collapse this to
+    #     the bare host.
+    "broward": {"base": "https://officialrecords.broward.org", "prefix": "/AcclaimWeb"},
+    "st_lucie": {"base": "https://acclaimweb.stlucieclerk.gov", "prefix": "/AcclaimWeb"},
 }
 
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")

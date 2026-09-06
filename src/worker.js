@@ -1416,6 +1416,16 @@ function renderS5ReportHtml(report, { mcaId, keyLast8, internal = false, interna
       <div class="lien-survival">
         <div class="row"><span class="row-l">Status</span><span class="row-v">${escHtml(titleTier1.reason)}</span></div>
       </div>`;
+  } else if (internal && !titleTier1.available) {
+    // Never-harvested county, internal preview only (issue #20049 Step 3):
+    // name the OR platform so the gap reads as "waiting on the <platform>
+    // adapter" instead of an unexplained Pending. titleTier1.reason already
+    // carries the "(<platform>)" suffix from title-tier1.js's
+    // platformSuffix(), sourced from title_tier_coverage — production
+    // (internal=false) is UNCHANGED, still renders lienSearchGate.status
+    // (the ship_status-gated text), per #20045's deliberate data-vs-
+    // ship_status separation.
+    titleTier1Html = `<div class="pending">${escHtml(titleTier1.reason || lienSearchGate.status || 'Pending — Title Tier 1 (lien search) not yet live for this county')}</div>`;
   } else {
     titleTier1Html = `<div class="pending">${escHtml(lienSearchGate.status || 'Pending — Title Tier 1 (lien search) not yet live for this county')}</div>`;
   }

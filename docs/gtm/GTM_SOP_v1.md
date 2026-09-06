@@ -174,11 +174,15 @@ $0 hosting (Cloudflare) · ElevenLabs Creator $22 · OpenRouter ≤ $30 · Googl
 
 ---
 
-## 11. Launch-night runbook — Tue Sep 8, 21:00 ET (Ariel: ~25 minutes total)
+## 11. Launch-night runbook — Tue Sep 8 (Ariel: ~25 minutes total)
+
+**Two T-0s, not one (reconciled Sun Sep 6):** the platform launch per Ariel's CTO Replacement OS brief is **Tue Sep 8 00:01 ET** (site, MCP, billing, rate limits, status page — owned by the launch-readiness lanes #20035–#20041, gate Mon Sep 7 21:00 ET: restarts/hr ≤1, 429s observed, Workers plan decided, FF Access on/deferred, status green). The **content T-0 is Tue Sep 8 21:00 ET** ("starting Tuesday night") — the runbook below. Nothing in this section publishes before the platform gate passes.
+
+**State Sun Sep 6 13:00 UTC (VERIFIED):** 18/18 launch-pick reels have live deal pages + short links; 20/20 EN variants qa_pass; 0 finals rendered (ElevenLabs 0 credits — decision: kokoro as final $0 vs. top-up); 13 reels still need variants (OpenRouter weekly cap — decision: raise limit); `youtube_publish_queue` = 0 until finals exist AND Ariel approves in LMS `/reels`; `test_purchase` + `gtm_factory_halt` open; 13 pending / 0 paid checkouts; LMS `/connections` live, no social credentials yet (setup page pending).
 
 | ET | Step | Who | Evidence |
 |---|---|---|---|
-| Sat–Mon | GTM-0/1/2 run: inventory + queue of 14 pre-selected reels (7 days × A/B), variants + ES renders, deal pages live for all 42, PostHog funnel events, G-SPI rollup, CFO MRR view, platform-account inventory | factory | issue comments with counts |
+| Sat–Mon | GTM-0…5 (#20029–#20034, #20040) landed: LMS /reels + /connections, 18 deal pages live, 20 EN variants QA-clean, digest consent-gated, G-SPI + CFO views, platform runbook. Still open before 21:00 Tue: finals (voice decision) and variants for 13 reels (OpenRouter limit) | factory | docs/spec/2002x–20040.md |
 | 21:00 | **Test purchase** — Investor $99 on biddeed.ai with a real card (or the $25 report) | Ariel | `stripe_customer_id` set, `subscription_events` row, entitlement live → `spi_gates.test_purchase` closed by chat; refund after proof |
 | 21:10 | Approve the first 14 reels/variants in the LMS (or reply "auto" — chat then sets dial 3 and closes `gtm_factory_halt`) | Ariel | `reel_variant_review` rows |
 | 21:15 | Slot A + Slot B publish to YouTube (public), deal pages + short links verified, first digest queued | upload lane | `youtube_uploads` 2 rows, live URLs in chat |

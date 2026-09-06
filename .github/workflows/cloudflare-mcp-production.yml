@@ -13,7 +13,13 @@ name: "MCP HTTP — Deploy to Cloudflare Worker (biddeed-mcp-production)"
 # Requires repo secrets: CF_ACCOUNT_ID, CF_API_TOKEN, and every process.env.X
 # packages/biddeed-mcp/src/**/*.js reads (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
 # STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, WORKOS_API_KEY, WORKOS_CLIENT_ID,
-# EXA_API_KEY, MCP_PUBLIC_URL, etc — see step below for the full list).
+# EXA_API_KEY, MCP_PUBLIC_URL, CENSUS_API_KEY, etc — see step below for the
+# full list).
+#
+# CENSUS_API_KEY (#20051): mirrored from Supabase vault (name='CENSUS_API_KEY')
+# into this repo secret so context-layers.js's fetchAcsLive() can call the
+# Census ACS API authenticated instead of keyless. Value never logged here —
+# only the key NAME appears in the "Binding keys" step output.
 
 on:
   push:
@@ -79,6 +85,7 @@ jobs:
           ENSEMBLE_WORKER_SECRET: ${{ secrets.ENSEMBLE_WORKER_SECRET }}
           ROUTER_PROXY_KEY: ${{ secrets.ROUTER_PROXY_KEY }}
           CLAUDE_ROUTER_URL: ${{ secrets.CLAUDE_ROUTER_URL }}
+          CENSUS_API_KEY: ${{ secrets.CENSUS_API_KEY }}
         run: |
           set -euo pipefail
           TMP=$(mktemp -d)
@@ -89,7 +96,7 @@ jobs:
                    'STRIPE_WEBHOOK_SECRET','WORKOS_API_KEY','WORKOS_CLIENT_ID',
                    'EXA_API_KEY','BATCHDATA_API_KEY','REISKIP_API_KEY',
                    'ZONEWISE_API_KEY','ENSEMBLE_WORKER_SECRET','ROUTER_PROXY_KEY',
-                   'CLAUDE_ROUTER_URL']
+                   'CLAUDE_ROUTER_URL','CENSUS_API_KEY']
           out = {k: os.environ[k] for k in keys if os.environ.get(k)}
           print('Binding keys:', list(out.keys()))
           json.dump(out, open('$TMP/secrets.json', 'w'))
