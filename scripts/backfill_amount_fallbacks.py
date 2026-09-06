@@ -99,7 +99,7 @@ def build_evidence(rows: list[dict], run_id: str) -> list[dict]:
             for amount_type, amount in values.items():
                 evidence.append({**base, "amount_type": amount_type, "amount": amount, "amount_currency": "USD", "source_authority": "Property Appraiser", "source_url": source_url, "null_reason": None})
         else:
-            evidence.append({**base, "amount_type": "no_certified_amount", "amount": None, "source_authority": "Property Appraiser", "source_url": source_url, "null_reason": "property_appraiser_value_unavailable"})
+            evidence.append({**base, "amount_type": "no_certified_amount", "amount": None, "amount_currency": "USD", "source_authority": "Property Appraiser", "source_url": source_url, "null_reason": "property_appraiser_value_unavailable"})
     return evidence
 
 
