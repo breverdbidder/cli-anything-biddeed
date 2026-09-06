@@ -28,7 +28,7 @@
     },
     "glades": {
       "authority": "Clerk of Courts",
-      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/foreclosures/", "extra_urls": ["https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45ae2da1a2db0"]}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/tax-deeds/", "extra_urls": ["https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45ae2e0755827", "https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45f90a38a593a"]}]
+      "sources": [{"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/foreclosures/", "extra_urls": ["https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45ae2da1a2db", "https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=96cd72d8a14f4"]}, {"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://gladesclerk.com/clerk-services/tax-deeds/", "extra_urls": ["https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45ae2e0755827", "https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=9611c738eed6f", "https://library.municode.com/fl/glades_county_florida_clerk_of_court/munidocs/munidocs?nodeId=45f90a38a593a"]}]
     },
     "hamilton": {
       "authority": "Clerk of Courts",
@@ -64,7 +64,7 @@
     },
     "osceola": {
       "authority": "Clerk of Courts / RealTaxDeed",
-      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://osceolaclerk.com/tax-deeds/", "extra_urls": ["https://officialrecords.osceolaclerk.org/browserviewtd/"]}, {"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://osceolaclerk.com/foreclosure-sales/"}, {"sale_type": "tax_deed", "adapter": "real_tax_deed", "url": "https://www.osceola.realtaxdeed.com/"}]
+      "sources": [{"sale_type": "tax_deed", "adapter": "clerk_html_discovery", "url": "https://osceolaclerk.com/tax-deeds/", "extra_urls": ["https://officialrecords.osceolaclerk.org/browserviewtd/"]}, {"sale_type": "foreclosure", "adapter": "clerk_html_discovery", "url": "https://osceolaclerk.com/foreclosure-sales/", "extra_urls": ["https://courts.osceolaclerk.com/reports/CivilMortgageForeclosuresWeb.pdf", "https://courts.osceolaclerk.com/reports/ForeclosureFilings2026.pdf"]}, {"sale_type": "tax_deed", "adapter": "real_tax_deed", "url": "https://www.osceola.realtaxdeed.com/"}]
     },
     "okaloosa": {
       "authority": "Clerk of Courts / RealTaxDeed",

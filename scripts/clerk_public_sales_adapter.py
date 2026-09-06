@@ -172,6 +172,30 @@ def parse_structured_rows(url: str, html: str, county: str, sale_type: str, star
     return rows, evidence
 
 
+def parse_pdf_listing_rows(url: str, text: str, county: str, sale_type: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict]]:
+    """Parse dated official PDF listing lines with an explicit case identity.
+
+    This accepts only lines beginning with a sale date and a case-number-like
+    identity. It intentionally leaves amount fields null when the authority
+    does not publish an amount in the schedule.
+    """
+    rows: list[dict] = []
+    evidence: list[dict] = []
+    for raw_line in text.splitlines():
+        line = clean(raw_line)
+        match = re.match(r"^(\d{1,2}/\d{1,2}/\d{2,4})\s+((?:\d{4}\s+)?[A-Z]{1,4}\s+\d{3,8})\b(?:\s+(.*))?$", line, flags=re.I)
+        if not match:
+            continue
+        sale_date = parse_date(match.group(1))
+        if not sale_date or not (start <= sale_date <= end):
+            continue
+        identity = clean(match.group(2))
+        aid = hashlib.sha256(f"{county}|{sale_type}|{identity}|{sale_date.isoformat()}".encode()).hexdigest()[:40]
+        rows.append({"aid": aid, "county_slug": county, "auction_type": sale_type, "case_number": identity, "judgment_amount": None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": match.group(1), "county_subdomain": "clerk-public-pdf", "case_clerk_url": url, "source_response_id": None, "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+        evidence.append({"url": url, "sale_type": sale_type, "identity": identity, "sale_date": sale_date.isoformat(), "amount_present": False, "format": "pdf-line"})
+    return rows, evidence
+
+
 def parse_explicit_prose_rows(url: str, html: str, county: str, sale_type: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict]]:
     """Parse only explicit labeled sale blocks, not arbitrary prose.
 
@@ -231,18 +255,24 @@ def main() -> int:
     end = start + dt.timedelta(days=args.days_ahead)
     status, html = fetch(args.url)
     rows, evidence = parse_structured_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+    pdf_rows, pdf_evidence = parse_pdf_listing_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
     prose_rows, prose_evidence = parse_explicit_prose_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+    rows.extend(pdf_rows)
     rows.extend(prose_rows)
+    evidence.extend(pdf_evidence)
     evidence.extend(prose_evidence)
     extra_links = list(dict.fromkeys(args.extra_url))
     for link in extra_links:
         try:
             nested_status, nested_html = fetch(link)
             nested_rows, nested_evidence = parse_structured_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
+            nested_pdf_rows, nested_pdf_evidence = parse_pdf_listing_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
             nested_prose_rows, nested_prose_evidence = parse_explicit_prose_rows(link, nested_html, args.county.lower(), args.sale_type, start, end)
             rows.extend(nested_rows)
+            rows.extend(nested_pdf_rows)
             rows.extend(nested_prose_rows)
             evidence.extend(nested_evidence)
+            evidence.extend(nested_pdf_evidence)
             evidence.extend(nested_prose_evidence)
         except Exception as exc:
             evidence.append({"url": link, "error": str(exc)})
