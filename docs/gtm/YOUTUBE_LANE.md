@@ -63,10 +63,35 @@ before that ever changes.
 ## Metadata
 
 Nothing is written at upload time. Title, description, tags, and category
-are all built from the already-approved variant's own fields. The
-description's first line is always the bare link to the property's public
-deal page, tagged so results can be measured back to the specific variant
-that drove them.
+are all built from the already-approved variant's own fields.
+
+**Updated by issue #20057 (M9, 2026-09-06):** title/description/pinned-comment
+text are no longer assembled fresh at upload time from raw row fields --
+they are pre-built by `agents/reel_studio/post_text_builder.py` and stored
+on `winnerdata.reel_variants.post_text` *before* a variant is even
+queue-eligible (`youtube_publish_queue` refuses a row whose description's
+first line doesn't carry the variant's own short link -- see the
+`20260906j_post_text_publish_gate_20057.sql` migration). This exists because
+the end-card link burned into the video frame is not clickable on any
+platform; the description's first line and a pinned top-level comment are
+the actual one-tap paths, and Ariel reviews that exact text on the LMS
+`/reels` screen alongside the video, not a string this lane invents later.
+
+The link in that first line is the variant's own `https://biddeed.ai/r/<code>`
+short link (never the long UTM-tagged landing_url this doc originally
+described) -- attribution now happens server-side in `resolve_reel_link()`
+(docs/spec/20052.md), not via a query string built here.
+
+Immediately after a successful upload, that same link is posted as a real
+top-level comment via `commentThreads.insert` (`agents/youtube/
+youtube_lib.py::post_top_level_comment`). **Known platform boundary:**
+YouTube Data API v3 has no public endpoint to pin a comment -- pinning is a
+YouTube Studio UI-only action. This lane posts the comment (which does carry
+the clickable link) but cannot programmatically pin it; do not add a fake
+"pin" call without first re-verifying Google has shipped one. A
+comment-insert failure fails the whole variant (`reel_variants.status =
+'publish_error'`) even though the video itself already uploaded -- per M9, a
+Short with no clickable link in the post is not "published".
 
 ## Measurement
 

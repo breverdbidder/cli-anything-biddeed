@@ -752,6 +752,24 @@ function decisionBadge(decision) {
   return '<span style="color:#64748b">unreviewed</span>';
 }
 
+// issue #20057 (M9) -- deliverable 6: Ariel must approve the post text
+// together with the video, since the clickable deal-page link now lives in
+// the description/pinned-comment text, not just the video frame. Renders
+// exactly what agents/reel_studio/post_text_builder.py wrote to
+// post_text->'youtube' (title/description/pinned_comment) -- never rebuilt
+// or paraphrased here, so what Ariel reviews is what would actually post.
+function youtubePostTextBlock(v) {
+  const yt = v.post_text && v.post_text.youtube;
+  if (!yt || !yt.description) {
+    return '<div class="reel-meta" style="color:#f87171">no post_text yet -- not queue-eligible (issue #20057 gate)</div>';
+  }
+  return `
+        <div class="reel-meta" style="white-space:pre-wrap;background:#020617;border:1px solid #1e3a5f;border-radius:6px;padding:.5rem;font-size:.75rem">
+          <strong>YouTube description:</strong><br>${esc(yt.description)}
+        </div>
+        <div class="reel-meta" style="font-size:.75rem"><strong>Pinned comment:</strong> ${esc(yt.pinned_comment || '')}</div>`;
+}
+
 function qaSummary(v) {
   if (v.is_draft) return '<span style="color:#94a3b8">draft (pre-final-voice)</span>';
   if (v.qa_pass === true) return '<span style="color:#22c55e;font-weight:600">QA PASS</span>';
@@ -783,6 +801,7 @@ async function viewReelVariants(env) {
         <h3>${esc(v.title)}</h3>
         <div class="reel-meta">variant ${esc(v.variant_key)} &middot; ${esc(v.archetype)} &middot; <a class="link" href="${esc(v.short_url)}" target="_blank" rel="noopener">${esc(v.short_url)}</a></div>
         <div class="reel-meta">QA: ${qaSummary(v)}</div>
+        ${youtubePostTextBlock(v)}
         <div class="reel-meta">Status: ${decisionBadge(v.decision)}${v.decided_by ? `<br><span style="color:#64748b;font-size:.7rem">${esc(v.decided_by)}, ${fmtDate(v.decided_at)}</span>` : ''}</div>
         <form class="reel-actions" method="POST" action="/reels/${esc(v.variant_id)}/review">
           <input type="hidden" name="decision" value="approved">

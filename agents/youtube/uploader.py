@@ -350,18 +350,95 @@ def upload_one(access_token: str, meta: dict, video_url: str, day_pacific: str) 
         session_uri = _upload_init(access_token, meta, total_bytes)
         result = _upload_bytes(session_uri, video_url)
         video_id = result.get("id")
-        lib.rest_update("youtube_uploads", f"id=eq.{row_id}", {
-            "upload_status": "uploaded",
-            "youtube_video_id": video_id,
-            "uploaded_at": "now()",
-        })
-        return {"status": "uploaded", "youtube_video_id": video_id, "row_id": row_id}
     except Exception as e:  # noqa: BLE001 -- must always land a status, never crash silently
         lib.rest_update("youtube_uploads", f"id=eq.{row_id}", {
             "upload_status": "failed",
             "error_text": str(e)[:2000],
         })
         return {"status": "failed", "error": str(e), "row_id": row_id}
+
+    # issue #20057 (M9) -- a Short with no clickable link in the post is not
+    # "published". The video itself is already on YouTube at this point, but
+    # this variant is only marked 'uploaded' once the pinned-link comment
+    # insert also succeeds; a comment-insert failure fails the whole
+    # variant (publish_error), not just a logged warning. See
+    # youtube_lib.COMMENT_THREADS_URL's docstring for why this posts (but
+    # cannot pin) the comment -- no public API exists to pin it.
+    try:
+        comment = lib.post_top_level_comment(access_token, video_id, meta["pinned_comment_text"])
+        comment_id = comment.get("id")
+        if not comment_id:
+            raise RuntimeError(f"commentThreads.insert returned no id: {comment}")
+        lib.record_pinned_comment_id(meta["variant_id"], comment_id)
+        lib.rest_update("youtube_uploads", f"id=eq.{row_id}", {
+            "upload_status": "uploaded",
+            "youtube_video_id": video_id,
+            "uploaded_at": "now()",
+        })
+        return {"status": "uploaded", "youtube_video_id": video_id, "pinned_comment_id": comment_id, "row_id": row_id}
+    except Exception as e:  # noqa: BLE001 -- pinned-comment failure fails the whole variant, per M9
+        error_text = f"video uploaded (youtube_video_id={video_id}) but pinned-comment insert failed: {e}"
+        lib.rest_update("youtube_uploads", f"id=eq.{row_id}", {
+            "upload_status": "failed",
+            "youtube_video_id": video_id,
+            "error_text": error_text[:2000],
+        })
+        lib.mark_variant_publish_error(meta["variant_id"], error_text)
+        return {"status": "failed", "error": error_text, "youtube_video_id": video_id, "row_id": row_id}
+
+
+def dry_run_payload() -> int:
+    """issue #20057 evidence requirement ("one dry-run payload printed, no
+    upload"). Bypasses the live ariel_decision='approved' gate (every
+    #20057-backfilled variant is still pending that separate, untouched
+    M8/LMS approval) so this can print a real payload against the queue's
+    other filters (qa_pass, non-draft, lang=en, HTTP-200, post_text gate).
+    Makes zero network calls -- videos.insert/commentThreads.insert bodies
+    are built and printed only, exactly what upload_one() would send."""
+    rows = lib.run_sql("""
+        select rv.id as variant_id, rv.reel_id, rv.variant_key, rv.title, rv.short_code,
+               rv.short_url, rv.video_url, rv.hashtags, rv.post_text, rv.lang,
+               br.county, br.sale_type, br.landing_url, br.page_http_status,
+               coalesce(br.duration_bolt32_sec, br.duration_sec) as duration_sec
+        from winnerdata.reel_variants rv
+        join winnerdata.biddeed_reels br on br.id = rv.reel_id
+        where rv.qa_pass = true and rv.is_draft = false and rv.lang = 'en'
+          and br.page_http_status = 200
+          and rv.post_text is not null
+          and rv.post_text -> 'youtube' ->> 'description' is not null
+          and rv.post_text -> 'youtube' ->> 'pinned_comment' is not null
+          and split_part(rv.post_text -> 'youtube' ->> 'description', chr(10), 1)
+              like ('%' || rv.short_url || '%')
+        order by rv.created_at limit 1;
+    """)
+    if not rows:
+        print("no post_text-eligible candidate found -- nothing to print")
+        return 0
+    row = rows[0]
+    if row.get("duration_sec") is not None:
+        row["duration_sec"] = float(row["duration_sec"])
+    meta = mb.build_metadata(row)
+    videos_insert_body = {
+        "snippet": {
+            "title": meta["title"],
+            "description": meta["description"],
+            "tags": meta["tags"],
+            "categoryId": meta["category_id"],
+        },
+        "status": {"privacyStatus": lib.PRIVACY_STATUS, "selfDeclaredMadeForKids": False},
+    }
+    comment_threads_insert_body = {
+        "snippet": {
+            "videoId": "<video_id from videos.insert response>",
+            "topLevelComment": {"snippet": {"textOriginal": meta["pinned_comment_text"]}},
+        },
+    }
+    print(f"DRY RUN (no network call) -- variant_id={row['variant_id']} variant_key={row['variant_key']} county={row['county']}")
+    print("POST /upload/youtube/v3/videos?uploadType=resumable&part=snippet,status")
+    print(json.dumps(videos_insert_body, indent=2, ensure_ascii=False))
+    print("POST /youtube/v3/commentThreads?part=snippet (after upload succeeds, video_id filled in)")
+    print(json.dumps(comment_threads_insert_body, indent=2, ensure_ascii=False))
+    return 0
 
 
 def run() -> int:
@@ -682,7 +759,10 @@ def self_test() -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="print the payload for one eligible candidate, no network/upload calls")
     args = parser.parse_args()
     if args.self_test:
         sys.exit(self_test())
+    if args.dry_run:
+        sys.exit(dry_run_payload())
     sys.exit(run())

@@ -131,15 +131,62 @@ def build_tags(hashtags: list[str] | None) -> list[str]:
 def build_metadata(row: dict) -> dict:
     """row is one winnerdata.youtube_publish_queue record (variant_id,
     reel_id, variant_key, title, short_code, short_url, hashtags, county,
-    landing_url, page_http_status, duration_sec, video_type, ...)."""
+    landing_url, page_http_status, duration_sec, video_type, post_text, ...).
+
+    issue #20057 -- when the row carries a `post_text.youtube` object (the
+    queue view now REQUIRES this to exist, see the migration), that is the
+    SSOT: title/description/pinned_comment are read verbatim from it rather
+    than rebuilt here, because #20057's description format (short r/<code>
+    link as line 1) differs from this function's own legacy build_description
+    (long UTM-tagged landing_url) and the whole point of #20057 is that the
+    clickable link a viewer sees IN THE POST must be the one Ariel/QA already
+    reviewed on the LMS review screen (deliverable 6) -- never silently
+    rebuilt into different text at upload time. Falls back to the legacy
+    build below only if post_text is absent (defensive; the queue gate means
+    this should not happen for any row this function is ever handed)."""
+    video_type = row.get("video_type") or detect_video_type(row.get("duration_sec"))
+    county = row.get("county") or ""
+    variant_key = row.get("variant_key") or ""
+
+    yt_post_text = (row.get("post_text") or {}).get("youtube")
+    if yt_post_text and yt_post_text.get("description"):
+        title = (yt_post_text.get("title") or row.get("title") or "").strip()
+        if not title:
+            raise MetadataValidationError("row has no title (title_chosen equivalent) -- refusing to upload")
+        _assert_no_banned_terms("title", title)
+
+        description = yt_post_text["description"]
+        _assert_no_banned_terms("description", description)
+
+        pinned_comment_text = yt_post_text.get("pinned_comment") or build_pinned_comment(
+            yt_post_text.get("link") or row.get("short_url") or ""
+        )
+        _assert_no_banned_terms("pinned_comment", pinned_comment_text)
+
+        utm_link = yt_post_text.get("link") or row.get("short_url") or ""
+        tags = build_tags(row.get("hashtags"))
+        for t in tags:
+            _assert_no_banned_terms("tag", t)
+
+        return {
+            "variant_id": row["variant_id"],
+            "reel_id": row.get("reel_id"),
+            "county": county,
+            "variant_key": variant_key,
+            "video_type": video_type,
+            "title": title,
+            "description": description,
+            "tags": tags,
+            "category_id": CATEGORY_ID,
+            "pinned_comment_text": pinned_comment_text,
+            "utm_link": utm_link,
+        }
+
     title = (row.get("title") or "").strip()
     if not title:
         raise MetadataValidationError("row has no title (title_chosen equivalent) -- refusing to upload")
     _assert_no_banned_terms("title", title)
 
-    video_type = row.get("video_type") or detect_video_type(row.get("duration_sec"))
-    county = row.get("county") or ""
-    variant_key = row.get("variant_key") or ""
     utm_link = build_utm_link(row.get("landing_url"), county, variant_key, video_type)
 
     description = build_description(utm_link, county, video_type,

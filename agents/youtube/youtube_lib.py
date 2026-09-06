@@ -77,7 +77,19 @@ REQUIRED_SECRET_NAMES = (
 OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 UPLOAD_INIT_URL = "https://www.googleapis.com/upload/youtube/v3/videos"
 ANALYTICS_URL = "https://youtubeanalytics.googleapis.com/v2/reports"
+COMMENT_THREADS_URL = "https://www.googleapis.com/youtube/v3/commentThreads"
 CHUNK_SIZE = 8 * 1024 * 1024  # 8 MiB, multiple of the required 256 KiB
+
+# issue #20057 -- KNOWN PLATFORM BOUNDARY, not a bug in this module: the
+# YouTube Data API v3 has no public endpoint to pin a comment. commentThreads
+# .insert (below) posts the deal-page link as a real top-level comment from
+# the channel owner (which YouTube's UI does sort with an "Author" chip and
+# typically surfaces near the top on a low-comment-count video), but nothing
+# in this file or anywhere else in this repo can programmatically pin it --
+# that action exists only in YouTube Studio's UI. Do not add a "pin" call
+# here without first re-verifying Google has shipped a public API for it;
+# faking one would violate the Honesty Protocol. Documented in
+# docs/spec/20057.md as an open, permanent platform limitation.
 
 
 class NotConfigured(Exception):
@@ -287,6 +299,72 @@ def pacific_is_weekday() -> bool:
     if ZoneInfo is not None:
         return datetime.now(ZoneInfo("America/Los_Angeles")).weekday() < 5
     return datetime.now(timezone.utc).weekday() < 5  # pragma: no cover
+
+
+# ---------------------------------------------------------------------------
+# Pinned-link comment (issue #20057 deliverable 1/4) -- posts the deal-page
+# short link as a top-level comment immediately after a successful upload.
+# See the COMMENT_THREADS_URL platform-boundary note above: this posts the
+# comment; it does not and cannot pin it via any public API.
+# ---------------------------------------------------------------------------
+
+def record_pinned_comment_id(variant_id: str, comment_id: str):
+    """Writes post_text->'youtube'->>'pinned_comment_id' (issue #20057
+    deliverable 4) via jsonb_set so the rest of post_text (built by
+    agents/reel_studio/post_text_builder.py) is left untouched -- this is a
+    winnerdata write, so it goes through the Management API (run_sql), same
+    as every other winnerdata write in this lane."""
+    run_sql(f"""
+        update winnerdata.reel_variants
+        set post_text = jsonb_set(coalesce(post_text, '{{}}'::jsonb),
+                                   '{{youtube,pinned_comment_id}}',
+                                   to_jsonb({sql_str(comment_id)}::text)),
+            updated_at = now()
+        where id = {sql_str(variant_id)};
+    """)
+
+
+def mark_variant_publish_error(variant_id: str, error_text: str):
+    """issue #20057 deliverable 4 -- a Short whose pinned-comment insert
+    failed is not 'published' under M9, even though the raw video bytes
+    reached YouTube (still privacyStatus='private' either way -- M8, no
+    live publish step exists). Sets status='publish_error' (additive value,
+    see the #20057 migration) rather than the pre-existing generic 'error'
+    used for render/QA pipeline failures (#19782), so the two failure
+    classes stay distinguishable."""
+    run_sql(f"""
+        update winnerdata.reel_variants
+        set status = 'publish_error',
+            error_text = {sql_str(error_text[:2000])},
+            updated_at = now()
+        where id = {sql_str(variant_id)};
+    """)
+
+
+def post_top_level_comment(access_token: str, video_id: str, text: str) -> dict:
+    """POST commentThreads.insert (part=snippet). Raises on any non-2xx --
+    callers (uploader.py::upload_one) must treat a raised exception here as
+    a hard failure per M9 ("a Short with no clickable link is not
+    'published'"), not a best-effort/log-and-continue step."""
+    body = {
+        "snippet": {
+            "videoId": video_id,
+            "topLevelComment": {
+                "snippet": {"textOriginal": text},
+            },
+        },
+    }
+    req = urllib.request.Request(
+        f"{COMMENT_THREADS_URL}?part=snippet",
+        data=json.dumps(body).encode(),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=UTF-8",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())
 
 
 # ---------------------------------------------------------------------------
