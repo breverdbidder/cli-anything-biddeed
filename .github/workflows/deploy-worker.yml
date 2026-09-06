@@ -18,3 +18,34 @@ jobs:
         run: npx wrangler deploy --no-bundle
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+      # GTM-7 (#20056): /r/:code must never 404 a real click. 20 sequential
+      # hits on 3 known-live codes, 100% must be 302 -> /deal/... A single
+      # miss fails this deploy (gate, not a warning) -- this is the class of
+      # check that would have caught the DB-blip 404 this issue was filed
+      # against.
+      - name: Smoke test — /r/:code short-link redirects (GTM-7 #20056)
+        run: |
+          set -euo pipefail
+          codes=(F5oeMD 1BrNFC D7qXFD)
+          fail=0
+          for code in "${codes[@]}"; do
+            hits=0
+            for i in $(seq 1 20); do
+              resp=$(curl -s -D - -o /dev/null --max-time 10 "https://biddeed.ai/r/${code}" || true)
+              status=$(printf '%s' "$resp" | head -1 | awk '{print $2}')
+              location=$(printf '%s' "$resp" | grep -i '^location:' | tr -d '\r')
+              if [ "$status" = "302" ] && echo "$location" | grep -q '/deal/'; then
+                hits=$((hits + 1))
+              else
+                echo "MISS code=${code} attempt=${i} status=${status:-000} location=${location}"
+                fail=1
+              fi
+            done
+            echo "code=${code}: ${hits}/20 hit 302 -> /deal/..."
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "GTM-7 smoke test FAILED — /r/:code did not return 100% 302 -> /deal/..."
+            exit 1
+          fi
+          echo "GTM-7 smoke test passed — 100% 302 across all codes"

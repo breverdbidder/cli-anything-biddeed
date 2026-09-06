@@ -137,6 +137,71 @@ async function logErr(env, endpoint, message, detail, status, severity = 'error'
   } catch(_) {}
 }
 
+// ── /r/:code edge cache + retry helpers (GTM-7, issue #20056) ──────────────────
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function reelLinkCacheRequest(code) {
+  return new Request(`https://biddeed.ai/_internal/reel-link/${encodeURIComponent(code)}`);
+}
+
+function reelLinkCacheResponse(link) {
+  return new Response(JSON.stringify(link), {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=86400' },
+  });
+}
+
+// Single attempt at the real lookup. Distinguishes three outcomes the /r/:code
+// handler needs: { ok:true, link } = resolved, { ok:true, link:null } =
+// resolve_reel_link() ran fine and confirmed no such code (true 404), and
+// { ok:false } = the RPC call itself failed/timed out (DB blip -- never 404).
+async function fetchReelLinkOnce(env, code) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/resolve_reel_link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ p_code: code }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      await logErr(env, '/r', 'resolve_reel_link non-2xx', await res.text(), res.status);
+      return { ok: false };
+    }
+    const data = await res.json();
+    return { ok: true, link: (data && data.target) ? data : null };
+  } catch (e) {
+    await logErr(env, '/r', 'resolve_reel_link failed', String(e), 500);
+    return { ok: false };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchReelLinkWithRetry(env, code) {
+  let result = await fetchReelLinkOnce(env, code);
+  if (!result.ok) {
+    await sleep(200);
+    result = await fetchReelLinkOnce(env, code);
+  }
+  return result;
+}
+
+// Increment-only counterpart to resolve_reel_link() for a cache HIT -- see
+// public.bump_reel_click() (20260906i migration). Best-effort: never retried,
+// never blocks or fails the redirect it's called alongside.
+async function bumpReelClick(env, code) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/bump_reel_click`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ p_code: code }),
+    });
+  } catch (_) { /* best-effort counter only */ }
+}
+
 // S5 Sticky Layers (issue #19786 PART 2) -- generic funnel-event beacon.
 // Fire-and-forget (ctx.waitUntil'd by callers), same shape as
 // log_reel_watch_event's proxy pattern -- no Supabase key of any kind
@@ -3696,26 +3761,51 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       }
 
       // ── GET /r/:code — BidDeed Reels v2 short link (T3). 302s to the
-      // landing page with utm_* appended, increments clicks atomically in
-      // public.resolve_reel_link() (SECURITY DEFINER).
+      // landing page with utm_* appended. GTM-7 (#20056): Supabase restarts
+      // 3-5x/hour during the M9 launch window, and a bare per-request RPC
+      // call turned each restart into a real 404 for a signed-out visitor.
+      // Edge-cached in caches.default (24h TTL -- no Workers KV namespace is
+      // bound on this account and this session has no Cloudflare API access
+      // to provision one, so Cache API is the issue's own documented
+      // fallback, already the pattern fetchRuntimeConfig()/fetchReportCounties()
+      // use above). A cache hit never touches Supabase; a miss retries once
+      // before falling back to /reels/:code instead of 404ing. Known
+      // tradeoff: an admin edit to a live reel_links row won't be visible
+      // here until the 24h TTL lapses -- no schema change in scope to push
+      // invalidation from the write side.
       if (path.match(/^\/r\/[A-Za-z0-9]+$/) && (method === 'GET' || method === 'HEAD')) {
         const code = path.slice('/r/'.length);
+        const cache = caches.default;
+        const cacheKey = reelLinkCacheRequest(code);
         let link = null;
-        try {
-          const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/resolve_reel_link`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-            body: JSON.stringify({ p_code: code }),
-          });
-          if (res.ok) {
-            link = await res.json();
-          } else {
-            await logErr(env, '/r', 'resolve_reel_link non-2xx', await res.text(), res.status);
-          }
-        } catch (e) {
-          await logErr(env, '/r', 'resolve_reel_link failed', String(e), 500);
+
+        const cachedResp = await cache.match(cacheKey);
+        if (cachedResp) {
+          try { link = await cachedResp.json(); } catch (_) { link = null; }
         }
-        if (!link || !link.target) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+
+        if (link) {
+          // Cache hit: resolve_reel_link() already counted the click that
+          // populated this entry on an earlier miss. Bump the counter for
+          // *this* click with the increment-only RPC, fire-and-forget --
+          // never in the request path (issue directive #4).
+          if (method === 'GET') ctx.waitUntil(bumpReelClick(env, code));
+        } else {
+          const result = await fetchReelLinkWithRetry(env, code);
+          if (result.ok && result.link) {
+            link = result.link;
+            ctx.waitUntil(cache.put(cacheKey, reelLinkCacheResponse(link)));
+          } else if (result.ok) {
+            // resolve_reel_link() ran fine and confirmed no such code. True 404.
+            return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+          } else {
+            // Lookup failed twice (or timed out) and nothing was cached --
+            // never 404 a real click for a DB blip (M9). Land the visitor on
+            // the reel's own page instead of losing the lead.
+            return new Response(null, { status: 302, headers: { Location: `https://biddeed.ai/reels/${encodeURIComponent(code)}`, 'Cache-Control': 'no-store' } });
+          }
+        }
+
         const target = new URL(link.target);
         if (link.utm_source) target.searchParams.set('utm_source', link.utm_source);
         if (link.utm_medium) target.searchParams.set('utm_medium', link.utm_medium);
