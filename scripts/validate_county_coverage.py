@@ -3,8 +3,7 @@
 
 This is read-only. It uses the active county_auction_config registry as the
 67-county denominator and public.multi_county_auctions as the publication
-layer. County normalization deliberately lowercases before stripping
-punctuation so values such as ``Osceola`` are not truncated to ``sceola``.
+layer. County normalization deliberately lowercases before stripping punctuation and removes a trailing ``county`` suffix so display values such as ``Osceola County`` match the registry slug ``osceola``.
 """
 from __future__ import annotations
 
@@ -24,7 +23,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
 
 def key(value: object) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+    normalized = re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+    return normalized[:-6] if normalized.endswith("county") else normalized
 
 
 def fetch(table: str, query: dict[str, str], *, page_size: int = 1000) -> list[dict]:
