@@ -256,6 +256,35 @@ def parse_status_sale_rows(url: str, html: str, county: str, sale_type: str, sta
     return rows, evidence
 
 
+def parse_lafayette_taxdeed_cards(url: str, html: str, county: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict]]:
+    """Parse Lafayette's official scheduled tax-deed cards.
+
+    The Clerk publishes repeated labeled cards rather than an HTML table. A
+    certificate number or parcel ID is used as the public-record identity;
+    the page does not publish a judgment amount, so that field remains null.
+    """
+    text = clean(BeautifulSoup(html, "html.parser").get_text(" ", strip=True))
+    rows: list[dict] = []
+    evidence: list[dict] = []
+    blocks = re.split(r"(?=Status\s+scheduled\b)", text, flags=re.I)
+    for block in blocks:
+        if not re.match(r"Status\s+scheduled\b", block, flags=re.I):
+            continue
+        date_match = re.search(r"Sale\s+Date\s+([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", block, flags=re.I)
+        cert_match = re.search(r"Cert\s*#\s*([A-Z0-9-]+)", block, flags=re.I)
+        parcel_match = re.search(r"Parcel\s+ID\s+([A-Z0-9-]+)", block, flags=re.I)
+        if not date_match or not (cert_match or parcel_match):
+            continue
+        sale_date = parse_date(date_match.group(1))
+        if not sale_date or not (start <= sale_date <= end):
+            continue
+        identity = clean((cert_match.group(1) if cert_match else parcel_match.group(1)))
+        aid = hashlib.sha256(f"{county}|tax_deed|{identity}|{sale_date.isoformat()}".encode()).hexdigest()[:40]
+        rows.append({"aid": aid, "county_slug": county, "auction_type": "tax_deed", "case_number": identity, "judgment_amount": None, "auction_starts_at": f"{sale_date.isoformat()}T00:00:00+00:00", "auction_starts_raw": date_match.group(1), "county_subdomain": "lafayette-clerk-cards", "case_clerk_url": url, "source_response_id": parcel_match.group(1) if parcel_match else identity, "first_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "last_seen_at": dt.datetime.now(dt.timezone.utc).isoformat(), "refresh_count": 1})
+        evidence.append({"url": url, "sale_type": "tax_deed", "identity": identity, "sale_date": sale_date.isoformat(), "parcel_id": parcel_match.group(1) if parcel_match else None, "certificate": cert_match.group(1) if cert_match else None, "amount_present": False, "format": "lafayette-scheduled-card"})
+    return rows, evidence
+
+
 def parse_charlotte_taxdeed_rows(county: str, start: dt.date, end: dt.date) -> tuple[list[dict], list[dict], str]:
     """Fetch Charlotte's official public tax-deed search JSON contract.
 
@@ -357,7 +386,10 @@ def main() -> int:
     args = parser.parse_args()
     start = dt.date.fromisoformat(args.start_date)
     end = start + dt.timedelta(days=args.days_ahead)
-    if args.county.lower() == "charlotte" and args.sale_type == "tax_deed":
+    if args.county.lower() == "lafayette" and args.sale_type == "tax_deed":
+        status, html = fetch(args.url)
+        rows, evidence = parse_lafayette_taxdeed_cards(args.url, html, args.county.lower(), start, end)
+    elif args.county.lower() == "charlotte" and args.sale_type == "tax_deed":
         try:
             rows, evidence, status = parse_charlotte_taxdeed_rows(args.county.lower(), start, end)
             html = ""
@@ -366,9 +398,14 @@ def main() -> int:
     else:
         status, html = fetch(args.url)
         rows, evidence = parse_structured_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
-    pdf_rows, pdf_evidence = parse_pdf_listing_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
-    prose_rows, prose_evidence = parse_explicit_prose_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
-    status_rows, status_evidence = parse_status_sale_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+    if args.county.lower() == "lafayette" and args.sale_type == "tax_deed":
+        pdf_rows, pdf_evidence = [], []
+        prose_rows, prose_evidence = [], []
+        status_rows, status_evidence = [], []
+    else:
+        pdf_rows, pdf_evidence = parse_pdf_listing_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+        prose_rows, prose_evidence = parse_explicit_prose_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
+        status_rows, status_evidence = parse_status_sale_rows(args.url, html, args.county.lower(), args.sale_type, start, end)
     rows.extend(pdf_rows)
     rows.extend(prose_rows)
     rows.extend(status_rows)
