@@ -1618,9 +1618,12 @@ function s5Page({ cover, countyLabel, mcaId, keyLast8, generatedAt, reportIdShor
   const addr     = escHtml(cover.property_address || 'Address pending');
   const addrCity = addr.includes(',') ? addr.slice(0, addr.indexOf(',')) : addr;
   const addrRest = addr.includes(',') ? addr.slice(addr.indexOf(',') + 1).trim() : '';
+  const metaDescRaw = `SIGNAL$ Property Report for ${addrCity}, ${escHtml(countyLabel)} County, FL — SIGNAL$ Max Bid, ZoneWise zoning, and comps for this auction.`;
+  const metaDesc = metaDescRaw.length > 155 ? metaDescRaw.slice(0, 152) + '...' : metaDescRaw;
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>BidDeed.AI SIGNAL$ Property Report | ${addr}</title>
+<meta name="description" content="${metaDesc}">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -1770,7 +1773,7 @@ ${banner ? banner + '\n' : ''}<div class="wrap">
     <div class="rpt-divider-top"></div>
     <div class="rpt-addr-row">
       <div>
-        <div class="rpt-addr-main">${addrCity}</div>
+        <h1 class="rpt-addr-main">${addrCity}</h1>
         <div class="rpt-addr-city">${addrRest || escHtml(countyLabel + ', FL')}</div>
       </div>
       <div class="rpt-meta">
@@ -6278,7 +6281,7 @@ function buildCountiesIndex(rtConfig) {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>All 67 Florida Counties — BidDeed.AI Foreclosure &amp; Tax Deed Intelligence</title>
-<meta name="description" content="Foreclosure and tax deed auction intelligence for every Florida county — upcoming auction counts, Gold Standard verified counties, and SIGNAL$ Max Bid reports starting at $25.">
+<meta name="description" content="Foreclosure and tax deed auction intelligence for all 67 Florida counties — upcoming auction counts and SIGNAL$ Max Bid reports from $25.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -8148,7 +8151,7 @@ body{background:var(--navy);color:var(--text);font-family:'Inter',system-ui,sans
 .steps{display:flex;gap:.4rem;margin-bottom:1.25rem}
 .steps span{flex:1;height:3px;border-radius:2px;background:var(--border)}
 .steps span.done,.steps span.active{background:var(--orange)}
-h1{font-size:1.5rem;color:#222222;margin-bottom:.5rem}
+h1,h2{font-size:1.5rem;color:#222222;margin-bottom:.5rem}
 p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6;font-size:.92rem}
 label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.4rem}
 select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:#ffffff;color:var(--text);font-size:.95rem;margin-bottom:1rem;font-family:inherit}
@@ -8175,7 +8178,7 @@ select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1
 html[data-theme=light] body{background:#ffffff;color:#222222}
 html[data-theme=light] .card{background:#ffffff;border-color:rgba(0,115,207,.35);box-shadow:0 18px 50px rgba(0,42,84,.10)}
 html[data-theme=light] :root{--navy:#ffffff;--orange:#0073CF;--orange2:#005DAA;--text:#222222;--muted:#002A54;--dim:#002A54;--border:#CCCCCC}
-html[data-theme=light] h1{color:#222222}
+html[data-theme=light] h1,html[data-theme=light] h2{color:#222222}
 html[data-theme=light] p,html[data-theme=light] label,html[data-theme=light] .consent,html[data-theme=light] .meta,html[data-theme=light] .empty,html[data-theme=light] .spin{color:#002A54}
 html[data-theme=light] select,html[data-theme=light] input[type=email]{background:#ffffff;color:#222222;border-color:#CCCCCC}
 html[data-theme=light] select:focus,html[data-theme=light] input[type=email]:focus{outline:2px solid rgba(0,115,207,.28);border-color:#0073CF}
@@ -8233,7 +8236,7 @@ html[data-theme=light] .upl a{color:#0073CF}
 
   <div id="step-auction" style="display:none">
     <button class="back" id="back-to-county">&larr; Change county</button>
-    <h1>Pick your auction</h1>
+    <h2>Pick your auction</h2>
     <p>Upcoming auctions in <span id="auction-county-name"></span>.</p>
     <div id="auction-loading" class="spin" style="display:none">Loading auctions…</div>
     <div id="auctions" class="auctions"></div>
@@ -8241,7 +8244,7 @@ html[data-theme=light] .upl a{color:#0073CF}
 
   <div id="step-checkout" style="display:none">
     <button class="back" id="back-to-auction">&larr; Change auction</button>
-    <h1>One SIGNAL$ Property Report — $25</h1>
+    <h2>One SIGNAL$ Property Report — $25</h2>
     <div class="summary" id="checkout-summary"></div>
     <form id="f">
       <label for="email">Email address (report delivered here)</label>
@@ -8596,7 +8599,7 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
 <p style="font-size:15px"><a style="color:#005DAA" href="/counties">Browse all 67 Florida counties</a> &middot; <a style="color:#005DAA" href="/buy-report">Get a Shapira Bid Card</a></p>
 </div></noscript>
 <div id="bd-fallback" style="display:none;padding:20px;max-width:760px;margin:0 auto;color:#222222">
-<h1 style="color:#005DAA;font-size:22px;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</h1>
+<p style="color:#005DAA;font-size:22px;font-weight:700;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</p>
 <p style="color:#002A54;font-size:15px;line-height:1.6">The interactive auction table did not load. Your connection may have blocked one of our assets.</p>
 <p style="font-size:15px"><a style="color:#005DAA" href="">Retry</a> &middot; <a style="color:#005DAA" href="/county/COUNTY_SLUG_PLACEHOLDER/lots">View the raw auction data</a> &middot; <a style="color:#005DAA" href="/counties">All 67 counties</a> &middot; <a style="color:#005DAA" href="/buy-report">Get a Shapira Bid Card</a></p>
 </div>
