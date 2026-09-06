@@ -175,6 +175,19 @@ COUNTY_ACCLAIM = {
     #     the bare host.
     "broward": {"base": "https://officialrecords.broward.org", "prefix": "/AcclaimWeb"},
     "st_lucie": {"base": "https://acclaimweb.stlucieclerk.gov", "prefix": "/AcclaimWeb"},
+    # lake added (issue #20054 lane C residual item #2): title_tier_coverage's
+    # own notes for this county (id=34) already recorded the live fingerprint
+    # -- officialrecords.lakecountyclerk.org root path serves the AcclaimWeb
+    # disclaimer directly (HTTP 200, real "Records Search" title, /search/
+    # Disclaimer form action, SearchTypeName field), no Cloudflare/bot block.
+    # Re-verified live this session: root "/" returns the disclaimer page
+    # (Duval-style, no /AcclaimWeb/ path segment -- confirmed the /AcclaimWeb/
+    # prefix variant 500s here), so prefix="" like duval, not "/AcclaimWeb"
+    # like brevard/santa_rosa/highlands/broward/st_lucie. Also needs
+    # case_number_filter="1" (exact-match) -- Lake's form defaults to "1",
+    # unlike every other county in this dict which works with "0".
+    "lake": {"base": "https://officialrecords.lakecountyclerk.org", "prefix": "",
+              "case_number_filter": "1"},
 }
 
 SB_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -208,9 +221,16 @@ def sb_insert(table, row):
 
 
 class AcclaimSession:
-    def __init__(self, base, prefix, results_endpoint="GridResults"):
+    def __init__(self, base, prefix, results_endpoint="GridResults", case_number_filter="0"):
         self.base = base
         self.prefix = prefix  # "" for duval, "/AcclaimWeb" for brevard-style
+        # CaseNumberFilter is also per-deployment: every county fingerprinted
+        # so far (duval, santa_rosa, brevard, highlands) works with "0"
+        # (contains-match), but lake's form default is "1" (exact-match) --
+        # live-verified this session, "0" silently returns {"data":[],
+        # "total":0} for a real case with a recorded Lis Pendens, "1" returns
+        # it (case "2024CA000186" -> clerk's "352024CA000186AXXX01").
+        self.case_number_filter = case_number_filter
         # AcclaimWeb's results-grid endpoint name is per-deployment, not a
         # fixed contract: Highlands renamed it from GridResults to
         # GetSearchResults sometime between a76980b8 (Aug 31, HTTP 200 on
@@ -267,7 +287,7 @@ class AcclaimSession:
         self._accept_disclaimer()
         today = dt.date.today()
         payload = urllib.parse.urlencode({
-            "CaseNumber": case_number, "CaseNumberFilter": "0", "DocTypes": "all",
+            "CaseNumber": case_number, "CaseNumberFilter": self.case_number_filter, "DocTypes": "all",
             "DocTypesDisplay-input": "All", "DocTypesDisplay": "", "DateRangeList": " ",
             "RecordDateFrom": "1/1/1981", "RecordDateTo": f"{today.month}/{today.day}/{today.year}",
         })
@@ -619,7 +639,8 @@ def main():
         print(f"[pre_auction_lien_harvest] {county}: {len(auctions)} genuinely-future upcoming auctions in [{today}, {cutoff}] (limit={args.limit})")
 
     cfg = COUNTY_ACCLAIM[county]
-    session = AcclaimSession(cfg["base"], cfg["prefix"], cfg.get("results_endpoint", "GridResults"))
+    session = AcclaimSession(cfg["base"], cfg["prefix"], cfg.get("results_endpoint", "GridResults"),
+                              cfg.get("case_number_filter", "0"))
 
     n_title_defects = n_lien_results = n_skipped_dupe = n_cases_no_docs = 0
     n_tier1_written = n_tier1_skipped = 0
@@ -628,7 +649,11 @@ def main():
         case_number = a["case_number"]
         try:
             docs = session.case_lookup(case_number)
-            if county == "brevard":
+            if county in ("brevard", "lake"):
+                # lake's case_lookup() raw response (live-verified this
+                # session) matches brevard's exact shape: RecordDate as an
+                # ASP.NET epoch-ms date and lowercase "Bookpage" -- same fix
+                # applies, see normalize_brevard_docs docstring.
                 docs = normalize_brevard_docs(docs)
         except Exception as e:
             print(f"  {case_number}: FETCH FAILED — {e}")
