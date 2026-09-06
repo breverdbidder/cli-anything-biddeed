@@ -7,14 +7,20 @@
 //
 //   FEMA  — NFHL public ArcGIS REST (hazards.fema.gov), keyed by lat/lon.
 //           No API key required. CONFIRMED reachable (curl probe, 2026-09-06).
-//   ACS   — Census ACS 5-year API, keyed by ZCTA. As of 2026-09-06 this
-//           endpoint 302s to https://api.census.gov/data/missing_key.html
-//           without an API key — the "free, no key" claim in the issue body
-//           does not hold in this environment; no CENSUS_API_KEY secret is
-//           configured for this repo (confirmed: env + `gh secret list`
-//           both empty). Wired end-to-end and ready to activate the moment
-//           a key is added — until then it renders Pending with this exact
-//           gate, never a fabricated score.
+//   ACS   — Census ACS 5-year API, keyed by ZCTA. Called keyless whenever
+//           CENSUS_API_KEY is unset — the `key=` param is simply omitted,
+//           never hard-gated. Re-confirmed live 2026-09-06 (issue #20044):
+//           from this environment the keyless call still redirects to
+//           https://api.census.gov/data/missing_key.html (response header
+//           `X-DataWebAPI-KeyError: 1`) — so in practice this still renders
+//           Pending until a key is configured, but that is now a runtime
+//           outcome, not a code gate: the call is always attempted, and any
+//           failure (missing-key redirect, rate-limit, 5xx, JSON parse
+//           failure) renders the single generic
+//           "Pending — Census API unavailable at generation time" without
+//           ever failing the report. The 30-day cache means a success is
+//           remembered, but a failure is NOT cached, so the next report
+//           generation retries automatically.
 //
 // Schools is intentionally NOT implemented here — no free, in-repo source
 // exists (per issue scope: "leave Pending... do not add a paid API").
@@ -94,17 +100,27 @@ const ACS_VARS = {
 
 async function fetchAcsLive(zip) {
   const apiKey = process.env.CENSUS_API_KEY;
-  if (!apiKey) {
-    throw new Error('CENSUS_API_KEY not configured — Census ACS API returns HTTP 302 to missing_key.html without one (confirmed 2026-09-06)');
-  }
   const vars = Object.values(ACS_VARS).join(',');
-  const url = `https://api.census.gov/data/2022/acs/acs5?get=${vars}&for=zip%20code%20tabulation%20area:${zip}&key=${apiKey}`;
+  let url = `https://api.census.gov/data/2022/acs/acs5?get=${vars}&for=zip%20code%20tabulation%20area:${zip}`;
+  if (apiKey) url += `&key=${apiKey}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Census ACS ${res.status}`);
-  const rows = await res.json();
+  // Keyless (and sometimes rate-limited) calls 302-redirect to a 200 HTML
+  // "missing key" page rather than erroring — fetch() follows the redirect
+  // silently, so status alone can't detect it. The API's own diagnostic
+  // header survives the redirect and is the reliable signal.
+  if (res.headers.get('x-datawebapi-keyerror') || /missing_key\.html/.test(res.url)) {
+    throw new Error('Census API unavailable at generation time');
+  }
+  if (!res.ok) throw new Error('Census API unavailable at generation time');
+  let rows;
+  try {
+    rows = await res.json();
+  } catch {
+    throw new Error('Census API unavailable at generation time');
+  }
   const header = rows[0];
   const values = rows[1];
-  if (!values) throw new Error('Census ACS returned no row for this ZCTA');
+  if (!values) throw new Error('Census API unavailable at generation time');
   const byName = Object.fromEntries(header.map((h, i) => [h, values[i]]));
   const povertyRate = Number(byName[ACS_VARS.poverty_universe]) > 0
     ? Number(byName[ACS_VARS.poverty_count]) / Number(byName[ACS_VARS.poverty_universe])

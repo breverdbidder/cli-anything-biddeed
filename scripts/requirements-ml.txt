@@ -1,0 +1,33 @@
+# Issue #20044 item 2b — scripts/ml_score_nightly.py dependencies.
+#
+# xgboost/catboost/numpy/requests pinned to modal/ensemble_scorer.py's Modal
+# image — the live Python inference runtime already serving this exact
+# model_version (v4.0-20260802-015242); model_artifacts has no per-row
+# package-version metadata column to read this from at runtime, so that
+# image is the source of truth for those.
+#
+# scikit-learn is NOT pinned to the Modal image's 1.5.2. Loading the real
+# ensemble.pkl this session (2026-09-06) with 1.5.2 raised three
+# `InconsistentVersionWarning`s naming the actual training version directly:
+# "Trying to unpickle estimator {LabelEncoder,DecisionTreeClassifier,
+# RandomForestClassifier} from version 1.8.0 when using version 1.5.2."
+# Re-loading the identical artifact with scikit-learn==1.8.0 produced zero
+# such warnings — confirmed live, not inferred. 1.8.0 is pinned here as the
+# verified-correct version for the sklearn-based rf_meta learner; the Modal
+# image's 1.5.2 pin for this package is itself stale (a separate, pre-
+# existing drift on the Modal side, out of scope for this issue).
+#
+# lightgbm is bumped past the Modal image's 4.5.0 to 4.6.0: 4.5.0's sklearn-
+# compat shim calls check_array(..., force_all_finite=...), a parameter
+# scikit-learn 1.8.0 removed (renamed to ensure_all_finite in 1.6+) — this
+# combination throws `TypeError: check_array() got an unexpected keyword
+# argument 'force_all_finite'` on every predict_proba() call, confirmed live
+# this session. lightgbm==4.6.0 dropped that parameter from its shim and was
+# verified live against the real ensemble.pkl artifact with no error.
+scikit-learn==1.8.0
+xgboost==2.1.1
+lightgbm==4.6.0
+catboost==1.2.7
+numpy==1.26.4
+requests==2.32.3
+pandas==2.2.3

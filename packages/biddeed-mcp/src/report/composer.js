@@ -17,7 +17,7 @@ import { buildZwSection } from './zw-section.js';
 import { buildCma, buildDistressedCma } from './cma.js';
 import { matchStateParcel } from './parcel-match.js';
 import { computeCountyTargetEncoding, buildFeatureVector } from './feature-vector.js';
-import { predictEnsemble } from './ensemble-model.js';
+import { predictEnsemble, MODEL_VERSION } from './ensemble-model.js';
 import { deriveRedFlags, hasJuniorLienRisk, hasTaxDeedLienRisk, JUNIOR_JUDGMENT_TO_ASSESSED } from './red-flags.js';
 import { buildOutcomeSection } from './outcome.js';
 import { fetchFemaFloodZone, fetchNeighborhoodAcs } from './context-layers.js';
@@ -259,7 +259,42 @@ async function computeShapiraCeiling(auction, county, arv, sellProb, propertyTyp
   return { ceiling, floor, cap, source };
 }
 
+// Issue #20044 item 2d — the GHA nightly job (scripts/ml_score_nightly.py)
+// pre-scores every upcoming auction with the real 3-learner pkl ensemble
+// (Python-only artifacts: xgb/lgbm/catb + rf meta-learner) and upserts one
+// row per (mca_id, model_version) into ml_scores. Prefer that row over a
+// live Modal/pure-JS call when present — it carries three DISTINCT learner
+// probabilities (the live pure-JS fallback only ever has two, with
+// catb_prob forced null); never print three identical numbers as three
+// learners.
+async function readMlScoresRow(auction, { get = defaultGet } = {}) {
+  if (!auction.id) return null;
+  const rows = await get(
+    `ml_scores?mca_id=eq.${encodeURIComponent(auction.id)}&model_version=eq.${encodeURIComponent(MODEL_VERSION)}` +
+    `&select=p_third_party,xgb_prob,lgbm_prob,catb_prob,feature_vector,scored_at&order=scored_at.desc&limit=1`
+  ).catch(() => []);
+  const row = rows?.[0];
+  if (!row || row.p_third_party == null) return null;
+  return {
+    available: true,
+    probability_third_party_purchase: Number(row.p_third_party),
+    base_learners: {
+      xgb_prob: row.xgb_prob != null ? Number(row.xgb_prob) : null,
+      lgbm_prob: row.lgbm_prob != null ? Number(row.lgbm_prob) : null,
+      catb_prob: row.catb_prob != null ? Number(row.catb_prob) : null,
+    },
+    meta_learner: 'rf',
+    model_version: MODEL_VERSION,
+    method: 'ml_scores_nightly_batch',
+    scored_at: row.scored_at,
+    feature_vector: row.feature_vector || null,
+  };
+}
+
 async function scoreModel(auction, county, deps) {
+  const nightly = await readMlScoresRow(auction, deps).catch(() => null);
+  if (nightly) return nightly;
+
   const countyEncoding = await computeCountyTargetEncoding(county, deps).catch(() => null);
   const { byName, v4Array } = buildFeatureVector(auction, countyEncoding);
   try {

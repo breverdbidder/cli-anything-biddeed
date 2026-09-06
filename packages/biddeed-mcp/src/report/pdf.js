@@ -383,8 +383,22 @@ const SECTION_RENDERERS = {
       doc.fillColor(NAVY).fontSize(8).font('Helvetica-Bold').text('Feature Vector (exact model inputs):', 44, doc.y); doc.y += 12;
       Object.entries(fv).forEach(([k, v], i) => row(doc, k.replace(/_/g,' '), safeStr(v), i % 2 === 0));
     }
-    // Probability — withheld if not available
-    if (typeof ml.probability_third_party_purchase === 'number') {
+    // Issue #20044 item 2d — nightly ml_scores rows (method
+    // 'ml_scores_nightly_batch') carry three DISTINCT real learner
+    // probabilities from the Python pkl ensemble (xgb/lgbm/catb → rf meta),
+    // not a copied/repeated number. Only this path prints them; the legacy
+    // live-inference path below is unchanged (still withheld — see its own
+    // note).
+    const bl = ml.base_learners || {};
+    const hasDistinctLearners = ml.method === 'ml_scores_nightly_batch'
+      && typeof bl.xgb_prob === 'number' && typeof bl.lgbm_prob === 'number' && typeof bl.catb_prob === 'number';
+    if (hasDistinctLearners) {
+      row(doc, 'XGBoost Probability',  `${(bl.xgb_prob * 100).toFixed(1)}%`, true);
+      row(doc, 'LightGBM Probability', `${(bl.lgbm_prob * 100).toFixed(1)}%`);
+      row(doc, 'CatBoost Probability', `${(bl.catb_prob * 100).toFixed(1)}%`, true);
+      row(doc, 'Ensemble (RF Meta)',   `${(ml.probability_third_party_purchase * 100).toFixed(1)}% 3rd-party purchase probability`);
+      row(doc, 'Scored',               ml.scored_at ? new Date(ml.scored_at).toISOString() : '—', true);
+    } else if (typeof ml.probability_third_party_purchase === 'number') {
       doc.fillColor(RED).fontSize(7).font('Helvetica-Bold')
         .text('NOTE: Live inference probability withheld — a number the model did not produce will not be printed under its name.', 44, doc.y + 4, { width: doc.page.width - 80 });
       doc.y += 14;
