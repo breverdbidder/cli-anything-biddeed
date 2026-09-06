@@ -2691,8 +2691,8 @@ function withPublicShell(html, path) {
     publicNavLink(path, '/chat#projects', 'Projects', '▣', p => false),
   ].join('');
   const label = publicRouteLabel(path);
-  const shell = `<aside class="bd-shell-sidebar" aria-label="Primary navigation"><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></aside><header class="bd-shell-topbar"><button class="bd-shell-menu" type="button" aria-label="Open navigation" aria-controls="bd-mobile-drawer" aria-expanded="false" data-menu-toggle>☰</button><span class="bd-shell-route">${label}</span><div class="bd-shell-top-actions"><button class="bd-shell-theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark mode">☾ 
-<span>Dark</span></button><a class="bd-shell-cta" href="/subscribe?tier=investor">Investor $99/mo</a></div></header><div class="bd-shell-scrim" data-menu-scrim></div><aside class="bd-shell-drawer" id="bd-mobile-drawer" aria-label="Mobile navigation" data-mobile-drawer><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></aside><script>(function(){var d=document.querySelector('[data-mobile-drawer]'),s=document.querySelector('[data-menu-scrim]'),m=document.querySelector('[data-menu-toggle]');function close(){if(d)d.dataset.open='false';if(s)s.dataset.open='false';if(m)m.setAttribute('aria-expanded','false')}function open(){if(d)d.dataset.open='true';if(s)s.dataset.open='true';if(m)m.setAttribute('aria-expanded','true')}if(m)m.addEventListener('click',function(){d&&d.dataset.open==='true'?close():open()});if(s)s.addEventListener('click',close);document.querySelectorAll('[data-mobile-drawer] a').forEach(function(a){a.addEventListener('click',close)});document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});})();</script><script>(function(){var root=document.documentElement;var buttons=document.querySelectorAll('[data-theme-toggle]');function apply(theme){root.dataset.theme=theme;buttons.forEach(function(b){var light=theme==='dark';b.setAttribute('aria-label','Switch to '+(light?'light':'dark')+' mode');b.innerHTML=(light?'☼ <span>Light</span>':'☾ <span>Dark</span>')})}apply('light');buttons.forEach(function(b){b.addEventListener('click',function(){apply(root.dataset.theme==='dark'?'light':'dark')})})})();</script>`;
+  const shell = `<aside class="bd-shell-sidebar" aria-label="Primary navigation"><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/terms">Terms</a></div></aside><header class="bd-shell-topbar"><button class="bd-shell-menu" type="button" aria-label="Open navigation" aria-controls="bd-mobile-drawer" aria-expanded="false" data-menu-toggle>☰</button><span class="bd-shell-route">${label}</span><div class="bd-shell-top-actions"><button class="bd-shell-theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark mode">☾ 
+<span>Dark</span></button><a class="bd-shell-cta" href="/subscribe?tier=investor">Investor $99/mo</a></div></header><div class="bd-shell-scrim" data-menu-scrim></div><aside class="bd-shell-drawer" id="bd-mobile-drawer" aria-label="Mobile navigation" data-mobile-drawer><a class="bd-shell-brand" href="/"><span class="bd-shell-mark" aria-hidden="true">BD</span><span class="bd-shell-brand-text"><strong>Bid<span>Deed</span>.AI</strong><small>Auction Intelligence</small></span></a><div class="bd-shell-label">Workspace</div><nav class="bd-shell-nav">${nav}<a class="bd-shell-deed" href="/chat"><span class="bd-shell-icon" aria-hidden="true">✦</span><span>Deed</span></a></nav><div class="bd-shell-footer"><a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/terms">Terms</a></div></aside><script>(function(){var d=document.querySelector('[data-mobile-drawer]'),s=document.querySelector('[data-menu-scrim]'),m=document.querySelector('[data-menu-toggle]');function close(){if(d)d.dataset.open='false';if(s)s.dataset.open='false';if(m)m.setAttribute('aria-expanded','false')}function open(){if(d)d.dataset.open='true';if(s)s.dataset.open='true';if(m)m.setAttribute('aria-expanded','true')}if(m)m.addEventListener('click',function(){d&&d.dataset.open==='true'?close():open()});if(s)s.addEventListener('click',close);document.querySelectorAll('[data-mobile-drawer] a').forEach(function(a){a.addEventListener('click',close)});document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});})();</script><script>(function(){var root=document.documentElement;var buttons=document.querySelectorAll('[data-theme-toggle]');function apply(theme){root.dataset.theme=theme;buttons.forEach(function(b){var light=theme==='dark';b.setAttribute('aria-label','Switch to '+(light?'light':'dark')+' mode');b.innerHTML=(light?'☼ <span>Light</span>':'☾ <span>Dark</span>')})}apply('light');buttons.forEach(function(b){b.addEventListener('click',function(){apply(root.dataset.theme==='dark'?'light':'dark')})})})();</script>`;
   // Parity shell (2026-09-04): canonical on every page (SEO gate), the site fonts loaded once (Inter / Source Serif 4 / JetBrains Mono), serif display headings, 44 px hit areas.
   const canonicalPath = String(path || '/').split('?')[0];
   const shellHead = (html.includes('rel="canonical"') ? '' : `<link rel="canonical" href="https://biddeed.ai${canonicalPath}">`)
@@ -2957,9 +2957,21 @@ async function handleRequest(request, env, ctx) {
         // P1 Discovery is a Next/Vercel surface proxied through the canonical Worker host.
         path === '/discover' || path.startsWith('/discover/') ||
         // Authenticated Alerts UI is a Vercel surface; its API remains Clerk-protected.
-        path === '/alerts' || path.startsWith('/alerts/')
+        path === '/alerts' || path.startsWith('/alerts/') ||
+        // Public support tickets (2026-09-06): the form/lookup page and the
+        // founder inbox live in biddeed-web. EXACT match on /support on
+        // purpose -- /support/bot below is this Worker's Chatwoot webhook and
+        // must never be proxied. /api/support-ticket* rides the /api/ branch.
+        path === '/support' ||
+        path === '/admin/support' || path.startsWith('/admin/support/')
       ) {
         return proxyToRadar(request, url);
+      }
+
+      // /contact was a bare 404 until 2026-09-06; it is the address people
+      // guess, so send it to the support form rather than build a twin page.
+      if (path === '/contact' || path === '/contact/') {
+        return Response.redirect('https://biddeed.ai/support', 301);
       }
 
       // -- Self-hosted static assets for the 67 /county/:slug pages ---------
@@ -6081,7 +6093,7 @@ footer a{color:var(--muted);text-decoration:none}
   <div style="text-align:center;margin-top:1rem"><a href="/subscribe?tier=investor" style="font-size:13px;color:#002A54">Prefer monthly? $99/mo →</a></div>
 </div>
 <footer>
-  <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a></p>
+  <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/support">Support</a></p>
 </footer>
 <script>
 var pRefCode = new URLSearchParams(window.location.search).get('ref');
@@ -6167,7 +6179,7 @@ footer a{color:var(--muted);text-decoration:none}
   ${rows}
 </div>
 <footer>
-  <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/disclaimer">Disclaimer</a></p>
+  <p>&copy; 2026 BidDeed.AI &middot; Everest Capital USA &middot; <a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/support">Support</a> &middot; <a href="/disclaimer">Disclaimer</a></p>
 </footer>
 </body></html>`;
 }
@@ -6350,7 +6362,7 @@ footer{border-top-color:var(--border)}
   <div class="counties-grid">${rows}</div>
 </div>
 <footer>
-  <p>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a></p>
+  <p>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a></p>
 </footer>
 </body></html>`;
 }
@@ -10049,7 +10061,8 @@ nav{background:rgba(232,244,252,.94);border-bottom-color:var(--orange)}
   <a href="/disclaimer">Disclaimer</a> &nbsp;·&nbsp;
   <a href="/terms">Terms</a> &nbsp;·&nbsp;
   <a href="/privacy">Privacy</a> &nbsp;·&nbsp;
-  <a href="/security">Security</a>
+  <a href="/security">Security</a> &nbsp;·&nbsp;
+  <a href="/support">Support</a>
 </div>
 
 <!-- FOOTER -->
@@ -10074,6 +10087,7 @@ nav{background:rgba(232,244,252,.94);border-bottom-color:var(--orange)}
         <a href="/privacy">Privacy</a>
         <a href="/disclaimer">Disclaimer</a>
         <a href="/security">Security</a>
+        <a href="/support">Support</a>
       </div>
     </div>
     <div class="foot-bottom">
@@ -10241,7 +10255,7 @@ footer a{color:var(--muted)}
         <h2>8. Governing law</h2><p>These Terms are governed by the laws of the State of Florida. Venue for any dispute lies in the state or federal courts located in Brevard County, Florida.</p>
         <h2>9. Changes</h2><p>We may update these Terms; continued use after changes constitutes acceptance.</p>
         <h2>10. Contact</h2><p><a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></p></div>
-<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 
 const PRIVACY_HTML = `<!doctype html><html lang="en"><head>
@@ -10281,7 +10295,7 @@ footer a{color:var(--muted)}
       <h2>7. Children</h2><p>The service is not directed to individuals under 18, and we do not knowingly collect their information.</p>
       <h2>8. Changes</h2><p>We may update this policy; the "last updated" date reflects the latest revision.</p>
       <h2>9. Contact</h2><p><a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></p></div>
-<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 
 const DISCLAIMER_HTML = `<!doctype html><html lang="en"><head>
@@ -10311,7 +10325,7 @@ footer a{color:var(--muted)}
         <h2>Informational purpose only</h2><p>All content, data, analytics, county intelligence, auction calendars, and the SIGNAL$ Max Bid Formula are provided for general informational purposes. Property values, opening bids, judgment amounts, liens, and outcomes are sourced from public records and third parties and are provided "as is" without warranty of accuracy, completeness, or fitness for a particular purpose.</p>
         <h2>No guarantee of results</h2><p>Past results (including any example outcomes shown on this site) do not guarantee future performance. A "max bid" figure is an estimate, not a recommendation to bid, and not a prediction of sale price or profit.</p>
         <h2>Independent verification required</h2><p>You are solely responsible for verifying all information with the county clerk, property appraiser, and a licensed attorney before participating in any auction.</p></div>
-<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 
 const DATA_RETENTION_HTML = `<!doctype html><html lang="en"><head>
@@ -10365,7 +10379,7 @@ code{background:#ffffff;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 <p>Policy questions: <a href="mailto:privacy@biddeed.ai">privacy@biddeed.ai</a> &nbsp;·&nbsp; Security incidents: <a href="mailto:security@biddeed.ai">security@biddeed.ai</a></p>
 
 </div>
-<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="/data-retention">Data Retention</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="/data-retention">Data Retention</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 
 const SECURITY_LAST_REVIEWED = 'August 2026';
@@ -10456,7 +10470,7 @@ code{background:#ffffff;padding:.1rem .35rem;border-radius:4px;font-size:.85em}
 <p>Found an issue? Email <a href="mailto:security@biddeed.ai">security@biddeed.ai</a>. We aim to respond within 48 hours. Responsible disclosure is welcome — please give us a reasonable window to fix before public disclosure.</p>
 
 </div>
-<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
+<footer>© 2026 BidDeed.AI · Everest Capital USA · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/support">Support</a> · <a href="/disclaimer">Disclaimer</a> · <a href="/security">Security</a> · <a href="mailto:hello@biddeed.ai">hello@biddeed.ai</a></footer>
 </body></html>`;
 // deploy-pipeline self-test marker (safe to remove) — validates automated deploy script end-to-end
 
