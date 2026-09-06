@@ -168,9 +168,35 @@ jobs:
     needs: refresh
     if: always()
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
-      - name: Report matrix result
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate required secrets without printing values
         run: |
-          echo "matrix_result=${{ needs.refresh.result }}"
-          echo "Coverage must be rechecked against Supabase after the matrix completes."
-          echo "Do not declare 64/67 or 67/67 from workflow status alone."
+          set -euo pipefail
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL is missing" >&2; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY is missing" >&2; exit 1; }
+
+      - name: Run authoritative 67-county coverage gate
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python scripts/validate_county_coverage.py | tee evidence/county-coverage.json
+
+      - name: Upload coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: county-coverage-${{ github.run_id }}
+          path: evidence/county-coverage.json
+          if-no-files-found: error
+          retention-days: 30
