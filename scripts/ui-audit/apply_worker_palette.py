@@ -48,6 +48,15 @@ rep(".sc-title{font-weight:700;font-size:16px;color:#0073CF}", ".sc-title{font-w
 rep(".price-cta.ghost:hover{border-color:var(--orange);color:#fff}", ".price-cta.ghost:hover{border-color:var(--orange);color:var(--orange)}")
 # /buy-report section numbers: brand on the .s5-overview tint measured 4.18:1 live (2026-09-06 18:40 UTC)
 rep(".s5-grid b{color:#0073CF;", ".s5-grid b{color:#005DAA;")
+# The shell's blanket `a:not([class]){color:#0073CF}` (0,1,1) is injected AFTER
+# every page stylesheet, so it beat same-specificity container rules such as
+# `.cta-box a{...;color:#ffffff}` and painted the blog "Get a SIGNAL$ Property
+# Report" button brand-blue ON brand-blue (Ariel's screenshot, 2026-09-06 14:48
+# ET); same for .psale-gate-overlay a and .reel-cta-overlay a. Scope it to
+# body-copy anchors (direct children of p/li/td/dd) - the container-styled CTAs
+# are all direct children of their div and keep their white text.
+rep("a:not([class]){color:#0073CF}a:not([class]):hover{color:#005DAA}",
+    "p>a:not([class]),li>a:not([class]),td>a:not([class]),dd>a:not([class]){color:#0073CF}p>a:not([class]):hover,li>a:not([class]):hover,td>a:not([class]):hover,dd>a:not([class]):hover{color:#005DAA}")
 
 rep("html[data-theme=light] .disclaimer{color:#8f8479}", "html[data-theme=light] .disclaimer{color:#002A54}")
 rep(".bbl.user{background:#1e3a5f;color:var(--text);border:1px solid #2d5a8e}", ".bbl.user{background:#E8F4FC;color:var(--text);border:1px solid #CCCCCC}")
