@@ -84,6 +84,7 @@ jobs:
       - name: Refresh direct calendar adapters with transient retry
         id: direct_refresh
         continue-on-error: true
+        timeout-minutes: 8
         shell: bash
         env:
           COUNTY: ${{ matrix.county }}
