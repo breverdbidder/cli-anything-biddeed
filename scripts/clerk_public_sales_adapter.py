@@ -240,6 +240,29 @@ def upsert(rows: list[dict]) -> int:
     return len(rows)
 
 
+def promote_mca(county: str) -> dict:
+    request = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/rpc/realforeclose_aids_to_mca_patch",
+        data=json.dumps({"p_dispatch_id": None, "p_county_slug": county}).encode(),
+        method="POST",
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+    )
+    last_error = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                if response.status not in (200, 201, 204):
+                    raise RuntimeError(f"MCA promotion HTTP {response.status}: {body[:500]}")
+                return {"status": "success", "response": body[:500]}
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt == 0:
+                import time
+                time.sleep(2)
+    return {"status": "error", "error": last_error}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--county", required=True)
@@ -287,7 +310,8 @@ def main() -> int:
                 evidence.append({"url": link, "error": str(exc)})
     unique = {r["aid"]: r for r in rows}
     inserted = upsert(list(unique.values())) if args.apply else 0
-    print(json.dumps({"county": args.county, "sale_type": args.sale_type, "source_url": args.url, "http_status": status, "window": [start.isoformat(), end.isoformat()], "parsed": len(unique), "inserted": inserted, "apply": args.apply, "evidence": evidence}, sort_keys=True))
+    promotion = promote_mca(args.county.lower()) if args.apply and inserted else {"status": "not_requested"}
+    print(json.dumps({"county": args.county, "sale_type": args.sale_type, "source_url": args.url, "http_status": status, "window": [start.isoformat(), end.isoformat()], "parsed": len(unique), "inserted": inserted, "apply": args.apply, "mca_promotion": promotion, "evidence": evidence}, sort_keys=True))
     return 0
 
 
