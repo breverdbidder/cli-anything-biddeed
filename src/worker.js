@@ -5158,7 +5158,7 @@ function buildAnswerPage(row, resolved) {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>${escHtml(row.title)}</title>
-<meta name="description" content="${escHtml(metaDesc)}">
+<meta name="description" content="${metaDesc}">
 <link rel="canonical" href="${escHtml(canonicalUrl)}">
 ${jsonLdBlocks}
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -6278,7 +6278,7 @@ function buildCountiesIndex(rtConfig) {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>All 67 Florida Counties — BidDeed.AI Foreclosure &amp; Tax Deed Intelligence</title>
-<meta name="description" content="Foreclosure and tax deed auction intelligence for every Florida county — upcoming auction counts, Gold Standard verified counties, and SIGNAL$ Max Bid reports starting at $25.">
+<meta name="description" content="Foreclosure and tax deed auction data for every Florida county — upcoming auctions, Gold Standard verified counties, SIGNAL$ Max Bid reports from $25.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -8148,7 +8148,7 @@ body{background:var(--navy);color:var(--text);font-family:'Inter',system-ui,sans
 .steps{display:flex;gap:.4rem;margin-bottom:1.25rem}
 .steps span{flex:1;height:3px;border-radius:2px;background:var(--border)}
 .steps span.done,.steps span.active{background:var(--orange)}
-h1{font-size:1.5rem;color:#222222;margin-bottom:.5rem}
+h1,h2.step-title{font-size:1.5rem;color:#222222;margin-bottom:.5rem}
 p{color:var(--muted);margin-bottom:1.5rem;line-height:1.6;font-size:.92rem}
 label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.4rem}
 select,input[type=email]{width:100%;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:#ffffff;color:var(--text);font-size:.95rem;margin-bottom:1rem;font-family:inherit}
@@ -8233,7 +8233,7 @@ html[data-theme=light] .upl a{color:#0073CF}
 
   <div id="step-auction" style="display:none">
     <button class="back" id="back-to-county">&larr; Change county</button>
-    <h1>Pick your auction</h1>
+    <h2 class="step-title">Pick your auction</h2>
     <p>Upcoming auctions in <span id="auction-county-name"></span>.</p>
     <div id="auction-loading" class="spin" style="display:none">Loading auctions…</div>
     <div id="auctions" class="auctions"></div>
@@ -8241,7 +8241,7 @@ html[data-theme=light] .upl a{color:#0073CF}
 
   <div id="step-checkout" style="display:none">
     <button class="back" id="back-to-auction">&larr; Change auction</button>
-    <h1>One SIGNAL$ Property Report — $25</h1>
+    <h2 class="step-title">One SIGNAL$ Property Report — $25</h2>
     <div class="summary" id="checkout-summary"></div>
     <form id="f">
       <label for="email">Email address (report delivered here)</label>
@@ -8590,13 +8590,13 @@ select, input { background:var(--surface) !important; color:var(--ink) !importan
 </head>
 <body x-data="app()" x-init="init()" class="min-h-screen pb-36">
 <noscript><div style="padding:20px;max-width:760px;margin:0 auto;color:#222222">
-<h1 style="color:#005DAA;font-size:22px;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</h1>
+<h2 style="color:#005DAA;font-size:22px;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</h2>
 <p style="color:#002A54;font-size:15px;line-height:1.6">Upcoming Clerk of Court auctions in COUNTY_TITLE_PLACEHOLDER County. This page needs JavaScript for the interactive table. The full auction list is available as data at
 <a style="color:#005DAA" href="/county/COUNTY_SLUG_PLACEHOLDER/lots">/county/COUNTY_SLUG_PLACEHOLDER/lots</a>.</p>
 <p style="font-size:15px"><a style="color:#005DAA" href="/counties">Browse all 67 Florida counties</a> &middot; <a style="color:#005DAA" href="/buy-report">Get a Shapira Bid Card</a></p>
 </div></noscript>
 <div id="bd-fallback" style="display:none;padding:20px;max-width:760px;margin:0 auto;color:#222222">
-<h1 style="color:#005DAA;font-size:22px;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</h1>
+<h2 style="color:#005DAA;font-size:22px;margin:0 0 8px">COUNTY_TITLE_PLACEHOLDER County, Florida — Tax Deed &amp; Foreclosure Auctions</h2>
 <p style="color:#002A54;font-size:15px;line-height:1.6">The interactive auction table did not load. Your connection may have blocked one of our assets.</p>
 <p style="font-size:15px"><a style="color:#005DAA" href="">Retry</a> &middot; <a style="color:#005DAA" href="/county/COUNTY_SLUG_PLACEHOLDER/lots">View the raw auction data</a> &middot; <a style="color:#005DAA" href="/counties">All 67 counties</a> &middot; <a style="color:#005DAA" href="/buy-report">Get a Shapira Bid Card</a></p>
 </div>
