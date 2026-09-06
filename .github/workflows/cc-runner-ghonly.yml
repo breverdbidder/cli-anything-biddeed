@@ -254,17 +254,46 @@ jobs:
           # public.rls_gate_baseline (307 grandfathered violations snapshotted 2026-09-02) and
           # public.rls_gate_allowlist. Any table/view this session created without RLS, or with a
           # new anon-readable policy, fails the job. Baseline burn-down is a separate issue.
-          RESP=$(curl -s --max-time 60 -X POST "${SUPABASE_URL}/rest/v1/rpc/rls_gate_check" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json" -d "{\"p_source\":\"cc-runner issue ${{ matrix.issue }} run ${{ github.run_id }}\"}")
+          #
+          # 2026-09-06 (issue #20059, run 34038488838): mocerqjnksmhcjzxrewo.supabase.co is
+          # restarting 3-5x/hour, which surfaces as a Cloudflare 525 (origin SSL handshake
+          # failed) HTML page instead of a JSON verdict — instance flakiness, not a violation.
+          # Retry up to 3x with 20s/40s/80s backoff on any non-JSON response (5xx/525/HTML/
+          # timeout/connection reset). A real JSON verdict (pass or fail) never retries.
+          call_rls_gate() {
+            curl -s --max-time 60 -X POST "${SUPABASE_URL}/rest/v1/rpc/rls_gate_check" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: application/json" -d "{\"p_source\":\"cc-runner issue ${{ matrix.issue }} run ${{ github.run_id }}\"}"
+          }
+          BACKOFFS=(20 40 80)
+          RESP=""
+          PASSED="error"
+          for i in 0 1 2; do
+            RESP=$(call_rls_gate)
+            PASSED=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d.get("passed")).lower())' 2>/dev/null || echo "error")
+            if [ "$PASSED" != "error" ]; then
+              break
+            fi
+            echo "RLS gate unreachable on attempt $((i+1))/3 (non-JSON response — likely Supabase 5xx/525 restart)"
+            echo "response snippet: $(echo "$RESP" | head -c 300)"
+            if [ "$i" -lt 2 ]; then
+              echo "retrying in ${BACKOFFS[$i]}s"
+              sleep "${BACKOFFS[$i]}"
+            fi
+          done
           echo "$RESP"
-          PASSED=$(echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d.get("passed")).lower())' 2>/dev/null || echo "error")
-          if [ "$PASSED" != "true" ]; then
-            echo "::error::RLS GATE FAILED — new RLS/anon violations introduced this session (or gate unreachable). See response above."
-            echo "rls_gate=failed" > /tmp/cc_rls_gate.txt
+          if [ "$PASSED" = "true" ]; then
+            echo "rls_gate=passed" > /tmp/cc_rls_gate.txt
+            exit 0
+          fi
+          if [ "$PASSED" = "error" ]; then
+            echo "::error::RLS GATE UNREACHABLE (supabase 5xx x3) — instance was unreachable after 3 attempts, not a confirmed violation. Rerun the job."
+            echo "rls_gate=unreachable" > /tmp/cc_rls_gate.txt
             exit 1
           fi
-          echo "rls_gate=passed" > /tmp/cc_rls_gate.txt
+          echo "::error::RLS GATE FAILED — new RLS/anon violations introduced this session. See response above."
+          echo "rls_gate=failed" > /tmp/cc_rls_gate.txt
+          exit 1
       - name: Commit changes
         if: always()
         run: |
