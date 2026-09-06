@@ -52,10 +52,29 @@ def list_codes() -> list[str]:
         return json.loads(r.read()) or []
 
 
+# urlopen's default opener follows redirects transparently -- it would
+# report the deal page's 200, not the /r/:code 302 this script needs to
+# confirm. A no-redirect opener surfaces the 302 itself as an HTTPError.
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def warm_one(code: str) -> tuple[str, int | None, str]:
-    req = urllib.request.Request(f"{WORKER_BASE}/r/{code}", method="HEAD")
+    # biddeed.ai sits behind Cloudflare bot protection that 403s urllib's
+    # default UA (same fix already documented in biddeed_reels_lib.py's
+    # run_sql() for api.supabase.com) -- a browser-shaped UA passes.
+    req = urllib.request.Request(
+        f"{WORKER_BASE}/r/{code}",
+        method="HEAD",
+        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
+    )
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with _OPENER.open(req, timeout=15) as r:
             return (code, r.status, "")
     except urllib.error.HTTPError as e:
         return (code, e.code, str(e))
