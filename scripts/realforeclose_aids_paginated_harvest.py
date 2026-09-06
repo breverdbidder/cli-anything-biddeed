@@ -174,6 +174,21 @@ def upsert_aids(items, county_slug):
             _t.sleep(2 * (attempt + 1))
     raise RuntimeError(f"upsert failed after retries: {last_err}")
 
+def patch_mca(county_slug):
+    """Promote harvested evidence into canonical MCA fields through the verified RPC."""
+    payload = json.dumps({"p_dispatch_id": None, "p_county_slug": county_slug}).encode()
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/rpc/realforeclose_aids_to_mca_patch",
+        data=payload,
+        method="POST",
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=45) as response:
+        body = response.read().decode("utf-8", errors="replace")
+        if response.status not in (200, 201, 204):
+            raise RuntimeError(f"MCA promotion failed HTTP {response.status}: {body[:1000]}")
+        return body
+
 if __name__ == "__main__":
     import sys
     subdomain, platform, county_slug = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -184,6 +199,8 @@ if __name__ == "__main__":
         n = upsert_aids(items, county_slug)
         total_parsed += len(items); total_inserted += n
         print(f"{d}: parsed={len(items)} inserted_or_merged={n}")
+    promotion = patch_mca(county_slug)
+    print(f"MCA_PROMOTION county={county_slug} result={promotion}")
     print(f"TOTAL: parsed={total_parsed} inserted_or_merged={total_inserted}")
     if total_parsed > 0 and total_inserted == 0:
         raise RuntimeError("Silent failure: parsed>0 inserted=0")
