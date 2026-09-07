@@ -17,12 +17,16 @@ import { rpc } from './supabase.js';
 export async function checkAndSpendCredits({ customerRecord, toolName, streamId, mcaId = null }) {
   let result;
   try {
+    // connect-only: mcp_credit_spend has no dedup key of its own (dedup for
+    // the whole tool call lives in idempotency.js) — retrying it after an
+    // ambiguous response-lost failure could double-charge a single logical
+    // call, so only retry when we're sure the request never reached Postgres.
     result = await rpc('mcp_credit_spend', {
       p_customer_id: customerRecord.customer_id,
       p_tool_name: toolName,
       p_stream_id: streamId,
       p_mca_id: mcaId,
-    });
+    }, { retryMode: 'connect-only' });
   } catch (err) {
     process.stderr.write(`[credits] mcp_credit_spend failed for ${toolName}: ${err.message}\n`);
     return {

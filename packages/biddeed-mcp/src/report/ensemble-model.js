@@ -24,6 +24,8 @@
 // the vault via the SECURITY DEFINER RPC (unaffected by RLS) rather than
 // trusting the env var blindly.
 
+import { fetchWithRetry } from '../retry.js';
+
 export const MODEL_VERSION   = 'v4.0-20260802-015242';
 const MODAL_URL       = 'https://brevardbidderai--biddeed-ensemble-scorer-serve.modal.run/score';
 const MODAL_TIMEOUT   = 15000; // raised from 8000ms Aug 14 2026 - direct probe confirmed Modal responds correctly once warm/authed, but the fixed secret fetch (vault RPC) adds latency of its own before the Modal call even starts, so the original 8s budget was too tight end-to-end
@@ -44,7 +46,7 @@ async function getWorkerSecret() {
   const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mocerqjnksmhcjzxrewo.supabase.co';
   const envKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp`, {
+    const res = await fetchWithRetry(`${SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp`, {
       method: 'POST',
       headers: {
         apikey: envKey,
@@ -79,7 +81,7 @@ async function getVerifiedServiceKey() {
   const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mocerqjnksmhcjzxrewo.supabase.co';
   const envKey = getServiceKey();
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp`, {
+    const res = await fetchWithRetry(`${SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp`, {
       method: 'POST',
       headers: {
         apikey: envKey,
@@ -133,7 +135,7 @@ async function loadJsModels() {
   if (_jsModels) return _jsModels;
   const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mocerqjnksmhcjzxrewo.supabase.co';
   const key = await getVerifiedServiceKey();
-  const res = await fetch(
+  const res = await fetchWithRetry(
     `${SUPABASE_URL}/rest/v1/model_artifacts` +
     `?select=artifact_name,artifact_b64,created_at` +
     `&artifact_name=in.(xgb_v4.json,lgbm_v4_flat.json)` +

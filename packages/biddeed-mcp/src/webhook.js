@@ -6,6 +6,7 @@
 // retries/re-deliveries upsert rather than duplicate.
 import Stripe from 'stripe';
 import { predict_auction_outcome } from './tools/shapira.js';
+import { fetchWithRetry } from './retry.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -28,8 +29,10 @@ function readRawBody(req) {
   });
 }
 
+// All callers PATCH by filter or upsert with resolution=merge-duplicates, so
+// a retried request lands on the same row — full retry mode is safe here.
 async function sbFetch(path, opts = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const res = await fetchWithRetry(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...opts,
     headers: {
       apikey: SUPABASE_KEY,
@@ -44,7 +47,7 @@ async function sbFetch(path, opts = {}) {
 
 async function getVaultSecret(name) {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp`, {
+    const res = await fetchWithRetry(`${SUPABASE_URL}/rest/v1/rpc/get_vault_secret_mcp`, {
       method: 'POST',
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ p_name: name }),
@@ -70,7 +73,7 @@ async function logOpsResult(caseNumber, sessionId, status, severity, evidence) {
 
 async function resolveCustomerId(stripeCustomerId) {
   if (!stripeCustomerId) return null;
-  const res = await fetch(
+  const res = await fetchWithRetry(
     `${SUPABASE_URL}/rest/v1/mcp_customers?stripe_customer_id=eq.${encodeURIComponent(stripeCustomerId)}&select=customer_id&limit=1`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
   );
@@ -217,16 +220,38 @@ async function processCreditPackCompletion(session) {
     return;
   }
 
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/mcp_credit_grant`, {
+  const stripePaymentId = session.payment_intent || session.id;
+
+  // mcp_credit_grant has no DB-level unique constraint on stripe_payment_id
+  // (schema changes are out of scope for #20090), so blindly retrying it
+  // after an ambiguous "request sent, response lost" failure could grant
+  // credits twice. Check-before-write instead: a plain GET is retry-safe on
+  // its own (read-only), and if it shows this payment was already granted
+  // (by an earlier attempt whose response we never saw), skip the RPC
+  // entirely rather than re-running it.
+  const already = await fetchWithRetry(
+    `${SUPABASE_URL}/rest/v1/mcp_credit_ledger?stripe_payment_id=eq.${encodeURIComponent(stripePaymentId)}&select=id&limit=1`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  ).then(r => (r.ok ? r.json() : [])).catch(() => []);
+  if (already.length > 0) {
+    process.stderr.write(`[stripe/webhook] mcp_credit_grant already applied for session ${session.id}, skipping\n`);
+    return;
+  }
+
+  // connect-only: the RPC call itself is only retried when we're sure the
+  // request never reached Postgres — never on an ambiguous response-lost
+  // failure, which is exactly the double-grant scenario the check above
+  // guards against on any subsequent webhook redelivery.
+  const res = await fetchWithRetry(`${SUPABASE_URL}/rest/v1/rpc/mcp_credit_grant`, {
     method: 'POST',
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       p_customer_id: customerId,
       p_delta: credits,
       p_reason: 'purchase',
-      p_stripe_payment_id: session.payment_intent || session.id,
+      p_stripe_payment_id: stripePaymentId,
     }),
-  });
+  }, { retryMode: 'connect-only' });
 
   if (!res.ok) {
     const errText = await res.text();
