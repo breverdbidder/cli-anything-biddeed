@@ -534,6 +534,12 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 # image -- HTTP 200 in 4.4s, coherent roof/exterior/vegetation rating,
 # $0.000119/call. The ":free" slug is gone (404 "unavailable for free").
 OPENROUTER_PRIMARY_MODEL = "z-ai/glm-5.3-flash"
+# A 402 from OpenRouter names the exact token ceiling the key can currently
+# afford ("you requested up to 1500 tokens, but can only afford 627"). Below
+# this floor there is no point retrying: reasoning tokens are mandatory on the
+# vision endpoint and a cap this tight returns null content rather than JSON.
+_AFFORDABLE_RE = re.compile(r"can only afford (\d+)")
+OPENROUTER_MIN_AFFORDABLE_TOKENS = 600
 OPENROUTER_FALLBACK_MODEL = "deepseek/deepseek-v4-flash-vision-exp"
 
 _openrouter_model_cache: dict[str, bool] = {}
@@ -588,7 +594,39 @@ def _openrouter_vision(image_paths: list[str], api_key: str, model: str,
             data = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         body = e.read().decode() if e.fp else ""
-        raise RuntimeError(f"OpenRouter {model} HTTP {e.code}: {body[:300]}")
+        # A 402 here is a weekly-limit ceiling, not an empty balance, and the
+        # body names the ceiling. Retry once at exactly that number when it
+        # leaves room for the mandatory reasoning tokens plus the condition
+        # JSON; otherwise fall through to the next tier as before.
+        affordable = None
+        if e.code == 402:
+            m = _AFFORDABLE_RE.search(body)
+            if m:
+                affordable = int(m.group(1))
+        if affordable is not None and affordable >= OPENROUTER_MIN_AFFORDABLE_TOKENS \
+                and affordable < payload["max_tokens"]:
+            payload["max_tokens"] = affordable
+            retry = urllib.request.Request(
+                OPENROUTER_CHAT_URL, data=json.dumps(payload).encode(),
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(retry, timeout=90) as resp:
+                    data = json.loads(resp.read().decode())
+            except urllib.error.HTTPError as e2:
+                body2 = e2.read().decode() if e2.fp else ""
+                raise RuntimeError(
+                    f"OpenRouter {model} HTTP {e.code} then HTTP {e2.code} on the "
+                    f"budget retry at max_tokens={affordable}: {body2[:200]}"
+                )
+        else:
+            raise RuntimeError(
+                f"OpenRouter {model} HTTP {e.code}"
+                + (f" (affordable={affordable}, below the {OPENROUTER_MIN_AFFORDABLE_TOKENS}"
+                   f"-token retry floor)" if affordable is not None else "")
+                + f": {body[:300]}"
+            )
     choice = (data.get("choices") or [{}])[0]
     text = (choice.get("message") or {}).get("content")
     if not text:
