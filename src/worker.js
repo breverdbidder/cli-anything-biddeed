@@ -3019,8 +3019,8 @@ async function handleRequest(request, env, ctx) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>BidDeed.AI — Section 18 Scorecard | Did the Formula Hold?</title>
-<meta property="og:title" content="FL Auction Formula Called It. $431K Naples Deal. See the Scorecard.">
-<meta property="og:description" content="We published a ceiling before the auction. The sale came in under it. Day-1 equity: $381K. This is Section 18 — the scorecard that grades every BidDeed call after the gavel drops.">
+<meta property="og:title" content="FL Auction Formula Called It. $329K Ceiling, $50K Sale. See the Scorecard.">
+<meta property="og:description" content="We published a ceiling before the auction. The sale came in under it. Day-1 equity: ~$335K. This is Section 18 — the scorecard that grades every BidDeed call after the gavel drops.">
 <meta property="og:image" content="https://biddeed.ai/og-section18.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
