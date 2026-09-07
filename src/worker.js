@@ -3929,20 +3929,36 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
       if (path === '/reels' && (method === 'GET' || method === 'HEAD')) {
         const includePending = url.searchParams.get('preview') === '1';
         let reels = [];
+        // An empty catalogue and an unreachable database are different things.
+        // Supabase 520/521s under load, and caching "No reels published yet."
+        // for 120s over a five-second blip is how the gallery told every
+        // visitor there was nothing to watch with 59 approved reels in the
+        // table (live-caught 2026-09-07 04:16 UTC).
+        let reelsLoadFailed = false;
         try {
           const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/list_public_reels`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
             body: JSON.stringify({ p_include_pending: includePending }),
           });
-          if (res.ok) reels = (await res.json()) || [];
-          else await logErr(env, '/reels', 'list_public_reels non-2xx', await res.text(), res.status);
+          if (res.ok) {
+            const payload = await res.json();
+            if (Array.isArray(payload)) reels = payload;
+            else { reelsLoadFailed = true; await logErr(env, '/reels', 'list_public_reels non-array', JSON.stringify(payload).slice(0, 300), 500); }
+          } else {
+            reelsLoadFailed = true;
+            await logErr(env, '/reels', 'list_public_reels non-2xx', await res.text(), res.status);
+          }
         } catch (e) {
+          reelsLoadFailed = true;
           await logErr(env, '/reels', 'list_public_reels failed', String(e), 500);
         }
-        const html = buildReelsGalleryHtml(reels, includePending);
+        const html = buildReelsGalleryHtml(reels, includePending, reelsLoadFailed);
         return new Response(method === 'HEAD' ? null : withPublicShell(html, path), {
-          headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': includePending ? 'no-store' : 'public,max-age=120' },
+          headers: {
+            'Content-Type': 'text/html;charset=UTF-8',
+            'Cache-Control': (includePending || reelsLoadFailed) ? 'no-store' : 'public,max-age=120',
+          },
         });
       }
 
@@ -6058,7 +6074,7 @@ function reelCardHtml(reel) {
 </div>`;
 }
 
-function buildReelsGalleryHtml(reels, includePending) {
+function buildReelsGalleryHtml(reels, includePending, loadFailed) {
   const previewBanner = includePending
     ? `<div class="reels-preview-banner">PREVIEW MODE — includes pending_approval reels, not yet public</div>` : '';
   return `<!DOCTYPE html>
@@ -6072,8 +6088,8 @@ function buildReelsGalleryHtml(reels, includePending) {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#ffffff;color:#1a1a1a;font-family:'Inter',sans-serif;padding:2rem 1rem}
-h1{max-width:1200px;margin:0 auto 1.5rem;font-size:1.8rem;color:#fff;font-weight:800}
-html[data-theme=light] h1{color:#1a1a1a}
+h1{max-width:1200px;margin:0 auto 1.5rem;font-size:1.8rem;color:#1a1a1a;font-weight:800}
+html[data-theme=dark] h1{color:#EDEDED}
 ${REELS_PLAYER_CSS}
 </style>
 </head>
@@ -6083,7 +6099,11 @@ ${previewBanner}
 <div class="reels-grid">
 ${reels.map(reelCardHtml).join('\n')}
 </div>
-${reels.length === 0 ? '<p style="text-align:center;color:#0A2540;margin-top:3rem">No reels published yet.</p>' : ''}
+${reels.length === 0
+  ? (loadFailed
+      ? '<p style="text-align:center;color:#0A2540;margin-top:3rem">We could not load the reels just now. Please refresh in a moment.</p>'
+      : '<p style="text-align:center;color:#0A2540;margin-top:3rem">No reels published yet.</p>')
+  : ''}
 <script>${reelPlayerScript()}</script>
 </body>
 </html>`;
