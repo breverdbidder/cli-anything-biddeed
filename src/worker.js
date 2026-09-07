@@ -5869,6 +5869,7 @@ const REELS_PLAYER_CSS = `
 .reel-meta .delta{color:#004A92;font-size:.85rem;font-weight:600}
 .reel-badge{display:inline-block;background:#005EB8;color:#ffffff;font-weight:700;padding:.2rem .6rem;border-radius:6px;font-size:.7rem;margin-top:.4rem}
 .reel-view-link{display:block;text-align:center;background:#ffffff;color:#005EB8;font-weight:700;padding:.6rem;border-radius:8px;text-decoration:none;margin-top:.7rem;font-size:.85rem}
+.price-label{display:block;font-size:.62em;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#0A2540;opacity:.72}
 .reel-share-row{display:flex;gap:.5rem;margin-top:.6rem}
 .reel-share-row button,.reel-share-row a{flex:1;background:#ffffff;border:1px solid #E6F0FA;color:#1a1a1a;font-size:.75rem;padding:.4rem;border-radius:8px;cursor:pointer;text-align:center;text-decoration:none}
 .reels-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1.25rem;max-width:1200px;margin:0 auto}
@@ -5993,6 +5994,22 @@ function reelCardHtml(reel) {
   const tier = cond.general_condition_tier || 'unknown';
   const deltaPct = reel.delta_pct == null ? null : Number(reel.delta_pct);
   const deltaLine = deltaPct == null ? '' : `${deltaPct < 0 ? '-' : '+'}${Math.abs(deltaPct).toFixed(0)}% vs assessed`;
+  // A presale reel has no sold_amount -- the property has not sold yet -- so the
+  // money line fell through to fmtMoney(null) and rendered a bare em-dash on a
+  // third of the gallery. Walk a fallback chain instead, every rung of which is
+  // a figure with a citable primary source (mandate M10): the clerk sale record,
+  // then the county tax roll, then the clerk auction calendar.
+  const _auctionLabel = (() => {
+    if (!reel.auction_date) return '';
+    const d = new Date(String(reel.auction_date) + 'T12:00:00Z');
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  })();
+  const moneyLine = reel.sold_amount != null
+    ? fmtMoney(reel.sold_amount)
+    : (reel.assessed_value != null
+        ? `<span class="price-label">County assessed</span> ${fmtMoney(reel.assessed_value)}`
+        : (_auctionLabel ? `<span class="price-label">Auction</span> ${escHtml(_auctionLabel)}` : '&mdash;'));
   // Reels gallery clicks used to go straight to landing_url + ?preview=<uuid>:
   // no click count, no funnel event, no UTMs, and a preview token sitting in a
   // public link. Route through /r/{code} instead so the redirect handler counts
@@ -6016,7 +6033,7 @@ function reelCardHtml(reel) {
   </div>
   <div class="reel-meta">
     <div class="county">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)}</div>
-    <div class="price">${fmtMoney(reel.sold_amount)}</div>
+    <div class="price">${moneyLine}</div>
     ${deltaLine ? `<div class="delta">${escHtml(deltaLine)}</div>` : ''}
     ${tier !== 'unknown' ? `<div class="reel-badge">${escHtml(tier.charAt(0).toUpperCase() + tier.slice(1))} condition</div>` : ''}
     <a class="reel-view-link" href="${viewHref}">See this deal &rarr;</a>
