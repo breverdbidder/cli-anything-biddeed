@@ -251,6 +251,17 @@ function extractApiKey(request, url) {
   return url.searchParams.get('key') || '';
 }
 
+// issue #20077 P0 -- a pending_approval reel/deal row must never render
+// publicly (banner or otherwise) unless the request explicitly carries the
+// row's own preview id. This is the app-level gate the /deal and /reels/:code
+// route comments always claimed to enforce; ?preview=<uuid> must look like a
+// real id, not just be present, or a stray/guessed query param would open the
+// same leak back up.
+const PREVIEW_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidPreviewId(id) {
+  return !!id && PREVIEW_ID_RE.test(id);
+}
+
 // ── Chat identity + persistence (issue #19829 P1) ────────────────────────────
 // This app has no Clerk / Supabase Auth anywhere (confirmed by grep across the
 // whole repo before building this). Rather than silently faking a "verified
@@ -3694,6 +3705,15 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           await logErr(env, '/deal', 'get_reel_landing failed', String(e), 500);
         }
         if (!reel) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        // issue #20077 P0 -- close the leak: a pending_approval row must 404
+        // for the general public exactly like a nonexistent one; only a
+        // request carrying the row's own valid preview id may see it. This
+        // is what makes the "PREVIEW" banner below safe to key off reel.status
+        // again -- by the time we reach it, pending_approval already implies
+        // a valid preview was presented.
+        if (reel.status === 'pending_approval' && !isValidPreviewId(previewId)) {
+          return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        }
         const submitted = url.searchParams.get('submitted') === '1';
         // S2 (issue #19786) -- the reel's archetype (persisted at render
         // time, travels via ?a= appended by resolve_reel_link) reorders the
@@ -3935,6 +3955,10 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           await logErr(env, '/reels/code', 'get_reel_by_code failed', String(e), 500);
         }
         if (!reel) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        // issue #20077 P0 -- same public-leak close as /deal/:county/:slug.
+        if (reel.status === 'pending_approval' && !isValidPreviewId(previewId)) {
+          return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        }
         const html = buildSingleReelHtml(reel);
         return new Response(method === 'HEAD' ? null : withPublicShell(html, path), {
           headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': reel.status === 'pending_approval' ? 'no-store' : 'public,max-age=300' },
@@ -5801,8 +5825,9 @@ const REELS_PLAYER_CSS = `
 .reel-card{background:#FBFAF7;border:1px solid #FBFAF7;border-radius:12px;overflow:hidden}
 .reel-player-wrap{position:relative;aspect-ratio:9/16;background:#1F1B16}
 .reel-player-wrap video{width:100%;height:100%;object-fit:cover;display:block}
-.reel-cta-overlay{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6%;opacity:0;pointer-events:none;transition:opacity .2s}
-.reel-cta-overlay.show{opacity:1;pointer-events:auto}
+.reel-play-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,.55);color:#ffffff;font-size:1.5rem;display:flex;align-items:center;justify-content:center;pointer-events:none;transition:opacity .2s}
+.reel-player-wrap.is-playing .reel-play-btn{opacity:0}
+.reel-cta-overlay{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6%;opacity:1;pointer-events:auto}
 .reel-cta-overlay a{background:#8F4028;color:#FBFAF7;font-weight:800;font-family:'Inter',sans-serif;padding:.6rem 1.1rem;border-radius:8px;text-decoration:none;font-size:.95rem}
 .reel-meta{padding:.9rem}
 .reel-meta .county{color:#1F1B16;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
@@ -5843,7 +5868,14 @@ try {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({visitor_id: bdVid, reel_code: ${JSON.stringify(reelCode)}, county: ${JSON.stringify(county)}, archetype: ${JSON.stringify(archetype)}, case_number: ${JSON.stringify(caseNumber)}})
   }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d && d.returning && d.properties_viewed_count > 1 && d.first_county) {
+    // issue #20077 P0 -- d.first_county is the visitor's OWN history (may be
+    // a different county than the page they're on right now, e.g. a stale
+    // Lee visit showing up on a Martin page). The chip must only ever name
+    // the county of THIS record; if they differ, render nothing rather than
+    // show a wrong-county chip.
+    var pageCounty = (${JSON.stringify(county)} || '').toLowerCase().replace(/_/g, ' ').trim();
+    var chipCounty = (d && d.first_county ? String(d.first_county) : '').toLowerCase().replace(/_/g, ' ').trim();
+    if (d && d.returning && d.properties_viewed_count > 1 && chipCounty && pageCounty && chipCounty === pageCounty) {
       var g = document.getElementById('bd-greeting');
       if (g) {
         g.textContent = (d.properties_viewed_count - 1) + ' more ' + d.first_county.replace(/\\b\\w/g, function(c){return c.toUpperCase();}) + ' auctions since you were here';
@@ -5878,7 +5910,6 @@ function bdSendReelEvent(code, evt) {
 }
 document.querySelectorAll('.reel-player-wrap').forEach(function(wrap){
   var video = wrap.querySelector('video');
-  var overlay = wrap.querySelector('.reel-cta-overlay');
   var code = wrap.getAttribute('data-reel-code');
   // issue #19779 CP3a measurement hooks -- an internal AVD proxy ahead of a
   // real YouTube Analytics connection. sentMarks dedupes so a single watch
@@ -5890,12 +5921,15 @@ document.querySelectorAll('.reel-player-wrap').forEach(function(wrap){
   wrap.addEventListener('mouseenter', function(){ video.muted = true; video.play().catch(function(){}); });
   wrap.addEventListener('mouseleave', function(){ video.pause(); });
   wrap.addEventListener('click', function(){ video.muted = !video.muted; if (video.paused) video.play().catch(function(){}); });
+  // issue #20077 P0 -- the play button is only a "this is a video, not a
+  // static image" affordance; it must disappear once playback starts and
+  // come back on pause, not track watch-progress like the overlay used to.
   video.addEventListener('play', function(){
+    wrap.classList.add('is-playing');
     if (!sentMarks.play) { sentMarks.play = true; bdSendReelEvent(code, 'play'); }
   });
+  video.addEventListener('pause', function(){ wrap.classList.remove('is-playing'); });
   video.addEventListener('timeupdate', function(){
-    if (video.duration && video.currentTime >= video.duration - 3) overlay.classList.add('show');
-    else overlay.classList.remove('show');
     if (video.duration) {
       var pct = (video.currentTime / video.duration) * 100;
       [25, 50, 75, 100].forEach(function(mark){
@@ -5935,7 +5969,8 @@ function reelCardHtml(reel) {
   return `<div class="reel-card">
   <div class="reel-player-wrap" data-reel-code="${escHtml(reelCode)}">
     <video src="${escHtml(reel.video_v2_url)}" poster="${escHtml(reel.aerial_tight_url || '')}" muted playsinline preload="metadata" loop></video>
-    <div class="reel-cta-overlay"><a href="${viewHref}">biddeed.ai &rarr;</a></div>
+    <div class="reel-play-btn" aria-hidden="true">&#9658;</div>
+    <div class="reel-cta-overlay"><a href="${viewHref}">See this deal &rarr;</a></div>
   </div>
   <div class="reel-meta">
     <div class="county">${escHtml(countyName)} County &middot; ${escHtml(saleLabel)}</div>
