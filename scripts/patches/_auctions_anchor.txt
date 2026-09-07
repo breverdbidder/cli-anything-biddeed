@@ -1,0 +1,13 @@
+  const today = new Date().toISOString().slice(0,10);
+  const cutoff = new Date(Date.now() + days*24*60*60*1000).toISOString().slice(0,10);
+  let auctionsUrl = `${SUPABASE_URL}/rest/v1/v_property_card_verified?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=in.(upcoming,scheduled)&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status,auction_url,po_seo_url,clerk_url,source_platform,bcpao_url,trellis_url,clerk_parity_match_pct,clerk_parity_checked_at`;
+  if (type === 'foreclosure' || type === 'tax_deed') auctionsUrl += `&sale_type=eq.${type}`;
+
+  const [auctionsRes, certRes] = await Promise.all([
+    fetch(auctionsUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }),
+    fetch(`${SUPABASE_URL}/rest/v1/gold_standard_certifications?county_slug=eq.${encodeURIComponent(county)}&select=certified&limit=1`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }),
+  ]);
+  const rows = auctionsRes.ok ? await auctionsRes.json() : [];
+  const certRows = certRes.ok ? await certRes.json() : [];
+  const isGold = !!(Array.isArray(certRows) && certRows[0] && certRows[0].certified);
+  const now = Date.now();

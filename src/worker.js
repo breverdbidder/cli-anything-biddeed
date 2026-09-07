@@ -2077,22 +2077,35 @@ function bidLabel(sourcePlatform) {
 }
 
 // ── Auction cards for chat property panel ─────────────────────────────────────
-// Reads v_property_card_verified (not the raw table) — a fail-closed gate that
-// only surfaces lots with a fresh (<48h) clerk parity check, per CLERK-SSOT
-// Task 4.2. A clerk-confirmed-cancelled or never-checked lot never renders here.
+// Served by public.list_auction_cards(), a bounded SECURITY DEFINER RPC over
+// v_property_card_verified (not the raw table) — a fail-closed gate that only
+// surfaces lots with a fresh (<48h) clerk parity check, per CLERK-SSOT Task 4.2.
+// A clerk-confirmed-cancelled or never-checked lot never renders here.
 async function fetchAuctionCards(county, days, type, limit) {
-  const today = new Date().toISOString().slice(0,10);
-  const cutoff = new Date(Date.now() + days*24*60*60*1000).toISOString().slice(0,10);
-  let auctionsUrl = `${SUPABASE_URL}/rest/v1/v_property_card_verified?county=eq.${encodeURIComponent(county)}&auction_date=gte.${today}&auction_date=lte.${cutoff}&auction_status=in.(upcoming,scheduled)&order=auction_date.asc,opening_bid.asc&limit=${limit}&select=id,county,sale_type,case_number,property_address,auction_date,opening_bid,assessed_value,judgment_amount,parity_status,auction_url,po_seo_url,clerk_url,source_platform,bcpao_url,trellis_url,clerk_parity_match_pct,clerk_parity_checked_at`;
-  if (type === 'foreclosure' || type === 'tax_deed') auctionsUrl += `&sale_type=eq.${type}`;
-
-  const [auctionsRes, certRes] = await Promise.all([
-    fetch(auctionsUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }),
-    fetch(`${SUPABASE_URL}/rest/v1/gold_standard_certifications?county_slug=eq.${encodeURIComponent(county)}&select=certified&limit=1`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }),
-  ]);
-  const rows = auctionsRes.ok ? await auctionsRes.json() : [];
-  const certRows = certRes.ok ? await certRes.json() : [];
-  const isGold = !!(Array.isArray(certRows) && certRows[0] && certRows[0].certified);
+  // The old path read v_property_card_verified directly with the anon key and
+  // got 401 "permission denied", which the next line turned into an empty list
+  // -- so this endpoint reported "no auctions" for every county in Florida.
+  // list_auction_cards is a bounded SECURITY DEFINER RPC that anon may execute:
+  // card columns only (never owner_name/winning_bidder/tier1_*/plaintiff_max_bid),
+  // window and row count capped server-side, gold-standard flag folded in.
+  const cardsRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/list_auction_cards`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_county: county, p_days: days, p_type: type, p_limit: limit }),
+  });
+  let rows = [];
+  if (!cardsRes.ok) {
+    // Never let a transport or permission failure masquerade as "no auctions".
+    console.error(`list_auction_cards ${cardsRes.status} for county=${county}: ${(await cardsRes.text()).slice(0, 300)}`);
+  } else {
+    const payload = await cardsRes.json();
+    if (Array.isArray(payload)) rows = payload;
+    else console.error(`list_auction_cards returned a non-array for county=${county}: ${JSON.stringify(payload).slice(0, 200)}`);
+  }
   const now = Date.now();
 
   return (Array.isArray(rows) ? rows : []).map(r => {
@@ -2111,7 +2124,7 @@ async function fetchAuctionCards(county, days, type, limit) {
       assessed_value: r.assessed_value,
       judgment_amount: r.judgment_amount,
       parity_status: r.parity_status,
-      is_gold_standard: isGold,
+      is_gold_standard: !!r.is_gold_standard,
       days_until_auction: daysUntil,
       equity_gap: hasBoth ? (Number(r.assessed_value) - Number(r.opening_bid)) : null,
       auction_url: r.auction_url || null,
