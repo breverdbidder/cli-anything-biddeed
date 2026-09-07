@@ -41,6 +41,22 @@ def get_target_rows(ids: list[str]) -> list[dict]:
         where id in ({id_list})
         order by phase, auction_date;
     """)
+    # lib.run_sql() hands numerics back as strings, and every money/percent
+    # f-string in the script and overlay builders formats with ':,.0f'. A str
+    # there raises "Unknown format code 'f' for object of type 'str'" -- which
+    # is exactly how the first full backfill (run #1, 2026-09-07) errored 75 of
+    # 77 rows while still exiting 0. The v1/v2 pipeline coerced upstream; this
+    # lane never did, because until now it had only ever been run by hand on a
+    # handful of rows that happened to carry numeric types.
+    for _r in rows:
+        for _k in ("sold_amount", "assessed_value", "delta_pct", "opening_bid",
+                   "judgment_amount", "days_to_auction", "condition_score"):
+            _v = _r.get(_k)
+            if isinstance(_v, str):
+                try:
+                    _r[_k] = float(_v)
+                except ValueError:
+                    _r[_k] = None
     return rows
 
 
