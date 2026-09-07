@@ -64,23 +64,28 @@ function hasVisiblePreviewBanner(body) {
   return body.includes('PREVIEW — pending approval, not yet public') || body.includes('PREVIEW MODE');
 }
 
-test('signed-out /deal/:county/:slug 404s a pending_approval row with no preview param — never leaks PREVIEW', async () => {
+test('signed-out /deal/:county/:slug renders normally (200) but never leaks PREVIEW for a pending_approval row with no preview param', async () => {
   const { restore } = installFetchMock([rpcMock('get_reel_landing', reelFixture({ status: 'pending_approval' }))]);
   try {
     const req = new Request('https://biddeed.ai/deal/martin/25001204caaxmx');
     const res = await worker.fetch(req, ENV, makeCtx());
-    assert.equal(res.status, 404);
+    // The page itself must still render for a real, live, publicly-linkable
+    // row -- only the banner is gated. 404ing the whole page here was a
+    // regression this session shipped and reverted (see docs/spec/20077.md).
+    assert.equal(res.status, 200);
     const body = await res.text();
     assert.ok(!hasVisiblePreviewBanner(body), 'response must never render the PREVIEW banner for a signed-out request');
   } finally { restore(); }
 });
 
-test('a malformed ?preview= value does not bypass the pending_approval gate', async () => {
+test('a malformed ?preview= value does not unlock the banner', async () => {
   const { restore } = installFetchMock([rpcMock('get_reel_landing', reelFixture({ status: 'pending_approval' }))]);
   try {
     const req = new Request('https://biddeed.ai/deal/martin/25001204caaxmx?preview=not-a-uuid');
     const res = await worker.fetch(req, ENV, makeCtx());
-    assert.equal(res.status, 404);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(!hasVisiblePreviewBanner(body));
   } finally { restore(); }
 });
 
@@ -107,12 +112,26 @@ test('an approved deal page never renders PREVIEW', async () => {
   } finally { restore(); }
 });
 
-test('signed-out /reels/:code 404s a pending_approval reel with no preview param', async () => {
+test('signed-out /reels/:code renders normally (200) but never leaks PREVIEW for a pending_approval row with no preview param', async () => {
   const { restore } = installFetchMock([rpcMock('get_reel_by_code', reelFixture({ status: 'pending_approval' }))]);
   try {
     const req = new Request('https://biddeed.ai/reels/O7EPH7');
     const res = await worker.fetch(req, ENV, makeCtx());
-    assert.equal(res.status, 404);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(!hasVisiblePreviewBanner(body));
+  } finally { restore(); }
+});
+
+test('/reels/:code with a valid ?preview=<uuid> renders the PREVIEW banner for the pending row', async () => {
+  const reel = reelFixture({ status: 'pending_approval' });
+  const { restore } = installFetchMock([rpcMock('get_reel_by_code', reel)]);
+  try {
+    const req = new Request(`https://biddeed.ai/reels/O7EPH7?preview=${reel.id}`);
+    const res = await worker.fetch(req, ENV, makeCtx());
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(body.includes('PREVIEW — pending approval, not yet public'));
   } finally { restore(); }
 });
 

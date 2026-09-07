@@ -251,12 +251,12 @@ function extractApiKey(request, url) {
   return url.searchParams.get('key') || '';
 }
 
-// issue #20077 P0 -- a pending_approval reel/deal row must never render
-// publicly (banner or otherwise) unless the request explicitly carries the
-// row's own preview id. This is the app-level gate the /deal and /reels/:code
-// route comments always claimed to enforce; ?preview=<uuid> must look like a
-// real id, not just be present, or a stray/guessed query param would open the
-// same leak back up.
+// issue #20077 P0 -- the "PREVIEW — pending approval" banner must never
+// render for a signed-out visitor by default (pending_approval is evidently
+// the normal state for a real, live, publicly-linkable row right now, not an
+// internal-only draft -- the page itself must keep rendering regardless of
+// status). The banner is the only thing gated, and only a real-shaped
+// ?preview=<uuid> unlocks it, so a stray/guessed query param can't either.
 const PREVIEW_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidPreviewId(id) {
   return !!id && PREVIEW_ID_RE.test(id);
@@ -3705,15 +3705,14 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           await logErr(env, '/deal', 'get_reel_landing failed', String(e), 500);
         }
         if (!reel) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
-        // issue #20077 P0 -- close the leak: a pending_approval row must 404
-        // for the general public exactly like a nonexistent one; only a
-        // request carrying the row's own valid preview id may see it. This
-        // is what makes the "PREVIEW" banner below safe to key off reel.status
-        // again -- by the time we reach it, pending_approval already implies
-        // a valid preview was presented.
-        if (reel.status === 'pending_approval' && !isValidPreviewId(previewId)) {
-          return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
-        }
+        // issue #20077 P0 -- the page itself renders exactly as before
+        // (pending_approval is evidently the normal pre-review state for a
+        // real, live, publicly-linkable row -- gating the whole page on it
+        // 404s real production deal pages, not just an internal QA draft).
+        // Only the PREVIEW banner is gated: it must never leak to a
+        // signed-out visitor by default, and only shows given the row's own
+        // valid ?preview=<uuid>.
+        const showPreviewBanner = reel.status === 'pending_approval' && isValidPreviewId(previewId);
         const submitted = url.searchParams.get('submitted') === '1';
         // S2 (issue #19786) -- the reel's archetype (persisted at render
         // time, travels via ?a= appended by resolve_reel_link) reorders the
@@ -3739,9 +3738,9 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
         let html;
         if (reel.phase === 'presale') {
           const paidTier = apiKey ? await fetchPaidTier(env, apiKey) : { ok: false, tier: null };
-          html = buildPresaleDealHtml(reel, path, submitted, !!paidTier.ok, archetype);
+          html = buildPresaleDealHtml(reel, path, submitted, !!paidTier.ok, archetype, showPreviewBanner);
         } else {
-          html = buildDealLandingHtml(reel, path, submitted, archetype);
+          html = buildDealLandingHtml(reel, path, submitted, archetype, showPreviewBanner);
         }
         // A URL carrying a `key`/Bearer credential is a personalized variant
         // of this page -- never let a crawler index it (T2: "noindex for
@@ -3955,11 +3954,11 @@ h1{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.15;max-width:780
           await logErr(env, '/reels/code', 'get_reel_by_code failed', String(e), 500);
         }
         if (!reel) return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
-        // issue #20077 P0 -- same public-leak close as /deal/:county/:slug.
-        if (reel.status === 'pending_approval' && !isValidPreviewId(previewId)) {
-          return new Response(method === 'HEAD' ? null : 'Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
-        }
-        const html = buildSingleReelHtml(reel);
+        // issue #20077 P0 -- same banner-only gate as /deal/:county/:slug:
+        // the page itself always renders; only the PREVIEW banner requires a
+        // valid ?preview=<uuid>.
+        const showPreviewBanner = reel.status === 'pending_approval' && isValidPreviewId(previewId);
+        const html = buildSingleReelHtml(reel, showPreviewBanner);
         return new Response(method === 'HEAD' ? null : withPublicShell(html, path), {
           headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': reel.status === 'pending_approval' ? 'no-store' : 'public,max-age=300' },
         });
@@ -5491,7 +5490,7 @@ html[data-theme=light] .disclaimer{color:#1F1B16}
 // 20260902l_biddeed_reels_v2_rpc.sql) -- no name/vendor field is ever
 // selectable there, so there is nothing here that could leak one. Server-
 // rendered, no JS required to read (T2 spec).
-function buildDealLandingHtml(reel, landingPath, submitted, archetype) {
+function buildDealLandingHtml(reel, landingPath, submitted, archetype, showPreviewBanner) {
   const fmtMoney = (n) => (n == null ? null : '$' + Math.round(Number(n)).toLocaleString());
   const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed Sale' : 'Foreclosure Sale';
@@ -5505,7 +5504,7 @@ function buildDealLandingHtml(reel, landingPath, submitted, archetype) {
   const title = `${soldFmt || 'Sold at auction'} — ${countyName} County ${saleLabel}`;
   const description = [soldFmt ? `${soldFmt} sale in ${countyName} County.` : '', deltaLine ? `That's ${deltaLine}.` : ''].join(' ').trim();
   const ogImage = reel.aerial_tight_url || reel.aerial_wide_url || '';
-  const previewBanner = reel.status === 'pending_approval'
+  const previewBanner = showPreviewBanner
     ? `<div class="deal-preview-banner">PREVIEW — pending approval, not yet public</div>` : '';
   const shortCode = reel.short_code || '';
   const ctaBlock = submitted
@@ -5655,7 +5654,7 @@ function presaleMonthAbbrDay(isoDate) {
   return `${months[(m || 1) - 1]} ${d || ''}`.trim();
 }
 
-function buildPresaleDealHtml(reel, landingPath, submitted, paidOk, archetype) {
+function buildPresaleDealHtml(reel, landingPath, submitted, paidOk, archetype, showPreviewBanner) {
   const fmtMoney = (n) => (n == null ? null : '$' + Math.round(Number(n)).toLocaleString());
   const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed' : 'Foreclosure';
@@ -5673,7 +5672,7 @@ function buildPresaleDealHtml(reel, landingPath, submitted, paidOk, archetype) {
   const ogImage = reel.aerial_tight_url || reel.aerial_wide_url || '';
   const days = reel.days_to_auction;
   const countdownLabel = days == null ? 'Auction date set' : `${days} day${days === 1 ? '' : 's'} to auction`;
-  const previewBanner = reel.status === 'pending_approval'
+  const previewBanner = showPreviewBanner
     ? `<div class="psale-banner">PREVIEW — pending approval, not yet public</div>` : '';
   const canonicalUrl = `https://biddeed.ai${landingPath}`;
 
@@ -6017,13 +6016,13 @@ ${reels.length === 0 ? '<p style="text-align:center;color:#1F1B16;margin-top:3re
 </html>`;
 }
 
-function buildSingleReelHtml(reel) {
+function buildSingleReelHtml(reel, showPreviewBanner) {
   const countyName = String(reel.county || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const saleLabel = reel.sale_type === 'tax_deed' ? 'Tax Deed Sale' : 'Foreclosure Sale';
   const soldFmt = reel.sold_amount == null ? 'Sold at auction' : '$' + Math.round(Number(reel.sold_amount)).toLocaleString();
   const title = `${soldFmt} — ${countyName} County ${saleLabel} — BidDeed.AI`;
   const ogImage = reel.aerial_tight_url || '';
-  const previewBanner = reel.status === 'pending_approval'
+  const previewBanner = showPreviewBanner
     ? `<div class="reels-preview-banner">PREVIEW — pending approval, not yet public</div>` : '';
   return `<!DOCTYPE html>
 <html lang="en">
