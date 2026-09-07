@@ -130,6 +130,19 @@ test('connect-only mode does NOT retry our own client-side timeout (AbortError) 
   assert.equal(calls, 1);
 });
 
+test('retries a Cloudflare 521 (edge cannot reach the Supabase origin at all) with an HTML body, in both modes', async (t) => {
+  let calls = 0;
+  t.after(mockFetch(async () => {
+    calls++;
+    if (calls === 1) return new Response('<html>521 Web server is down</html>', { status: 521, headers: { 'Content-Type': 'text/html' } });
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }));
+
+  const res = await fetchWithRetry('https://x.test/rest/v1/rpc/mcp_credit_grant', {}, { ...FAST, retryMode: 'connect-only' });
+  assert.equal(res.status, 200);
+  assert.equal(calls, 2);
+});
+
 test('full mode DOES retry our own client-side timeout (AbortError) for a plain read', async (t) => {
   let calls = 0;
   t.after(mockFetch(async (url, init) => {

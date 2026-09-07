@@ -23,6 +23,13 @@ const PRE_EXECUTION_NETWORK_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_A
 const MID_STREAM_NETWORK_CODES = new Set(['ECONNRESET', 'EPIPE', 'ETIMEDOUT']);
 const PRE_EXECUTION_PG_CODES = new Set(['57P03']); // "the database system is not yet accepting connections"
 const AMBIGUOUS_PG_CODES = new Set(['57P01', '57P02', '08000', '08003', '08006']);
+// Cloudflare's own edge in front of *.supabase.co, synthesized when it can't
+// reach the origin at all (confirmed live during the #20090 restart test:
+// 521/522/523/524 arrive as an HTML error page, never touching PostgREST).
+// This is the clearest possible "nothing executed" signal — even safer to
+// retry than our own ECONNREFUSED, since Cloudflare itself never opened a
+// connection to Postgres.
+const PRE_EXECUTION_EDGE_STATUS = new Set([521, 522, 523, 524]);
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -43,6 +50,7 @@ function isRetryableError(err, mode) {
 
 async function isRetryableResponse(res, mode) {
   if (res.status === 503) return true; // PostgREST couldn't get a DB connection — query never ran
+  if (PRE_EXECUTION_EDGE_STATUS.has(res.status)) return true; // Cloudflare never reached the origin
   if (res.status < 500) return false; // never retry 4xx application errors
   try {
     const body = await res.clone().json();
