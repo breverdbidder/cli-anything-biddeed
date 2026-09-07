@@ -226,6 +226,29 @@ def sql_num(v):
     return "null" if v is None else str(v)
 
 
+def as_num(v):
+    """Best-effort float for a money/score field that may arrive as text.
+
+    PostgREST/RPC round-trips hand `numeric` columns back as JSON strings, and
+    zw_parcels.val_assessed is text in some county loads. Every arithmetic and
+    ",.0f" format site in this module goes through here first so a string never
+    reaches a `-`, a `>` or a format spec (issue: 71 postsale reels stuck at
+    status='error' on 2026-09-06). Returns None for None/blank/unparseable so
+    the existing `if assessed_value and ...` guards keep working unchanged.
+    """
+    if v is None:
+        return None
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    s = str(v).strip().replace(",", "").replace("$", "")
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
 def sql_bool(v):
     return "null" if v is None else ("true" if v else "false")
 
@@ -755,6 +778,8 @@ def county_display(county_slug: str) -> str:
 
 def build_script_and_caption(county_slug: str, sale_type: str, sold_amount: float,
                               assessed_value: float | None, condition: dict) -> dict:
+    sold_amount = as_num(sold_amount)
+    assessed_value = as_num(assessed_value)
     county_name = county_display(county_slug)
     sale_label = _SALE_TYPE_LABEL.get(sale_type, "auction sale")
     tier = (condition or {}).get("general_condition_tier", "unknown")
@@ -939,6 +964,9 @@ def rank_score(delta_pct: float | None, condition_score: int | None, sold_amount
     (lower) condition score (more upside story), and bigger deal size, each
     normalized to a comparable 0-100ish scale so no single factor dominates
     by unit magnitude alone."""
+    delta_pct = as_num(delta_pct)
+    condition_score = as_num(condition_score)
+    sold_amount = as_num(sold_amount)
     discount_component = max(0.0, -(delta_pct or 0.0))  # only reward below-assessed deals
     condition_component = 100 - (condition_score if condition_score is not None else 50)
     size_component = min((sold_amount or 0.0) / 5000.0, 100.0)  # saturates at $500k
@@ -1492,6 +1520,8 @@ def build_script_and_caption_v2(county_slug: str, sale_type: str, sold_amount: f
     payoff -> CTA), same no-names/no-vendor guardrail as v1's
     build_script_and_caption() -- only county/sale-type/dollar/condition-tier
     controlled fields are ever interpolated."""
+    sold_amount = as_num(sold_amount)
+    assessed_value = as_num(assessed_value)
     county_name = county_display(county_slug)
     sale_label = _SALE_TYPE_LABEL.get(sale_type, "auction sale")
     tier = (condition or {}).get("general_condition_tier", "unknown")
