@@ -2652,9 +2652,9 @@ const PUBLIC_SHELL_STYLE = `<style>
   .bd-shell-topbar{inset:0 0 auto 0;height:56px;padding:0 12px}
   .bd-shell-menu{display:inline-grid;place-items:center;width:40px;height:40px;border:1px solid #E8F4FC;border-radius:8px;background:#ffffff;color:#222222;font-size:20px;cursor:pointer}
   .bd-shell-top-actions .bd-shell-cta{padding:9px 10px;font-size:11px}
-  .bd-shell-drawer{position:fixed;display:none;flex-direction:column;inset:0 auto 0 0;z-index:1002;width:min(86vw,300px);padding:18px 12px;background:#FBFAF7;color:#1F1B16;transform:translateX(-105%);transition:transform .2s ease;box-shadow:12px 0 32px rgba(31,27,22,.35)}
-  .bd-shell-drawer[data-open=true]{display:flex;transform:translateX(0)}
-  .bd-shell-scrim{position:fixed;inset:0;z-index:1001;background:rgba(251,250,247,.7)}
+  .bd-shell-drawer{position:fixed;display:flex;flex-direction:column;inset:0 auto 0 0;z-index:1002;width:min(86vw,300px);padding:18px 12px;background:#ffffff;color:#222222;transform:translateX(-105%);transition:transform .2s ease;box-shadow:12px 0 32px rgba(0,42,84,.35)}
+  .bd-shell-drawer[data-open=true]{transform:translateX(0)}
+  .bd-shell-scrim{position:fixed;inset:0;z-index:1001;background:rgba(255,255,255,.7)}
   .bd-shell-scrim[data-open=true]{display:block}
   .bd-shell-drawer .bd-shell-brand{margin-bottom:18px}
   .bd-shell-drawer .bd-shell-footer{margin-top:auto}
@@ -6324,8 +6324,8 @@ nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.95);backdrop-
 .nav-cta{background:linear-gradient(135deg,var(--orange),var(--orange2));color:var(--navy);padding:8px 18px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none}
 .nav-links{display:flex;align-items:center;gap:1rem;margin-left:auto;margin-right:1rem}.nav-links a{color:var(--muted);font-size:13px;font-weight:600;text-decoration:none}.nav-links a:hover{color:var(--orange)}
 .wrap{max-width:1100px;margin:0 auto;padding:3rem 1.5rem}
-.ey{display:inline-flex;background:rgba(143,64,40,.08);border:1px solid rgba(143,64,40,.2);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:'JetBrains Mono',monospace;color:var(--green);letter-spacing:.06em;margin-bottom:1.25rem}
-h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.8rem,4vw,2.8rem);color:#1F1B16;margin-bottom:.75rem}
+.ey{display:inline-flex;background:rgba(0,115,207,.08);border:1px solid rgba(0,115,207,.2);padding:.3rem .9rem;border-radius:20px;font-size:.7rem;font-family:'JetBrains Mono',monospace;color:var(--green);letter-spacing:.06em;margin-bottom:1.25rem}
+h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-size:clamp(1.8rem,4vw,2.8rem);color:#222222;margin-bottom:.75rem}
 .sub{color:var(--muted);margin-bottom:2.5rem;font-size:1rem}
 .counties-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem}
 .county-link{display:block;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:.9rem 1rem;text-decoration:none;color:var(--muted);font-size:.88rem;font-weight:500;transition:all .15s;position:relative}
@@ -6336,14 +6336,14 @@ h1{font-family:'Inter',sans-serif;font-weight:800;letter-spacing:-.02em;font-siz
 footer{border-top:1px solid var(--border);padding:1.5rem;text-align:center;font-size:1rem;color:var(--muted);margin-top:3rem}
 footer a{color:var(--muted);text-decoration:none}
 /* WinnerDataAI child-brand light mode — default for Worker-owned county pages. */
-:root{--navy:#FBFAF7;--navy2:#FBFAF7;--navy3:#F8D4C5;--orange:#8F4028;--orange2:#7A3424;--text:#1F1B16;--muted:#1F1B16;--border:#DDD5C9;--green:#8F4028}
+:root{--navy:#ffffff;--navy2:#ffffff;--navy3:#E8F4FC;--orange:#0073CF;--orange2:#005DAA;--text:#222222;--muted:#002A54;--border:#CCCCCC;--green:#0073CF}
 body{background:var(--navy);color:var(--text)}
 nav{background:rgba(232,244,252,.96);border-bottom-color:var(--border)}
 .ln,h1{color:var(--text)}
 .nav-links a,.sub,.county-link,footer,footer a{color:var(--muted)}
 .county-link{background:var(--navy2);border-color:var(--border)}
 .county-link:hover{background:var(--navy3);border-color:var(--orange);color:var(--text)}
-.county-link.gold{border-color:rgba(143,64,40,.35);color:var(--text)}
+.county-link.gold{border-color:rgba(0,115,207,.35);color:var(--text)}
 .gs-tag,.nav-links a:hover{color:var(--orange)}
 footer{border-top-color:var(--border)}
 @media(max-width:767px){.nav-links{display:none}.nav-cta{padding:10px 14px;font-size:13px}.wrap{padding:2rem 1rem}.counties-grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:.6rem}.county-link{padding:.8rem .75rem;font-size:.82rem}}
