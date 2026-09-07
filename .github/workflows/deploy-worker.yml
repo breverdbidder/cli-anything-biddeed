@@ -92,3 +92,30 @@ jobs:
             exit 1
           fi
           echo "#20058 brand smoke test passed — SIGNAL\$ Max Bid present, Shapira Max Bid absent on all 4 pages"
+
+      # Label parity (#20087, M9): the reel overlay CTA and the secondary
+      # reel-view-link both say "See this deal" -- the retired "View property"
+      # label must never reappear on /reels/:code.
+      - name: Smoke test — reel CTA label parity (#20087)
+        run: |
+          set -euo pipefail
+          codes=(O7EPH7 F5oeMD)
+          fail=0
+          for code in "${codes[@]}"; do
+            body=$(curl -s --max-time 15 "https://biddeed.ai/reels/${code}" || true)
+            seen=$(echo "$body" | grep -o "See this deal" | wc -l)
+            retired=$(echo "$body" | grep -o "View property" | wc -l)
+            if [ "$seen" -ne 2 ]; then
+              echo "FAIL: /reels/${code} has ${seen}x 'See this deal' (expected 2)"
+              fail=1
+            fi
+            if [ "$retired" -ne 0 ]; then
+              echo "FAIL: /reels/${code} still has ${retired}x 'View property'"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "#20087 reel CTA label parity smoke test FAILED"
+            exit 1
+          fi
+          echo "#20087 reel CTA label parity smoke test passed — 2x 'See this deal', 0x 'View property'"

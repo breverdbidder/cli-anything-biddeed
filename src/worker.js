@@ -6019,7 +6019,7 @@ function reelCardHtml(reel) {
     <div class="price">${fmtMoney(reel.sold_amount)}</div>
     ${deltaLine ? `<div class="delta">${escHtml(deltaLine)}</div>` : ''}
     ${tier !== 'unknown' ? `<div class="reel-badge">${escHtml(tier.charAt(0).toUpperCase() + tier.slice(1))} condition</div>` : ''}
-    <a class="reel-view-link" href="${viewHref}">View property &rarr;</a>
+    <a class="reel-view-link" href="${viewHref}">See this deal &rarr;</a>
     <div class="reel-share-row">
       <button onclick="copyShortLink(this,'${escHtml(reel.short_url || '')}')">Copy link</button>
       ${posted ? `<a href="${escHtml(reel.short_url || '#')}" target="_blank" rel="noopener">Share</a>` : ''}
