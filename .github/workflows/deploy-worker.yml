@@ -14,6 +14,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Palette gate BEFORE the deploy. biddeed-web runs scripts/palette-gate.mjs
+      # on every PR and again inside its production deploy, so an off-canon colour
+      # cannot reach /, /radar or /support. This repo had no equivalent, so on
+      # 2026-09-06 src/worker.js was converted to a retired palette and deployed
+      # with nothing failing -- leaving biddeed.ai two-toned: canon blue on the
+      # gated repo's routes, cream/terracotta on /chat, /counties, /county/*,
+      # /blog, /deal/*, /reels. The missing referee WAS the bug. Same canon list
+      # as biddeed-web's gate; a palette change means changing both repos in the
+      # same reviewed change.
+      - name: Palette gate (src/worker.js may only carry the canon palette)
+        run: python3 scripts/ui-audit/palette_gate_worker.py src/worker.js
+
       - name: Deploy worker
         run: npx wrangler deploy --no-bundle
         env:
