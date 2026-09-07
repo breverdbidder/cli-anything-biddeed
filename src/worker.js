@@ -5856,7 +5856,7 @@ ${ctaBlock}
 // could leak one. Share buttons for TikTok/IG/YouTube stay hidden until
 // status='posted' (nothing is posted yet per this issue's own DoD).
 const REELS_PLAYER_CSS = `
-.reel-card{background:#ffffff;border:1px solid #ffffff;border-radius:12px;overflow:hidden}
+.reel-card{background:#ffffff;border:1px solid #D7E3F1;border-radius:12px;overflow:hidden}
 .reel-player-wrap{position:relative;aspect-ratio:9/16;background:#1a1a1a}
 .reel-player-wrap video{width:100%;height:100%;object-fit:cover;display:block}
 .reel-play-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:64px;height:64px;border-radius:50%;background:rgba(10,37,64,.55);color:#ffffff;font-size:1.5rem;display:flex;align-items:center;justify-content:center;pointer-events:none;transition:opacity .2s}
@@ -5865,7 +5865,7 @@ const REELS_PLAYER_CSS = `
 .reel-cta-overlay a{background:#005EB8;color:#ffffff;font-weight:800;font-family:'Inter',sans-serif;padding:.6rem 1.1rem;border-radius:8px;text-decoration:none;font-size:.95rem}
 .reel-meta{padding:.9rem}
 .reel-meta .county{color:#1a1a1a;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
-.reel-meta .price{color:#fff;font-size:1.3rem;font-weight:800;margin:.15rem 0}
+.reel-meta .price{color:#1a1a1a;font-size:1.3rem;font-weight:800;margin:.15rem 0}
 .reel-meta .delta{color:#004A92;font-size:.85rem;font-weight:600}
 .reel-badge{display:inline-block;background:#005EB8;color:#ffffff;font-weight:700;padding:.2rem .6rem;border-radius:6px;font-size:.7rem;margin-top:.4rem}
 .reel-view-link{display:block;text-align:center;background:#ffffff;color:#005EB8;font-weight:700;padding:.6rem;border-radius:8px;text-decoration:none;margin-top:.7rem;font-size:.85rem}
@@ -5993,16 +5993,24 @@ function reelCardHtml(reel) {
   const tier = cond.general_condition_tier || 'unknown';
   const deltaPct = reel.delta_pct == null ? null : Number(reel.delta_pct);
   const deltaLine = deltaPct == null ? '' : `${deltaPct < 0 ? '-' : '+'}${Math.abs(deltaPct).toFixed(0)}% vs assessed`;
-  const viewHref = `${escHtml(reel.landing_url || '#')}${escHtml(previewQueryFor(reel))}`;
+  // Reels gallery clicks used to go straight to landing_url + ?preview=<uuid>:
+  // no click count, no funnel event, no UTMs, and a preview token sitting in a
+  // public link. Route through /r/{code} instead so the redirect handler counts
+  // the click, logs reel_click, and stamps the reel_links UTMs. Falls back to
+  // the old direct link only for a reel that has no short code yet.
+  const _reelCode = String(reel.short_url || '').split('/').filter(Boolean).pop() || '';
+  const viewHref = _reelCode
+    ? `https://biddeed.ai/r/${encodeURIComponent(_reelCode)}`
+    : `${escHtml(reel.landing_url || '#')}${escHtml(previewQueryFor(reel))}`;
   const posted = reel.status === 'posted';
   // issue #19779 CP3a: short_code isn't in get_reel_by_code()'s/list_public_reels()
   // jsonb allow-list uniformly, but short_url always has the shape
   // biddeed.ai/r/{code} -- deriving it here avoids a second RPC field just
   // for the watch-event beacon's target path.
-  const reelCode = String(reel.short_url || '').split('/').filter(Boolean).pop() || '';
+  const reelCode = _reelCode;
   return `<div class="reel-card">
   <div class="reel-player-wrap" data-reel-code="${escHtml(reelCode)}">
-    <video src="${escHtml(reel.video_v2_url)}" poster="${escHtml(reel.aerial_tight_url || '')}" muted playsinline preload="metadata" loop></video>
+    <video src="${escHtml(reel.video_best_url || reel.video_v2_url)}" poster="${escHtml(reel.aerial_tight_url || '')}" muted playsinline preload="metadata" loop></video>
     <div class="reel-play-btn" aria-hidden="true">&#9658;</div>
     <div class="reel-cta-overlay"><a href="${viewHref}">See this deal &rarr;</a></div>
   </div>
