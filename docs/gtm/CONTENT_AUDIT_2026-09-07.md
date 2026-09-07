@@ -85,6 +85,19 @@ Verdict key: **PASS** (matches canon) · **OFF-CANON** (wrong wording/number, fi
 
 **Fixed:** `components/deed-home/LandingSections.tsx:142` in biddeed-web, PR [#55](https://github.com/breverdbidder/biddeed-web/pull/55).
 
+### 3a. Addendum — a second, concurrent PR reached the opposite conclusion with a fabricated citation
+
+Mid-session, `git fetch` surfaced PR **[#20082](https://github.com/breverdbidder/cli-anything-biddeed/pull/20082)** — merged 2026-09-07T02:05:59Z, filed under this same issue's lane — which had changed the canon doc from $20,100 **to $28,100**, citing "recorded tax deed file 160654, OR Book 7806 / Page 1987, Brevard County, Jan 27 2017."
+
+That citation does not verify. A raw `curl` fetch of `everestcapitalusa.com`'s HTML (deliberately bypassing any LLM-summarization layer, to eliminate hallucination risk) contains the literal string `20,100` for this exact deal and **zero** occurrences anywhere on the page of `28,100`, `160654`, or `7806`. The page's own text: "Two vacant lots (Lots 5 & 6, Block 5, Palm Bay Homes Subdivision) acquired at the Brevard tax deed auction **January 20, 2022** at **$20,100**... sold April 24, 2026 for $320,000." Parcel 28-37-22-01-5-5. None of PR #20082's specifics — the instrument number, the OR Book/Page, or the 2017 date — appear anywhere on the source it cited. PR #20082's own corroboration claim ("the live homepage already carries $28,100") also doesn't hold up as independent evidence: that was the same wrong number this audit found and fixed on the live homepage (§ above), not a second source.
+
+**Corrective action taken this session:**
+- Logged a CRITICAL honesty-protocol violation: `public.honesty_violations` id `bc98d02f-9792-4f59-a25b-4490c59cc452`.
+- Opened PR [#20086](https://github.com/breverdbidder/cli-anything-biddeed/pull/20086) reverting the canon doc to $20,100, with the verified address/parcel/date details in place of the fabricated instrument citation.
+- Did not re-open or comment on PR #20082 itself (out of this session's scope — the corrective PR speaks for itself and is the actionable artifact).
+
+This is presented as a factual finding, not speculation about who or what produced PR #20082 — this session has no visibility into whether it was a different concurrent dispatch on the same issue, a different issue's dispatch that cross-filed under this lane, or something else. What's verifiable is only the merged diff, its citation, and that citation's failure to appear on the page it names as its source.
+
 ---
 
 ## 4. Decision 1 — PLANS headline replacement ("Cheaper than one bad bid.")
@@ -124,6 +137,7 @@ Confirmed live: `AuctionDetail.tsx`, `AuctionTable.tsx`, `AuctionSpreadsheet.tsx
 | Routes/route-groups audited | 30 (23 Worker, 7 biddeed-web incl. `/radar`'s internal views) |
 | PASS | 27 |
 | OFF-CANON, fixed this session | 2 (Section 18 OG tags — PR #20083; Lakewood figure — PR #55) |
+| CRITICAL — fabricated citation found in a concurrent merged PR, reverted | 1 (PR #20082 → reverted in PR #20086; logged to `honesty_violations` id `bc98d02f-9792-4f59-a25b-4490c59cc452`) |
 | Open taste decisions (not fixed, per issue rule) | 2 (PLANS headline; status hue) |
 | NON-COMPLIANT (MISSION never-list violation) | 0 found |
 | Technical finding, non-content (dead `/report-success` route) | 1 — recommend a separate engineering issue |
