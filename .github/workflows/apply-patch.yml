@@ -1,0 +1,54 @@
+name: Apply a committed patch script (one-shot)
+
+# Generalised sibling of apply-worker-palette.yml. That workflow is hardwired
+# to src/worker.js; this one takes the script and its target as inputs so any
+# large file in the repo can be rewritten by a committed, idempotent,
+# anchor-asserting script instead of being pushed whole through the Git Data
+# API. Every script stays in the repo as the record of what it changed and why.
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: repo path of the idempotent patch script to run
+        required: true
+      target:
+        description: repo path of the file the script rewrites
+        required: true
+      check:
+        description: "syntax check to run on the target afterwards: python | node | none"
+        default: python
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Apply ${{ inputs.script }} to ${{ inputs.target }}
+        run: python3 "${{ inputs.script }}" "${{ inputs.target }}"
+      - name: Syntax check (${{ inputs.check }})
+        run: |
+          set -euo pipefail
+          case "${{ inputs.check }}" in
+            python) python3 -m py_compile "${{ inputs.target }}" ;;
+            node)   node --check "${{ inputs.target }}" ;;
+            none)   echo "no syntax check requested" ;;
+            *)      echo "unknown check: ${{ inputs.check }}"; exit 1 ;;
+          esac
+      - name: Commit + push onto ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- "${{ inputs.target }}"; then echo "no change"; exit 0; fi
+          git add "${{ inputs.target }}"
+          git commit -m "fix: apply ${{ inputs.script }} to ${{ inputs.target }}" \
+            -m "Deterministic, idempotent rewrite applied by the apply-patch workflow. See the script's docstring for what and why." \
+            -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" \
+            -m "Claude-Session: https://claude.ai/code/session_01JzwC1tRbEaNuh1o4vvoCpV"
+          git push origin HEAD:${{ github.ref_name }}
