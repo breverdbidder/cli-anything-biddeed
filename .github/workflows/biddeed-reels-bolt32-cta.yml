@@ -1,0 +1,154 @@
+name: biddeed-reels-bolt32-cta
+# Renders the bolt32 32s edit AND burns the CTA chip + QR into EXISTING
+# winnerdata.biddeed_reels rows, via
+# scripts/biddeed_reels_pipeline_bolt32.py --cta-batch.
+#
+# WHY THIS EXISTS: that script has always been able to do this, but nothing
+# ever ran it on a schedule or a dispatch -- it was only ever invoked by hand
+# inside agent sessions. That is the entire reason only 3 of 84 pending reels
+# carried an in-video CTA (and zero tax deed reels did), while the reels the
+# site served stayed on the older v2/presale renders. The MP4 cannot hold a
+# clickable link, so this burned-in chip + QR is the ONLY click path that
+# exists on TikTok / IG / YouTube.
+#
+# GENERATES AND STAGES ONLY. Rows stay status='pending_approval'; the script
+# refuses to touch an 'approved' row, never overwrites video_url/video_v2_url,
+# and there is no posting step here. Imagery is reused from each row's
+# existing aerial_*/street_url -- no new Google Maps spend. ElevenLabs is the
+# one metered cost (voiceover is regenerated against the bolt32 script).
+on:
+  workflow_dispatch:
+    inputs:
+      sale_type:
+        description: 'Filter: foreclosure | tax_deed | blank for both'
+        required: false
+        default: ''
+      limit:
+        description: 'Max reels to render this run'
+        required: false
+        default: '80'
+      batch_size:
+        description: 'Rows per --cta-batch call (frame/emoji diversity is assigned per call, and a violation aborts that call before any render)'
+        required: false
+        default: '8'
+      ids:
+        description: 'Explicit comma-separated biddeed_reels.id list (overrides the auto-select)'
+        required: false
+        default: ''
+  schedule:
+    # 2h after biddeed-reels-daily (11:00 UTC) so the day's fresh rows exist
+    # and already have their imagery before this re-renders them.
+    - cron: "0 13 * * *"
+concurrency: {group: "biddeed-reels-bolt32-cta", cancel-in-progress: false}
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+
+      - name: System deps
+        # ffmpeg = the render; tesseract + libzbar0 = the CTA QA gate that OCRs
+        # the chip at 26.0s/31.5s and decodes the QR; DejaVu = the chip fonts
+        # (lib falls back to DejaVuSans-Bold / DejaVuSansMono-Bold).
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg tesseract-ocr libzbar0 fonts-dejavu-core fonts-dejavu-extra
+
+      - name: Python deps
+        run: pip install --quiet pillow qrcode pytesseract pyzbar
+
+      - name: Select candidates and render in diversity-sized batches
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          SALE_TYPE: ${{ github.event.inputs.sale_type }}
+          LIMIT_N: ${{ github.event.inputs.limit }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size }}
+          EXPLICIT_IDS: ${{ github.event.inputs.ids }}
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys
+          sys.path.insert(0, "scripts")
+          import biddeed_reels_lib as lib
+
+          explicit = [i.strip() for i in os.environ.get("EXPLICIT_IDS", "").split(",") if i.strip()]
+          if explicit:
+              ids = explicit
+              print(f"{len(ids)} reel(s) passed explicitly.")
+          else:
+              st = os.environ.get("SALE_TYPE", "").strip()
+              lim = int(os.environ.get("LIMIT_N") or 80)
+              where_st = f"and sale_type = {lib.sql_str(st)}" if st else ""
+              # cta_qa is null == this row has never been through the CTA lane.
+              # The imagery columns are required because the script reuses them
+              # rather than re-fetching (a row missing them can only error).
+              rows = lib.run_sql(f"""
+                  select id, county, case_number, sale_type
+                  from winnerdata.biddeed_reels
+                  where status = 'pending_approval'
+                    and cta_qa is null
+                    and aerial_tight_url is not null
+                    and street_url is not null
+                    and short_url is not null
+                    {where_st}
+                  order by (sale_type = 'tax_deed') desc,
+                           coalesce(rank_score, 0) desc,
+                           delta_pct asc nulls last
+                  limit {lim};
+              """)
+              ids = [r["id"] for r in rows]
+              print(f"{len(ids)} reel(s) selected (tax_deed first, then rank_score, then deepest discount).")
+
+          if not ids:
+              print("nothing to render")
+              raise SystemExit(0)
+
+          bs = int(os.environ.get("BATCH_SIZE") or 8)
+          batches = [ids[i:i + bs] for i in range(0, len(ids), bs)]
+          bad = 0
+          for n, b in enumerate(batches, 1):
+              print(f"\n=== batch {n}/{len(batches)} -- {len(b)} row(s) ===", flush=True)
+              rc = subprocess.run(
+                  [sys.executable, "scripts/biddeed_reels_pipeline_bolt32.py",
+                   "--cta-batch", ",".join(b)]
+              ).returncode
+              if rc != 0:
+                  bad += 1
+                  print(f"batch {n} exited {rc} -- continuing to the next batch", flush=True)
+          print(f"\n=== {len(batches)} batch(es) run, {bad} with a non-zero exit ===")
+          PY
+
+      - name: Report what actually landed
+        # Never trust the exit code alone -- re-query and print real counts.
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          import biddeed_reels_lib as lib
+          rows = lib.run_sql("""
+              select sale_type,
+                     count(*) filter (where cta_qa is not null)             as cta_baked,
+                     count(*) filter (where video_bolt32_url is not null)   as bolt32,
+                     count(*)                                              as pending_total
+              from winnerdata.biddeed_reels
+              where status = 'pending_approval'
+              group by 1 order by 1;
+          """)
+          print("=== live counts after this run ===")
+          for r in rows:
+              print(f"  {r['sale_type']:12s} cta_baked={r['cta_baked']:>3} "
+                    f"bolt32={r['bolt32']:>3} pending_total={r['pending_total']:>3}")
+          PY
