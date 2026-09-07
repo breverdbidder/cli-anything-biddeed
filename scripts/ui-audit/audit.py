@@ -9,9 +9,8 @@ from playwright.async_api import async_playwright
 # the canonical Worker: cream canvas, terracotta action, black ink, muted ink, and
 # warm border/tint values. The evaluator must match the production design contract;
 # it must never accept retired blue output merely to reduce the red count.
-CANON = {"#f5f0e8", "#fbfaf7", "#f8d4c5", "#1f1b16", "#766f67",
-         "#ddd5c9", "#c15f3c", "#a94d30", "#8f4028", "#7a3424",
-         "#ede3d7", "#fcfaf8", "#f5f1eb", "#1e1a15", "#7e756d", "#ded6ca", "#c05939"}
+CANON = {"#ffffff", "#e6f0fa", "#1a1a1a", "#0a2540", "#d7e3f1", "#005eb8", "#004a92",
+         "#0b1119", "#111b27", "#1b2737", "#ededed", "#9eb2c7", "#24344c", "#1a90ff", "#4da6ff"}
 RETIRED = ["before the gavel","know your number"]
 BUZZ = ["comprehensive solution","comprehensive intelligence","next-gen","cutting-edge","streamlined","seamless","revolutionary","industry-leading","best-in-class","leverage","synergy","robust platform"]
 CONTEMPT = ["you're doing it wrong","still using spreadsheets","if you're still","amateur","rookie mistake","too lazy","too dumb"]
